@@ -349,8 +349,8 @@ REAL,ALLOCATABLE    :: ElemData(:,:),tmp(:)
 CHARACTER(LEN=255),ALLOCATABLE :: VarNamesElemData(:)
 #endif
 !==================================================================================================================================
-
-doFlushFiles_loc = MERGE(doFlushFiles,.TRUE.,PRESENT(doFlushFiles))
+doFlushFiles_loc = .TRUE.
+IF(PRESENT(doFlushFiles)) doFlushFiles_loc = doFlushFiles
 
 IF (DoRestart) THEN
   SWRITE(UNIT_StdOut,'(132("-"))')
