@@ -65,7 +65,7 @@ DO SideID=firstSideID,lastSideID
     locSide = SideToElem(S2E_LOC_SIDE_ID,SideID)
     flip    = 0
 
-    IF(PP_NodeType.EQ.1.AND.FV_Elems(ElemID).EQ.0)THEN
+    IF(PP_NodeType.EQ.1.AND. FV_Elems(ElemID) .EQ.0)THEN
       CALL EvalElemFaceG(&
 #if WITHnVar
           TP_nVar,&
@@ -89,7 +89,7 @@ DO SideID=firstSideID,lastSideID
     nblocSide = SideToElem(S2E_NB_LOC_SIDE_ID,SideID)
     flip      = SideToElem(S2E_FLIP,SideID)
 
-    IF(PP_NodeType.EQ.1.AND.FV_Elems(nbElemID).EQ.0)THEN
+    IF(PP_NodeType.EQ.1.AND. FV_Elems(nbElemID) .EQ.0)THEN
       CALL EvalElemFaceG(&
 #if WITHnVar
           TP_nVar,&
