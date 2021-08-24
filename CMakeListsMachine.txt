@@ -164,7 +164,7 @@ ELSEIF (CMAKE_Fortran_COMPILER_ID MATCHES "NVHPC")
   #  SET (CMAKE_Fortran_FLAGS         "${CMAKE_Fortran_FLAGS} -fdefault-real-8 -std=f2008 -DFLANG")
   #ENDIF()
   #SET (CMAKE_Fortran_FLAGS_RELEASE   "${CMAKE_Fortran_FLAGS}     -O0 ${FLEXI_INSTRUCTION} -Mfree -Mpreprocess")
-  SET (CMAKE_Fortran_FLAGS_RELEASE   "${CMAKE_Fortran_FLAGS}     -O4 -r8 -Mpreprocess ${FLEXI_INSTRUCTION} ")
+  SET (CMAKE_Fortran_FLAGS_RELEASE   "${CMAKE_Fortran_FLAGS}     -O4 -r8 -Mpreprocess -Minfo=accel ${FLEXI_INSTRUCTION} ")
   SET (CMAKE_Fortran_FLAGS_PROFILE   "${CMAKE_Fortran_FLAGS} -pg -O4 -r8 -Mpreprocess ${FLEXI_INSTRUCTION} ")
   SET (CMAKE_Fortran_FLAGS_DEBUG     "${CMAKE_Fortran_FLAGS} -g  -O0 -r8 -Mpreprocess")
   # add flags only for compiling not linking!
