@@ -59,6 +59,7 @@ REAL,ALLOCATABLE,TARGET               :: U(:,:,:,:,:)           !< Solution vari
 !----------------------------------------------------------------------------------------------------------------------------------
 ! DG time derivative or Residual U_t
 REAL,ALLOCATABLE                      :: Ut(:,:,:,:,:)          !< Residual/time derivative, size [1..NVar,0..N,0..N,0..NZ,nElems].
+REAL,ALLOCATABLE                      :: Ut_VolInt(:,:,:,:,:)          !< Residual/time derivative, size [1..NVar,0..N,0..N,0..NZ,nElems].
 
 !----------------------------------------------------------------------------------------------------------------------------------
 ! auxilliary counters: number of entries in U, Ut, gradUx, gradUy, gradUz, used of optimization

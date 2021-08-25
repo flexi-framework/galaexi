@@ -48,11 +48,11 @@ CONTAINS
 !> Attention 2: input Ut is overwritten with the volume flux derivatives
 !==================================================================================================================================
 #ifndef SPLIT_DG
-SUBROUTINE VolInt_weakForm(Ut)
+SUBROUTINE VolInt_weakForm()
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
 USE MOD_PreProc
-USE MOD_DG_Vars      ,ONLY: D_hat_T,nDOFElem,UPrim,U
+USE MOD_DG_Vars      ,ONLY: D_hat_T,nDOFElem,UPrim,U,Ut_VolInt
 USE MOD_Mesh_Vars    ,ONLY: Metrics_fTilde,Metrics_gTilde,Metrics_hTilde,nElems
 USE MOD_Flux         ,ONLY: EvalFlux3D      ! computes volume fluxes in local coordinates
 #if PARABOLIC
@@ -65,15 +65,17 @@ USE MOD_FV_Vars      ,ONLY: FV_Elems
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
-REAL,INTENT(OUT)   :: Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
+!REAL,INTENT(OUT)   :: Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
+REAL               :: tmp(PP_nVar)
 INTEGER            :: i,j,k,l,iElem
 REAL,DIMENSION(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ) :: f,g,h     !< Volume advective fluxes at GP
 #if PARABOLIC
 REAL,DIMENSION(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ) :: fv,gv,hv  !< Volume viscous fluxes at GP
 #endif
 !==================================================================================================================================
+!$acc parallel loop private(tmp,f,g,h) create(f,g,h) copyin(D_hat_T,Metrics_fTilde,Metrics_gTilde,Metrics_hTilde,U,UPrim) copyout(Ut_VolInt) async
 ! Diffusive part
 DO iElem=1,nElems
 #if FV_ENABLED
@@ -100,23 +102,47 @@ DO iElem=1,nElems
                                      Metrics_gTilde(:,:,:,:,iElem,0),&
                                      Metrics_hTilde(:,:,:,:,iElem,0))
 
-  DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
+!$acc loop independent
+  DO k=0,PP_NZ
+!$acc loop independent
+    DO j=0,PP_N
+!$acc loop independent
+      DO i=0,PP_N
       ! Update the time derivative with the spatial derivatives of the transformed fluxes
-      Ut(:,i,j,k,iElem) =                     D_Hat_T(0,i)*f(:,0,j,k) + &
+!      Ut(:,i,j,k,iElem) =                     D_Hat_T(0,i)*f(:,0,j,k) + &
+!#if PP_dim==3
+!                                              D_Hat_T(0,k)*h(:,i,j,0) + &
+!#endif
+!                                              D_Hat_T(0,j)*g(:,i,0,k)
+!      DO l=1,PP_N
+!        ! Update the time derivative with the spatial derivatives of the transformed fluxes
+!        Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) + D_Hat_T(l,i)*f(:,l,j,k) + &
+!#if PP_dim==3
+!                                                D_Hat_T(l,k)*h(:,i,j,l) + &
+!#endif
+!                                                D_Hat_T(l,j)*g(:,i,l,k)
+!        END DO ! l
+
+      tmp=0.
+      DO l=0,PP_N
+        ! Update the time derivative with the spatial derivatives of the transformed fluxes
+        tmp(:) = tmp(:) + D_Hat_T(l,i)*f(:,l,j,k) + &
 #if PP_dim==3
-                                              D_Hat_T(0,k)*h(:,i,j,0) + &
+                                                D_Hat_T(l,k)*h(:,i,j,l) + &
 #endif
-                                              D_Hat_T(0,j)*g(:,i,0,k)
-    DO l=1,PP_N
-      ! Update the time derivative with the spatial derivatives of the transformed fluxes
-      Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) + D_Hat_T(l,i)*f(:,l,j,k) + &
-#if PP_dim==3
-                                              D_Hat_T(l,k)*h(:,i,j,l) + &
-#endif
-                                              D_Hat_T(l,j)*g(:,i,l,k)
-    END DO ! l
-  END DO; END DO; END DO !i,j,k
+                                                D_Hat_T(l,j)*g(:,i,l,k)
+        END DO ! l
+        Ut_VolInt(:,i,j,k,iElem) = tmp(:)
+
+      END DO
+!$acc end loop
+    END DO
+!$acc end loop
+  END DO !i,j,k
+!$acc end loop
+
 END DO ! iElem
+!$acc end parallel loop
 END SUBROUTINE VolInt_weakForm
 #endif
 
@@ -266,6 +292,7 @@ END SUBROUTINE VolInt_splitForm
 !> Compute the tranformed states for all conservative variables using the metric terms
 !==================================================================================================================================
 PPURE SUBROUTINE VolInt_Metrics(nDOFs,f,g,h,Mf,Mg,Mh)
+!$acc routine vector
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
 IMPLICIT NONE
@@ -284,6 +311,7 @@ REAL,DIMENSION(PP_nVar)                     :: fTilde,gTilde !< Auxiliary variab
 REAL,DIMENSION(PP_nVar)                     :: hTilde !< Auxiliary variables needed to store the fluxes at one GP
 #endif
 !==================================================================================================================================
+!$acc loop private(fTilde,gTilde,hTilde)
 DO i=1,nDOFs
   fTilde=f(:,i)
   gTilde=g(:,i)
@@ -308,6 +336,7 @@ DO i=1,nDOFs
            gTilde*Mg(2,i)
 #endif
 END DO ! i
+!$acc end loop
 END SUBROUTINE VolInt_Metrics
 
 

@@ -97,6 +97,7 @@ CALL InitDGBasis(PP_N, xGP,wGP,L_minus,L_plus,D ,D_T ,D_Hat ,D_Hat_T ,L_HatMinus
 ALLOCATE(U(        PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 ! Allocate the time derivative / solution update /residual vector dU/dt: element-based
 ALLOCATE(Ut(       PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
+ALLOCATE(Ut_VolInt(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 U=0.
 Ut=0.
 
@@ -225,7 +226,7 @@ SUBROUTINE DGTimeDerivative_weakForm(t)
 USE MOD_Globals
 USE MOD_Preproc
 USE MOD_Vector
-USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave,L_HatPlus,L_HatMinus
+USE MOD_DG_Vars             ,ONLY: Ut,Ut_VolInt,U,U_slave,U_master,Flux_master,Flux_slave,L_HatPlus,L_HatMinus
 USE MOD_DG_Vars             ,ONLY: UPrim,UPrim_master,UPrim_slave
 !USE MOD_DG_Vars,             ONLY: nTotalU
 USE MOD_VolInt
@@ -318,6 +319,9 @@ IF(FilterType.GT.0) CALL Filter_Pointer(U,FilterMat)
 
 ! 2. Convert Volume solution to primitive
 CALL ConsToPrim(PP_N,UPrim,U)
+
+CALL VolInt()
+
 
 ! 3. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
 ! -----------------------------------------------------------------------------------------------------------
@@ -474,7 +478,8 @@ END IF
 #endif /*PARABOLIC*/
 
 ! 8. Compute volume integral contribution and add to Ut
-CALL VolInt(Ut)
+!CALL VolInt(Ut_VolInt)
+Ut=0.!Ut_VolInt
 
 #if FV_ENABLED
 ! [ 9. Volume integral (advective and viscous) for all FV elements ]
@@ -544,8 +549,9 @@ CALL Flux_MortarCons(Flux_master,Flux_slave,doMPISides=.TRUE.,weak=.TRUE.)
 CALL SurfIntCons(PP_N,Flux_master,Flux_slave,Ut,.TRUE.,L_HatMinus,L_HatPlus)
 #endif /*USE_MPI*/
 
+!$acc wait
 ! 11. Swap to right sign :)
-Ut=-Ut
+Ut=-1.*(Ut+Ut_VolInt)
 
 ! 12. Compute source terms and sponge (in physical space, conversion to reference space inside routines)
 IF(doCalcSource) CALL CalcSource(Ut,t)

@@ -68,6 +68,7 @@ CONTAINS
 !> Compute advection part of the Navier-Stokes fluxes in all space dimensions using the conservative and primitive variables
 !==================================================================================================================================
 PPURE SUBROUTINE EvalFlux3D_Point(U,UPrim,f,g,h)
+!$acc routine
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -126,6 +127,7 @@ END SUBROUTINE EvalFlux3D_Point
 !> Wrapper routine to compute the advection part of the Navier-Stokes fluxes for a single volume cell
 !==================================================================================================================================
 PPURE SUBROUTINE EvalFlux3D_Volume(Nloc,U,UPrim,f,g,h)
+!$acc routine vector
 ! MODULES
 USE MOD_PreProc
 IMPLICIT NONE
@@ -140,9 +142,19 @@ REAL,DIMENSION(PP_nVar    ,0:Nloc,0:Nloc,0:ZDIM(Nloc)),INTENT(OUT) :: f,g,h
 ! LOCAL VARIABLES
 INTEGER             :: i,j,k
 !==================================================================================================================================
-DO k=0,ZDIM(Nloc);  DO j=0,Nloc; DO i=0,Nloc
+!$acc loop independent
+DO k=0,ZDIM(Nloc)
+!$acc loop independent
+DO j=0,Nloc
+!$acc loop independent
+DO i=0,Nloc
   CALL EvalFlux3D_Point(U(:,i,j,k),UPrim(:,i,j,k),f(:,i,j,k),g(:,i,j,k),h(:,i,j,k))
-END DO; END DO; END DO ! i,j,k
+END DO
+!$acc end loop
+END DO
+!$acc end loop
+END DO ! i,j,k
+!$acc end loop
 END SUBROUTINE EvalFlux3D_Volume
 
 #if PARABOLIC
