@@ -192,6 +192,7 @@ DO iMass=0,N_in
 END DO
 D_Hat  = -MATMUL(Minv,MATMUL(TRANSPOSE(D),M))
 D_Hat_T= TRANSPOSE(D_hat)
+!$acc enter data copyin(D_Hat_T)
 
 #ifdef SPLIT_DG
 ! Use a modified D matrix for the strong form volume integral, that incorporates the inner fluxes that are subtracted from the
@@ -624,6 +625,7 @@ IMPLICIT NONE
 SDEALLOCATE(D)
 SDEALLOCATE(D_T)
 SDEALLOCATE(D_Hat)
+!$acc exit data delete(D_Hat_T)
 SDEALLOCATE(D_Hat_T)
 #if SPLIT_DG
 SDEALLOCATE(DVolSurf)
