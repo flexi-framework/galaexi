@@ -75,7 +75,7 @@ REAL,DIMENSION(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ) :: f,g,h     !< Volume advective f
 REAL,DIMENSION(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ) :: fv,gv,hv  !< Volume viscous fluxes at GP
 #endif
 !==================================================================================================================================
-!$acc parallel loop private(tmp,f,g,h) create(f,g,h) copyin(U,UPrim) copyout(Ut_VolInt) async
+!$acc parallel loop private(tmp,f,g,h) copyin(U,UPrim) copyout(Ut_VolInt) async
 ! Diffusive part
 DO iElem=1,nElems
 #if FV_ENABLED
