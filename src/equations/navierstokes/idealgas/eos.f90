@@ -184,6 +184,7 @@ END SUBROUTINE InitEos
 !> Transformation from conservative variables to primitive variables for a single state
 !==================================================================================================================================
 PPURE SUBROUTINE ConsToPrim(prim,cons)
+!$acc routine
 ! MODULES
 USE MOD_EOS_Vars,ONLY:KappaM1,R
 IMPLICIT NONE
@@ -198,6 +199,7 @@ REAL             :: sRho    ! 1/Rho
 sRho=1./cons(DENS)
 ! density
 prim(DENS)=cons(DENS)
+!print*,prim(DENS),cons(DENS)
 ! velocity
 prim(VEL1:VEL2)=cons(MOM1:MOM2)*sRho
 #if (PP_dim==3)
@@ -235,6 +237,7 @@ END SUBROUTINE ConsToPrim_Side
 !> Transformation from conservative variables to primitive variables in the whole volume
 !==================================================================================================================================
 PPURE SUBROUTINE ConsToPrim_Volume(Nloc,prim,cons)
+!$acc routine
 ! MODULES
 USE MOD_Mesh_Vars,ONLY:nElems
 IMPLICIT NONE

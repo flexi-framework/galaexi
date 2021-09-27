@@ -27,10 +27,12 @@ REAL              :: cp                !< specific heat at constant pressure
 REAL              :: cv                !< specific heat at constant volume
 REAL              :: Kappa             !< heat capacity ratio / isentropic exponent
 REAL              :: KappaM1           !< = \f$\kappa - 1\f$
+!$acc declare create(KappaM1)
 REAL              :: sKappaM1          !< = \f$1/(\kappa -1)\f$
 REAL              :: KappaP1           !< = \f$\kappa + 1\f$
 REAL              :: sKappaP1          !< = \f$1/(\kappa +1)\f$
 REAL              :: R                 !< specific gas constant
+!$acc declare create(R)
 
 LOGICAL           :: EosInitIsDone=.FALSE.
 !==================================================================================================================================

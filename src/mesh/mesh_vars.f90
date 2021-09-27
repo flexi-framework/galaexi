@@ -118,6 +118,7 @@ INTEGER,ALLOCATABLE :: S2V2(:,:,:,:,:)   !< side to volume 2
 !----------------------------------------------------------------------------------------------------------------------------------
 INTEGER             :: nGlobalElems=0          !< number of elements in mesh
 INTEGER             :: nElems=0                !< number of local elements
+!$acc declare create(nElems)
 INTEGER             :: offsetElem=0            !< for MPI, until now=0 Elems pointer array range: [offsetElem+1:offsetElem+nElems]
 INTEGER             :: nSides=0                !< =nInnerSides+nBCSides+nMPISides
 INTEGER             :: nSidesMaster=0          !< =sideIDMaster

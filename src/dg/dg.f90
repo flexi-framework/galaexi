@@ -284,12 +284,17 @@ USE MOD_EddyVisc_Vars       ,ONLY: ComputeEddyViscosity, muSGS, muSGS_master, mu
 USE MOD_ProlongToFace       ,ONLY: ProlongToFace
 USE MOD_TimeDisc_Vars       ,ONLY: CurrentStage
 #endif
+USE MOD_Mesh_Vars           ,ONLY: nElems
+USE MOD_EOS_Vars,ONLY:KappaM1,R
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
 REAL,INTENT(IN)                 :: t                      !< Current time
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
+INTEGER                         :: iElem,nElemstmp!,tmp
+REAL                            :: KappaM1tmp,Rtmp
+! !$acc declare create(tmp)
 !==================================================================================================================================
 
 ! -----------------------------------------------------------------------------
@@ -319,9 +324,30 @@ REAL,INTENT(IN)                 :: t                      !< Current time
 IF(FilterType.GT.0) CALL Filter_Pointer(U,FilterMat)
 
 ! 2. Convert Volume solution to primitive
+! !$acc update device(tmp)
+! !$acc data
+! !$acc parallel
+! print*,'@@@',nElems,tmp
+! DO iElem=1,nElems
+!   tmp=iElem+5
+! END DO
+! !$acc end parallel
+! !$acc end data 
+
+nElemstmp=nElems
+KappaM1tmp=KappaM1
+Rtmp=R
+!$acc data copyin(U,nElemstmp,KappaM1tmp,Rtmp,nElems) copyout(UPrim) present(nElems)
+!$acc parallel
+nElems=nElemstmp
+KappaM1=KappaM1tmp
+R=Rtmp
 CALL ConsToPrim(PP_N,UPrim,U)
+!$acc end parallel
 
 CALL VolInt()
+!$acc end data
+
 
 
 ! 3. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
