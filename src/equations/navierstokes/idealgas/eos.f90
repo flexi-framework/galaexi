@@ -237,7 +237,7 @@ END SUBROUTINE ConsToPrim_Side
 !> Transformation from conservative variables to primitive variables in the whole volume
 !==================================================================================================================================
 PPURE SUBROUTINE ConsToPrim_Volume(Nloc,prim,cons)
-!$acc routine
+!$acc routine gang
 ! MODULES
 USE MOD_Mesh_Vars,ONLY:nElems
 IMPLICIT NONE
@@ -250,11 +250,23 @@ REAL,INTENT(OUT)   :: prim(PP_nVarPrim,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< v
 ! LOCAL VARIABLES
 INTEGER            :: i,j,k,iElem
 !==================================================================================================================================
+!$acc loop independent
 DO iElem=1,nElems
-  DO k=0,ZDIM(Nloc); DO j=0,Nloc; DO i=0,Nloc
-    CALL ConsToPrim(prim(:,i,j,k,iElem),cons(:,i,j,k,iElem))
-  END DO; END DO; END DO! i,j,k=0,Nloc
+!$acc loop independent
+  DO k=0,ZDIM(Nloc)
+!$acc loop independent
+    DO j=0,Nloc
+!$acc loop independent
+      DO i=0,Nloc
+        CALL ConsToPrim(prim(:,i,j,k,iElem),cons(:,i,j,k,iElem))
+      END DO
+!$acc end loop
+    END DO
+!$acc end loop
+  END DO! i,j,k=0,Nloc
+!$acc end loop
 END DO ! iElem
+!$acc end loop
 END SUBROUTINE ConsToPrim_Volume
 
 !==================================================================================================================================

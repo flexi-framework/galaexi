@@ -337,7 +337,7 @@ IF(FilterType.GT.0) CALL Filter_Pointer(U,FilterMat)
 nElemstmp=nElems
 KappaM1tmp=KappaM1
 Rtmp=R
-!$acc data copyin(U,nElemstmp,KappaM1tmp,Rtmp,nElems) copyout(UPrim) present(nElems)
+!$acc data copyin(U,nElemstmp,KappaM1tmp,Rtmp,nElems) copyout(UPrim,U_master,U_slave)
 !$acc parallel
 nElems=nElemstmp
 KappaM1=KappaM1tmp
@@ -346,7 +346,6 @@ CALL ConsToPrim(PP_N,UPrim,U)
 !$acc end parallel
 
 CALL VolInt()
-!$acc end data
 
 
 
@@ -395,6 +394,7 @@ CALL StartSendMPIData(   FV_multi_slave,DataSizeSidePrim,1,nSides,MPIRequest_FV_
 ! Step 3 for all remaining sides
 ! 3.1)
 CALL ProlongToFaceCons(PP_N,U,U_master,U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
+!$acc end data
 CALL U_MortarCons(U_master,U_slave,doMPISides=.FALSE.)
 #if FV_ENABLED
 ! 3.2)

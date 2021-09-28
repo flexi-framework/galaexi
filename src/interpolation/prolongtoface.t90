@@ -17,7 +17,7 @@
 !> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
 !> integration points, using fast 1D Interpolation and store in global side structure
 !==================================================================================================================================
-PPURE SUBROUTINE ProlongToFace(&
+SUBROUTINE ProlongToFace(&
 #ifdef WITHnVar
     TP_nVar,&
 #endif
@@ -47,6 +47,7 @@ REAL,INTENT(INOUT)              :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nS
 INTEGER                         :: p,q,firstSideID,lastSideID
 INTEGER                         :: ElemID,nbElemID,locSide,nblocSide,SideID,flip
 REAL                            :: Uface(TP_nVar,0:Nloc,0:ZDIM(Nloc))
+INTEGER :: i
 !==================================================================================================================================
 IF(doMPISides)THEN
   firstSideID = firstMPISide_YOUR
@@ -56,7 +57,12 @@ ELSE
    lastSideID =  lastMPISide_MINE
 END IF
 
+! !$acc update device(nElems)
+!$acc parallel
+i=0
+! !$acc loop
 DO SideID=firstSideID,lastSideID
+  i = i+1
   ElemID    = SideToElem(S2E_ELEM_ID,SideID)
   nbElemID  = SideToElem(S2E_NB_ELEM_ID,SideID)
 
@@ -108,6 +114,10 @@ DO SideID=firstSideID,lastSideID
     END DO; END DO
   END IF
 END DO
+! !$acc end loop
+
+WRITE(*,*) 'i',i
+!$acc end parallel
 
 END SUBROUTINE ProlongToFace
 
@@ -217,6 +227,7 @@ PPURE SUBROUTINE EvalElemFaceG(&
 #endif
     Nloc,Uvol,Uface,L_Minus,L_Plus,locSide)
 ! MODULES
+!$acc routine vector
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
