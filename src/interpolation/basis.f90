@@ -52,6 +52,10 @@ INTERFACE LegGaussLobNodesAndWeights
    MODULE PROCEDURE LegGaussLobNodesAndWeights
 END INTERFACE
 
+INTERFACE LegGaussRadauNodesAndWeights
+   MODULE PROCEDURE LegGaussRadauNodesAndWeights
+END INTERFACE
+
 INTERFACE LegendrePolynomialAndDerivative
    MODULE PROCEDURE LegendrePolynomialAndDerivative
 END INTERFACE
@@ -68,9 +72,14 @@ INTERFACE LagrangeInterpolationPolys
    MODULE PROCEDURE LagrangeInterpolationPolys
 END INTERFACE
 
+INTERFACE PolynomialMassMatrix
+   MODULE PROCEDURE PolynomialMassMatrix
+END INTERFACE
+
 PUBLIC::BuildLegendreVdm
 PUBLIC::InitializeVandermonde
 PUBLIC::LegGaussLobNodesAndWeights
+PUBLIC::LegGaussRadauNodesAndWeights
 PUBLIC::LegendreGaussNodesAndWeights
 PUBLIC::ChebyshevGaussNodesAndWeights
 PUBLIC::ChebyGaussLobNodesAndWeights
@@ -79,6 +88,7 @@ PUBLIC::LegendrePolynomialAndDerivative
 PUBLIC::PolynomialDerivativeMatrix
 PUBLIC::BarycentricWeights
 PUBLIC::LagrangeInterpolationPolys
+PUBLIC::PolynomialMassMatrix
 !==================================================================================================================================
 
 CONTAINS
@@ -121,7 +131,7 @@ END DO; END DO !j
 ! Alternative to matrix inversion: Compute inverse Vandermonde directly
 ! Direct inversion has an error around 4e-16 (Lapack: err=0) and is 2 orders of magnitude faster than Lapack
 ! see: Hindenlang: Mesh curving techniques for high order parallel simulations on unstructured meshes, 2014, p.27.
-CALL BarycentricWeights(N_In,xi_in,wBary_loc)
+CALL BarycentricWeights(N_In,xi_In,wBary_loc)
 ! Compute first the inverse (by projection)
 CALL LegendreGaussNodesAndWeights(N_In,xGauss,wGauss)
 !Vandermonde on xGauss
@@ -136,7 +146,7 @@ END DO
 CALL InitializeVandermonde(N_In,N_In,wBary_Loc,xi_In,xGauss,Vdm_Lag)
 sVdm_Leg=MATMUL(Vdm_Leg_Gauss,Vdm_Lag)
 dummy=ABS(SUM(ABS(MATMUL(sVdm_Leg,Vdm_Leg)))/(N_In+1.)-1.)
-IF(dummy.GT.15.*PP_RealTolerance) CALL abort(__STAMP__,&
+IF(dummy.GT.15.*PP_RealTolerance) CALL ABORT(__STAMP__,&
                                          'problems in MODAL<->NODAL Vandermonde ',999,dummy)
 #else
 ! Lapack
@@ -144,7 +154,7 @@ sVdm_Leg=INVERSE(Vdm_Leg)
 
 !check (Vdm_Leg)^(-1)*Vdm_Leg := I
 dummy=ABS(SUM(ABS(MATMUL(sVdm_Leg,Vdm_Leg)))/(N_In+1.)-1.)
-IF(dummy.GT.10.*PP_RealTolerance) CALL abort(__STAMP__,&
+IF(dummy.GT.10.*PP_RealTolerance) CALL ABORT(__STAMP__,&
                                          'problems in MODAL<->NODAL Vandermonde ',999,dummy)
 #endif
 END SUBROUTINE buildLegendreVdm
@@ -324,6 +334,79 @@ ELSE
 END IF
 END SUBROUTINE ClenshawCurtisNodesAndWeights
 
+
+!==================================================================================================================================
+!> @brief Compute Legendre-Gauss-Radau nodes and integration weights
+!> Computes the Legendre-Gauss-Radau nodes and integration weights based on a Newton method following algorithm 25 of the Kopriva
+!> book. However, the q and L evaluation differs to the one used for the Legendre-Gauss-Lobatto points. The initial guess for the
+!> Newton method is based on
+!> "Fast and accurate computation of Gauss-Legendre and Gauss-Jacobi quadrature nodes and weights" by Hale and Townsend.
+!==================================================================================================================================
+SUBROUTINE LegGaussRadauNodesAndWeights(N_in,xGP,wGP)
+!MODULES
+USE MOD_Preproc
+USE MOD_Globals
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,INTENT(IN)        :: N_in              !< polynomial degree, (N_in+1) Gausspoints
+REAL,INTENT(OUT)          :: xGP(0:N_in)       !< Gauss point positions for the reference interval [-1,1]
+REAL,INTENT(OUT),OPTIONAL :: wGP(0:N_in)       !< Gauss point weights
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                   :: nIter = 10        ! max. number of newton iterations
+REAL                      :: Tol   = 1.E-15    ! tolerance for Newton iteration: TODO: use variable tolerance here!
+INTEGER                   :: iGP,iter
+REAL                      :: L_Np1,Lder_Np1    ! L_{N_in+1},Lder_{N_in+1}
+REAL                      :: q,qder,L          ! \f$ q=L_{N_in+1}-L_{N_in-1} \f$ ,qder is derivative, \f$ L=L_{N_in} \f$
+REAL                      :: dx                ! Newton step
+REAL                      :: xGP_init(1:N_in)  ! Initial guess for all inner nodes based on Hale and Townsend
+REAL                      :: rho,phi_k         ! temporary variables for evaluation of initial nodes positions
+!==================================================================================================================================
+xGP(0)=-1.
+IF(PRESENT(wGP))THEN
+  wGP(0)= 2./REAL((N_in+1)**2)
+END IF
+
+! Use initial guess by Hale and Townsend for roots of Jacobi polynomials of degree N_in-1 with alpha=0, beta=1 (page 18, bottom)
+rho = N_in+1
+DO iGP=1,N_in
+  phi_k = (REAL(iGP)-0.25)*(PP_PI/rho)
+  ! Formula gives nodes in descending order!
+  xGP_init(N_in+1-iGP) = COS( phi_k + 1./(4.*rho**2)*(0.25/TAN(0.5*phi_k)+0.75*TAN(0.5*phi_k)) ) ! Eq. (3.21)
+END DO
+
+DO iGP=1,N_in
+  xGP(iGP) = xGP_init(iGP)
+  ! Newton iteration
+  DO iter=0,nIter
+    CALL qAndLEvaluationRadau(N_in,xGP(iGP),q,qder,L)
+    dx=-q/qder
+    xGP(iGP)=xGP(iGP)+dx
+    IF(abs(dx).LT.Tol*abs(xGP(iGP))) EXIT
+  END DO ! iter
+  IF(iter.GT.nIter) THEN
+    SWRITE(*,*) 'maximum iteration steps >10 in Newton iteration for LGR point:'
+    xGP(iGP) = xGP_init(iGP)
+    ! Newton iteration
+    DO iter=0,nIter
+      SWRITE(*,*)'iter,x^i',iter,xGP(iGP)     !DEBUG
+      CALL qAndLEvaluationRadau(N_in,xGP(iGP),q,qder,L)
+      dx=-q/qder
+      xGP(iGP)=xGP(iGP)+dx
+      IF(abs(dx).LT.Tol*abs(xGP(iGP))) EXIT
+    END DO ! iter
+    CALL Abort(__STAMP__,&
+               'ERROR: Legendre Gauss Radau nodes could not be computed up to desired precision. Code stopped!')
+  END IF ! (iter.GT.nIter)
+  IF(PRESENT(wGP))THEN
+    wGP(iGP)=(1.-xGP(iGP))/((N_In+1)*L)**2
+  END IF
+END DO ! iGP
+
+END SUBROUTINE LegGaussRadauNodesAndWeights
+
+
 !==================================================================================================================================
 !> @brief Compute Legendre-Gauss nodes and integration weights (algorithm 23, Kopriva book)
 !>
@@ -361,7 +444,7 @@ ELSEIF(N_in.EQ.1)THEN
 ELSE ! N_in>1
   cheb_tmp=2.*atan(1.)/REAL(N_in+1) ! pi/(2N+2)
   DO iGP=0,(N_in+1)/2-1 !since points are symmetric, only left side is computed
-    xGP(iGP)=-cos(cheb_tmp*REAL(2*iGP+1)) !initial guess
+    xGP(iGP)=-COS(cheb_tmp*REAL(2*iGP+1)) !initial guess
     ! Newton iteration
     DO iter=0,nIter
       CALL LegendrePolynomialAndDerivative(N_in+1,xGP(iGP),L_Np1,Lder_Np1)
@@ -380,7 +463,7 @@ ELSE ! N_in>1
         xGP(iGP)=xGP(iGP)+dx
         IF(abs(dx).LT.Tol*abs(xGP(iGP))) EXIT
       END DO !iter
-      CALL abort(__STAMP__,&
+      CALL Abort(__STAMP__,&
                  'ERROR: Legendre Gauss nodes could not be computed up to desired precision. Code stopped!')
     END IF ! (iter.GT.nIter)
     CALL LegendrePolynomialAndDerivative(N_in+1,xGP(iGP),L_Np1,Lder_Np1)
@@ -400,6 +483,48 @@ IF(mod(N_in,2) .EQ. 0) THEN
 END IF ! (mod(N_in,2) .EQ. 0)
 END SUBROUTINE LegendreGaussNodesAndWeights
 
+
+
+!==================================================================================================================================
+!> Evaluate the polynomial q=L_{N_in+1}-L_{N_in} and its derivative at position x in [-1,1]
+!> Recursive algorithm using the N_in-1 N_in-2 Legendre polynomials. Adapted from (Algorithm 24, Kopriva book)
+!==================================================================================================================================
+ELEMENTAL SUBROUTINE qAndLEvaluationRadau(N_in,x,q,qder,L)
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,INTENT(IN) :: N_in                            !< polynomial degree
+REAL,INTENT(IN)    :: x                               !< coordinate value in the interval [-1,1]
+REAL,INTENT(OUT)   :: L                               !< \f$ L_N(\xi) \f$
+REAL,INTENT(OUT)   :: q                               !< \f$ q_N(\xi) \f$
+REAL,INTENT(OUT)   :: qder                            !< \f$ \partial/\partial\xi \; L_N(\xi) \f$
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER            :: iLegendre
+REAL               :: L_Nm1,L_Nm2                     ! L_{N_in-2},L_{N_in-1}
+REAL               :: Lder_Nm1,Lder_Nm2               ! L_{N_in-2},L_{N_in-1}
+REAL               :: Lder
+!==================================================================================================================================
+L_Nm2=1.
+L_Nm1=x
+Lder_Nm2=0.
+Lder_Nm1=1.
+DO iLegendre=2,N_in
+  L    = (REAL(2*iLegendre-1)*x*L_Nm1 - REAL(iLegendre-1)*L_Nm2)/REAL(iLegendre)
+  Lder = Lder_Nm2 + REAL(2*iLegendre-1)*L_Nm1
+  L_Nm2 = L_Nm1
+  L_Nm1 = L
+  Lder_Nm2 = Lder_Nm1
+  Lder_Nm1 = Lder
+END DO ! iLegendre
+L = REAL(2*N_in+1)/REAL(N_in+1)*x*L_Nm1 - REAL(N_in)/REAL(N_in+1)*L_Nm2
+Lder = Lder_Nm2 + REAL(2*N_in+1)*L_Nm1
+
+q    = (L+L_Nm1)/(x+1.) ! Radau integration points are roots of q
+qder = ((Lder+Lder_Nm1)*(1.+x)-(L+L_Nm1))/(1.+x)**2
+
+L = L_Nm1 ! Value of Legendre poly. of degree N is returned!
+END SUBROUTINE qAndLEvaluationRadau
 
 
 !==================================================================================================================================
@@ -487,7 +612,7 @@ IF(N_in.GT.1)THEN
         xGP(iGP)=xGP(iGP)+dx
         IF(abs(dx).LT.Tol*abs(xGP(iGP))) EXIT
       END DO ! iter
-      CALL abort(__STAMP__,&
+      CALL Abort(__STAMP__,&
                  'ERROR: Legendre Gauss Lobatto nodes could not be computed up to desired precision. Code stopped!')
     END IF ! (iter.GT.nIter)
     CALL qAndLEvaluation(N_in,xGP(iGP),q,qder,L)
@@ -629,5 +754,54 @@ DO iGP=0,N_in
 END DO
 END SUBROUTINE LagrangeInterpolationPolys
 
+!============================================================================================================================
+!> Computes the exact mass matrix for Gauss and Gauss-Lobatto nodes
+!> For details see paper 'Short note on the mass matrix for Gauss–Lobatto grid points' by Saul A.Teukolsky (JCP 2015)
+!============================================================================================================================
+SUBROUTINE PolynomialMassMatrix(N_in,xGP,wGP,M,Minv)
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,INTENT(IN)          :: N_in                 !< polynomial degree
+REAL,INTENT(IN)             :: xGP(0:N_in)          !< Gauss point positions for the reference interval [-1,1]
+REAL,INTENT(IN)             :: wGP(0:N_in)          !< Integration weights
+REAL,INTENT(OUT)            :: M(0:N_in,0:N_in)     !< mass Matrix
+REAL,INTENT(OUT)            :: Minv(0:N_in,0:N_in)  !< inverse mass Matrix
+!----------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+#ifdef EXACT_MM
+REAL               :: hN,gammaN,alpha,beta,pNi,pNider,pNj,pNjder,norm,dummy
+INTEGER            :: i,j
+#endif
+INTEGER            :: iMass
+!============================================================================================================================
+
+! prepare data structures
+M    = 0.
+Minv = 0.
+
+DO iMass=0,N_in
+  M(iMass,iMass)    = wGP(iMass)
+  Minv(iMass,iMass) = 1./wGP(iMass)
+END DO
+
+#if PP_NodeType == 2 && defined(EXACT_MM)
+hN = 2./(2.*N_in+1.)
+gammaN = 2./N_in
+
+CALL LegendrePolynomialAndDerivative(N_in,1.,norm,dummy)
+
+alpha =  (hN-gammaN)/(gammaN**2*norm**2)
+beta  = -(hN-gammaN)/(gammaN*hN*norm**2)
+
+DO i=0,N_in; DO j=0,N_in
+  CALL LegendrePolynomialAndDerivative(N_in,xGP(i),pNi,pNider)
+  CALL LegendrePolynomialAndDerivative(N_in,xGP(j),pNj,pNjder)
+  M(i,j)    = M(i,j)    + alpha*wGP(i)*wGP(j)*pNi*pNj
+  Minv(i,j) = Minv(i,j) + beta*pNi*pNj
+END DO; END DO
+#endif
+
+END SUBROUTINE PolynomialMassMatrix
 
 END MODULE MOD_Basis

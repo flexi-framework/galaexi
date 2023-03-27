@@ -24,6 +24,7 @@
 MODULE MOD_Mesh_Readin
 ! MODULES
 USE MOD_HDF5_Input
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 !> @defgroup eleminfo ElemInfo parameters
@@ -79,13 +80,16 @@ SUBROUTINE ReadBCs()
 USE MOD_Globals
 USE MOD_Mesh_Vars  ,ONLY:BoundaryName,BoundaryType,nBCs,nUserBCs
 USE MOD_ReadInTools,ONLY:GETINTARRAY,CountOption,GETSTR
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 LOGICAL,ALLOCATABLE            :: UserBCFound(:)
+LOGICAL                        :: NameCheck,LengthCheck
 CHARACTER(LEN=255), ALLOCATABLE:: BCNames(:)
+CHARACTER(LEN=255)             :: ErrorString
 INTEGER, ALLOCATABLE           :: BCMapping(:),BCType(:,:)
 INTEGER                        :: iBC,iUserBC
 INTEGER                        :: Offset=0 ! Every process reads all BCs
@@ -100,22 +104,35 @@ IF(nUserBCs.GT.0)THEN
     BoundaryType(iBC,:) = GETINTARRAY('BoundaryType',2) !(/Type,State/)
   END DO
 END IF ! nUserBCs>0
+
 ! Read boundary names from data file
 CALL GetDataSize(File_ID,'BCNames',nDims,HSize)
 CHECKSAFEINT(HSize(1),4)
 nBCs=INT(HSize(1),4)
 DEALLOCATE(HSize)
+
 ALLOCATE(BCNames(nBCs))
 ALLOCATE(BCMapping(nBCs))
 ALLOCATE(UserBCFound(nUserBCs))
-CALL ReadArray('BCNames',1,(/nBCs/),Offset,1,StrArray=BCNames)  ! Type is a dummy type only
+CALL ReadArray('BCNames',1,(/nBCs/),Offset,1,StrArray=BCNames)
 ! User may have redefined boundaries in the ini file. So we have to create mappings for the boundaries.
 BCMapping=0
 UserBCFound=.FALSE.
 IF(nUserBCs .GT. 0)THEN
   DO iBC=1,nBCs
     DO iUserBC=1,nUserBCs
-      IF(INDEX(TRIM(BCNames(iBC)),TRIM(BoundaryName(iUserBC))).NE.0)THEN
+      ! Check if BoundaryName(iUserBC) is a substring of BCNames(iBC)
+      NameCheck = INDEX(TRIM(BCNames(iBC)),TRIM(BoundaryName(iUserBC))).NE.0
+      ! Check if both strings have equal length
+      LengthCheck = LEN(TRIM(BCNames(iBC))).EQ.LEN(TRIM(BoundaryName(iUserBC)))
+      ! Check if both strings are equal (length has to be checked because index checks for substrings!)
+      IF(NameCheck.AND.LengthCheck)THEN
+        ! Check if the BC was defined multiple times
+        IF (BCMapping(iBC).NE.0) THEN
+          WRITE(ErrorString,'(A,A,A)') ' Boundary ',TRIM(BCNames(iBC)),' is redefined multiple times in parameter file!'
+          CALL CollectiveStop(__STAMP__,ErrorString)
+        END IF
+
         BCMapping(iBC)=iUserBC
         UserBCFound(iUserBC)=.TRUE.
       END IF
@@ -123,14 +140,14 @@ IF(nUserBCs .GT. 0)THEN
   END DO
 END IF
 DO iUserBC=1,nUserBCs
-  IF(.NOT.UserBCFound(iUserBC)) CALL Abort(__STAMP__,&
+  IF (.NOT.UserBCFound(iUserBC)) CALL ABORT(__STAMP__,&
     'Boundary condition specified in parameter file has not been found: '//TRIM(BoundaryName(iUserBC)))
 END DO
 DEALLOCATE(UserBCFound)
 
 ! Read boundary types from data file
 CALL GetDataSize(File_ID,'BCType',nDims,HSize)
-IF((HSize(1).NE.4).OR.(HSize(2).NE.nBCs)) STOP 'Problem in readBC'
+IF((HSize(1).NE.4).OR.(HSize(2).NE.nBCs)) CALL CollectiveStop(__STAMP__,'Problem in readBC')
 DEALLOCATE(HSize)
 ALLOCATE(BCType(4,nBCs))
 offset=0
@@ -140,16 +157,17 @@ IF(nUserBCs .GT. 0)THEN
   DO iBC=1,nBCs
     IF(BCMapping(iBC) .NE. 0)THEN
       IF((BoundaryType(BCMapping(iBC),1).EQ.1).AND.(BCType(1,iBC).NE.1)) &
-        CALL abort(__STAMP__,&
+        CALL Abort(__STAMP__,&
                    'Remapping non-periodic to periodic BCs is not possible!')
-      SWRITE(Unit_StdOut,'(A,A)')    ' |     Boundary in HDF file found | ',TRIM(BCNames(iBC))
-      SWRITE(Unit_StdOut,'(A,I4,I4)')' |                            was | ',BCType(1,iBC),BCType(3,iBC)
-      SWRITE(Unit_StdOut,'(A,I4,I4)')' |                      is set to | ',BoundaryType(BCMapping(iBC),1:2)
+      SWRITE(UNIT_stdOut,'(A,A)')    ' |     Boundary in HDF file found | ',TRIM(BCNames(iBC))
+      SWRITE(UNIT_stdOut,'(A,I4,I4)')' |                            was | ',BCType(1,iBC),BCType(3,iBC)
+      SWRITE(UNIT_stdOut,'(A,I4,I4)')' |                      is set to | ',BoundaryType(BCMapping(iBC),1:2)
       BCType(1,iBC) = BoundaryType(BCMapping(iBC),BC_TYPE)
       BCType(3,iBC) = BoundaryType(BCMapping(iBC),BC_STATE)
     END IF
   END DO
 END IF
+
 IF(ALLOCATED(BoundaryName)) DEALLOCATE(BoundaryName)
 IF(ALLOCATED(BoundaryType)) DEALLOCATE(BoundaryType)
 ALLOCATE(BoundaryName(nBCs))
@@ -158,13 +176,16 @@ BoundaryName = BCNames
 BoundaryType(:,BC_TYPE)  = BCType(1,:)
 BoundaryType(:,BC_STATE) = BCType(3,:)
 BoundaryType(:,BC_ALPHA) = BCType(4,:)
-SWRITE(UNIT_StdOut,'(132("."))')
-SWRITE(Unit_StdOut,'(A,A16,A20,A10,A10,A10)')'BOUNDARY CONDITIONS','|','Name','Type','State','Alpha'
+SWRITE(UNIT_stdOut,'(132("."))')
+SWRITE(UNIT_stdOut,'(A,A15,A20,A10,A10,A10)')' BOUNDARY CONDITIONS','|','Name','Type','State','Alpha'
 DO iBC=1,nBCs
-  SWRITE(*,'(A,A33,A20,I10,I10,I10)')' |','|',TRIM(BoundaryName(iBC)),BoundaryType(iBC,:)
+  SWRITE(Unit_stdOut,'(A,A33,A20,I10,I10,I10)')' |','|',TRIM(BoundaryName(iBC)),BoundaryType(iBC,:)
 END DO
-SWRITE(UNIT_StdOut,'(132("."))')
+
+SWRITE(UNIT_stdOut,'(132("."))')
+
 DEALLOCATE(BCNames,BCType,BCMapping)
+
 END SUBROUTINE ReadBCs
 
 
@@ -197,6 +218,7 @@ USE MOD_Mesh_Vars,          ONLY:ElemInfo,SideInfo
 #if USE_MPI
 USE MOD_MPI_Vars,           ONLY:nMPISides_Proc,nNbProcs,NbProc
 #endif
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -225,6 +247,7 @@ INTEGER,ALLOCATABLE            :: MPISideCount(:)
 #endif
 LOGICAL                        :: oriented
 LOGICAL                        :: dsExists
+REAL                           :: StartT,EndT
 !==================================================================================================================================
 IF(MESHInitIsDone) RETURN
 IF(MPIRoot)THEN
@@ -232,8 +255,14 @@ IF(MPIRoot)THEN
     'readMesh from data file "'//TRIM(FileString)//'" does not exist')
 END IF
 
-SWRITE(UNIT_stdOut,'(A)')'READ MESH FROM DATA FILE "'//TRIM(FileString)//'" ...'
-SWRITE(UNIT_StdOut,'(132("-"))')
+SWRITE(UNIT_stdOut,'(A)',ADVANCE='YES') ' READ MESH FROM DATA FILE "'//TRIM(FileString)//'" ...'
+SWRITE(UNIT_stdOut,'(132("-"))')
+#if USE_MPI
+StartT=MPI_WTIME()
+#else
+CALL CPU_TIME(StartT)
+#endif
+
 ! Open mesh file
 CALL OpenDataFile(FileString,create=.FALSE.,single=.FALSE.,readOnly=.TRUE.)
 CALL BuildPartition()
@@ -424,7 +453,7 @@ DO iElem=FirstElemInd,LastElemInd
           aSide%connection%Elem=>GETNEWELEM()
           aSide%NbProc = ELEMIPROC(nbElemID)
 #else
-          CALL abort(__STAMP__, &
+          CALL Abort(__STAMP__, &
             ' ElemID of neighbor not in global Elem list ')
 #endif
         END IF
@@ -687,6 +716,10 @@ IF(MPIRoot)THEN
   WRITE(UNIT_stdOut,'(132("."))')
 END IF
 
+EndT             = FLEXITIME()
+SWRITE(UNIT_stdOut,'(A,F0.3,A)',ADVANCE='YES') ' READ MESH FROM DATA FILE "'//TRIM(FileString)//'" ... DONE  [',EndT-StartT,'s]'
+SWRITE(UNIT_stdOut,'(132("-"))')
+
 END SUBROUTINE ReadMesh
 
 
@@ -700,8 +733,9 @@ USE MOD_Mesh_Vars, ONLY:nElems,nGlobalElems,offsetElem
 #if USE_MPI
 USE MOD_MPI_Vars,  ONLY:offsetElemMPI
 #endif
-!----------------------------------------------------------------------------------------------------------------------------------!
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------!
 ! INPUT / OUTPUT VARIABLES
 !-----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
@@ -712,7 +746,7 @@ INTEGER           :: iProc
 !===================================================================================================================================
 CALL GetDataSize(File_ID,'ElemInfo',nDims,HSize)
 IF(HSize(1).NE.6) THEN
-  CALL abort(__STAMP__,&
+  CALL Abort(__STAMP__,&
     'ERROR: Wrong size of ElemInfo, should be 6')
 END IF
 CHECKSAFEINT(HSize(2),4)
@@ -725,7 +759,7 @@ IF(nGlobalElems.LT.nProcessors) THEN
 END IF
 
 !simple partition: nGlobalelems/nprocs, do this on proc 0
-IF(ALLOCATED(offsetElemMPI)) DEALLOCATE(offsetElemMPI)
+SDEALLOCATE(offsetElemMPI)
 ALLOCATE(offsetElemMPI(0:nProcessors))
 offsetElemMPI=0
 nElems=nGlobalElems/nProcessors
@@ -742,7 +776,9 @@ LOGWRITE(*,*)'offset,nElems',offsetElem,nElems
 nElems=nGlobalElems   !local number of Elements
 offsetElem=0          ! offset is the index of first entry, hdf5 array starts at 0-.GT. -1
 #endif /*USE_MPI*/
+
 END SUBROUTINE BuildPartition
+
 
 #if USE_MPI
 !==================================================================================================================================
@@ -753,6 +789,7 @@ FUNCTION ELEMIPROC(ElemID)
 ! MODULES
 USE MOD_Globals,   ONLY:nProcessors
 USE MOD_MPI_vars,  ONLY:offsetElemMPI
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -793,10 +830,10 @@ END FUNCTION ELEMIPROC
 !===================================================================================================================================
 SUBROUTINE ReadIJKSorting()
 ! MODULES                                                                                                                          !
-!----------------------------------------------------------------------------------------------------------------------------------!
 USE MOD_Mesh_Vars,       ONLY: nElems_IJK,Elem_IJK,offsetElem,nElems,MeshFile
-!----------------------------------------------------------------------------------------------------------------------------------!
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------!
 ! INPUT / OUTPUT VARIABLES
 !-----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES

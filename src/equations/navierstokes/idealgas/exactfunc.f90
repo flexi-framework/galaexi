@@ -15,7 +15,7 @@
 #include "eos.h"
 
 !==================================================================================================================================
-!> Soubroutines providing exactly evaluated functions used in initialization or boundary conditions.
+!> Subroutines providing exactly evaluated functions used in initialization or boundary conditions.
 !==================================================================================================================================
 MODULE MOD_Exactfunc
 ! MODULES
@@ -94,6 +94,8 @@ CALL prms%CreateRealArrayOption(    'IniCenter',    "Shu Vortex CASE(7) (x,y,z)"
 CALL prms%CreateRealArrayOption(    'IniAxis',      "Shu Vortex CASE(7) (x,y,z)")
 CALL prms%CreateRealOption(         'IniAmplitude', "Shu Vortex CASE(7)", '0.2')
 CALL prms%CreateRealOption(         'IniHalfwidth', "Shu Vortex CASE(7)", '0.2')
+CALL prms%CreateRealOption(         'P_Parameter', "Couette-Poiseuille flow CASE(8)", '0.0')
+CALL prms%CreateRealOption(         'U_Parameter', "Couette-Poiseuille flow CASE(8)", '0.01')
 #if PARABOLIC
 CALL prms%CreateRealOption(         'delta99_in',   "Blasius boundary layer CASE(1338)")
 CALL prms%CreateRealArrayOption(    'x_in',         "Blasius boundary layer CASE(1338)")
@@ -119,7 +121,7 @@ USE MOD_Equation_Vars      ,ONLY: IniExactFunc,IniRefState
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 !==================================================================================================================================
-SWRITE(UNIT_StdOut,'(132("-"))')
+SWRITE(UNIT_stdOut,'(132("-"))')
 SWRITE(UNIT_stdOut,'(A)') ' INIT EXACT FUNCTION...'
 
 IniExactFunc = GETINTFROMSTR('IniExactFunc')
@@ -131,14 +133,14 @@ CASE(2,21,3,4,41,42,43) ! synthetic test cases
 CASE(7) ! Shu Vortex
   IniCenter    = GETREALARRAY('IniCenter',3,'(/0.,0.,0./)')
   IniAxis      = GETREALARRAY('IniAxis',3,'(/0.,0.,1./)')
-  IniAmplitude = GETREAL('IniAmplitude','0.2')
-  IniHalfwidth = GETREAL('IniHalfwidth','0.2')
+  IniAmplitude = GETREAL('IniAmplitude')
+  IniHalfwidth = GETREAL('IniHalfwidth')
 CASE(8) ! couette-poiseuille flow
-  P_Parameter  = GETREAL('P_Parameter','0.0')
-  U_Parameter  = GETREAL('U_Parameter','0.01')
+  P_Parameter  = GETREAL('P_Parameter')
+  U_Parameter  = GETREAL('U_Parameter')
 CASE(10) ! shock
-  MachShock    = GETREAL('MachShock','1.5')
-  PreShockDens = GETREAL('PreShockDens','1.0')
+  MachShock    = GETREAL('MachShock')
+  PreShockDens = GETREAL('PreShockDens')
 #if PARABOLIC
 CASE(1338) ! Blasius boundary layer solution
   delta99_in      = GETREAL('delta99_in')
@@ -160,7 +162,7 @@ END SELECT
 #endif
 
 SWRITE(UNIT_stdOut,'(A)')' INIT EXACT FUNCTION DONE!'
-SWRITE(UNIT_StdOut,'(132("-"))')
+SWRITE(UNIT_stdOut,'(132("-"))')
 END SUBROUTINE InitExactFunc
 
 !==================================================================================================================================
@@ -636,7 +638,7 @@ IF(fullBoundaryOrder)THEN ! add resu_t, resu_tt if time dependant
     Resu=Resu + RKc(3)*dt*Resu_t + RKc(2)*RKb(2)*dt*dt*Resu_tt
   CASE DEFAULT
     ! Stop, works only for 3 Stage O3 LS RK
-    CALL abort(__STAMP__,&
+    CALL Abort(__STAMP__,&
                'Exactfuntion works only for 3 Stage O3 LS RK!')
   END SELECT
 END IF

@@ -31,20 +31,6 @@ ELSE()
 ENDIF()
 
 # =========================================================================
-# SplitDG
-# =========================================================================
-OPTION(FLEXI_SPLIT_DG "Use split DG formulation" OFF)
-IF(FLEXI_SPLIT_DG)
-  ADD_DEFINITIONS(-DSPLIT_DG)
-  IF(FLEXI_NODETYPE STREQUAL "GAUSS")
-    MESSAGE(SEND_ERROR "FLEXI_SPLIT_DG only works on FLEXI_NODETYPE==GAUSS-LOBATTO points.")
-  ENDIF()
-  IF(NOT FLEXI_EQNSYSNAME STREQUAL "navierstokes")
-    MESSAGE(SEND_ERROR "FLEXI_SPLIT_DG only works for FLEXI_EQNSYSNAME==navierstokes.")
-  ENDIF()
-ENDIF()
-
-# =========================================================================
 # Equation system
 # =========================================================================
 SET(FLEXI_EQNSYSNAME "navierstokes" CACHE STRING
@@ -67,6 +53,46 @@ IF(WITHEOS GREATER 0)
   SET(FLEXI_EOS "idealgas" CACHE STRING "Used equation of state (idealgas/table)")
   SET_PROPERTY(CACHE FLEXI_EOS PROPERTY STRINGS idealgas)
   MARK_AS_ADVANCED(FORCE FLEXI_EOS)
+ENDIF()
+
+# =========================================================================
+# SplitDG
+# =========================================================================
+OPTION(FLEXI_SPLIT_DG "Use split DG formulation" OFF)
+IF(FLEXI_SPLIT_DG)
+  ADD_DEFINITIONS(-DSPLIT_DG)
+  IF(FLEXI_NODETYPE STREQUAL "GAUSS")
+    MESSAGE(SEND_ERROR "FLEXI_SPLIT_DG only works on FLEXI_NODETYPE==GAUSS-LOBATTO points.")
+  ENDIF()
+  IF(NOT FLEXI_EQNSYSNAME STREQUAL "navierstokes")
+    MESSAGE(SEND_ERROR "FLEXI_SPLIT_DG only works for FLEXI_EQNSYSNAME==navierstokes.")
+  ENDIF()
+ENDIF()
+
+# =========================================================================
+# PPLimiter
+# =========================================================================
+OPTION(FLEXI_PP_LIMITER "Enable Positivity Preserving Limiter" OFF)
+IF(FLEXI_PP_LIMITER)
+  ADD_DEFINITIONS(-DPP_LIMITER)
+  IF(FLEXI_NODETYPE STREQUAL "GAUSS")
+    MESSAGE(WARNING "Positivity Preserving Limiter only works on volume interpolation points. Positivity on faces is not guaranteed with FLEXI_NODETYPE==GAUSS." )
+  ENDIF()
+  IF(NOT FLEXI_EQNSYSNAME STREQUAL "navierstokes")
+    MESSAGE(SEND_ERROR "FLEXI_PP_LIMITER only works for FLEXI_EQNSYSNAME==navierstokes.")
+  ENDIF()
+ENDIF()
+
+# =========================================================================
+# ExactMM
+# =========================================================================
+# exact mass matrix
+OPTION(FLEXI_EXACT_MASSMATRIX "Build and invert exact mass Matrix" OFF)
+IF(FLEXI_EXACT_MASSMATRIX)
+  ADD_DEFINITIONS(-DEXACT_MM)
+  IF(FLEXI_NODETYPE STREQUAL "GAUSS")
+    MESSAGE(SEND_ERROR "FLEXI_EXACT_MASSMATRIX only works on FLEXI_NODETYPE==GAUSS-LOBATTO points.")
+  ENDIF()
 ENDIF()
 
 # =========================================================================
@@ -143,11 +169,26 @@ ENDIF()
 # =========================================================================
 # FV subcell shock capturing
 # =========================================================================
-OPTION(FLEXI_FV "Enable Finite Volume subcell shock capturing" OFF)
+SET(FLEXI_FV "OFF" CACHE STRING "Enable Finite Volume subcell shock capturing")
+SET_PROPERTY(CACHE FLEXI_FV PROPERTY STRINGS OFF SWITCH BLEND)
+
 CMAKE_DEPENDENT_OPTION(FLEXI_FV_RECONSTRUCTION "Enable 2nd order reconstruction for FV" ON
-                                               "FLEXI_FV" OFF)
-IF(FLEXI_FV)
-  ADD_DEFINITIONS(-DFV_ENABLED=1)
+	                                             "FLEXI_FV" ON) # Everyhting except "OFF" is logically "ON"
+
+IF(NOT (FLEXI_FV STREQUAL "OFF"))
+  IF(    FLEXI_FV STREQUAL "SWITCH")
+    ADD_DEFINITIONS(-DFV_ENABLED=1)
+  ELSEIF(FLEXI_FV STREQUAL "BLEND")
+    IF(NOT FLEXI_EQNSYSNAME STREQUAL "navierstokes")
+      MESSAGE(SEND_ERROR "FLEXI_FV=BLEND only works for FLEXI_EQNSYSNAME==navierstokes.")
+    ELSEIF(FLEXI_NODETYPE STREQUAL "GAUSS")
+      MESSAGE(SEND_ERROR "FLEXI_FV=BLEND only works on FLEXI_NODETYPE==GAUSS-LOBATTO points.")
+    ENDIF()
+    ADD_DEFINITIONS(-DFV_ENABLED=2)
+  ELSE()
+    MESSAGE(SEND_ERROR "No such FV shock capturing known.")
+  ENDIF()
+
   IF (FLEXI_FV_RECONSTRUCTION)
     ADD_DEFINITIONS(-DFV_RECONSTRUCT=1)
   ELSE()
@@ -164,9 +205,9 @@ ENDIF()
 # =========================================================================
 # Reduced lifting in performance mode
 # =========================================================================
-CMAKE_DEPENDENT_OPTION(FLEXI_OPTLIFT "Lift only needed variables" OFF
-                                     "FLEXI_PERFORMANCE;NOT POSTI" OFF)
-IF(FLEXI_OPTLIFT)
+CMAKE_DEPENDENT_OPTION(FLEXI_PERFORMANCE_OPTLIFT "Lift only needed variables" OFF
+                                                 "FLEXI_PERFORMANCE;NOT POSTI" OFF)
+IF(FLEXI_PERFORMANCE_OPTLIFT)
   ADD_DEFINITIONS(-DPP_OPTLIFT=1)
 ELSE()
   ADD_DEFINITIONS(-DPP_OPTLIFT=0)
@@ -223,7 +264,6 @@ FILE(GLOB_RECURSE flexiF90 ./src/interpolation/*.f90
                            ./src/readintools/*.f90
                            ./src/mortar/*.f90
                            ./src/mesh/*.f90
-                           ./src/indicator/*.f90
                            ./src/mpi/*.f90
                            ./src/globals/*.f90
                            ./src/analyze/*.f90
@@ -237,7 +277,7 @@ FILE(GLOB_RECURSE flexiF90 ./src/interpolation/*.f90
                            ./src/precond/*.f90
                            ./src/implicit/*.f90
                            ./src/testcase/${FLEXI_TESTCASE}/*.f90
-                           ./src/flexilib.f90
+                           # ./src/flexilib.f90
                            ./unitTests/unittest.f90
                            ./unitTests/unittest_vars.f90)
 
@@ -265,6 +305,7 @@ IF (FLEXI_EDDYVISCOSITY)
   FILE(GLOB eddyviscF90 ./src/equations/${FLEXI_EQNSYSNAME}/eddyVisc/*.f90
             eddyviscF90 ./src/equations/${FLEXI_EQNSYSNAME}/eddyVisc/default/*.f90
             eddyviscF90 ./src/equations/${FLEXI_EQNSYSNAME}/eddyVisc/smagorinsky/*.f90
+            eddyviscF90 ./src/equations/${FLEXI_EQNSYSNAME}/eddyVisc/vreman/*.f90
             eddyviscF90 ./src/equations/${FLEXI_EQNSYSNAME}/eddyVisc/sigmaModel/*.f90)
   LIST(APPEND eqnsysF90 ${eddyviscF90})
 ENDIF()
@@ -286,7 +327,8 @@ LIST(APPEND flexiF90 ${dgF90})
 
 # >> collect F90 files of 'fv' directory (non-recursive) and append to 'flexiF90' list
 IF (FLEXI_FV)
-  FILE(GLOB fvF90 ./src/fv/*.f90)
+  FILE(GLOB fvF90 ./src/indicator/*.f90
+                  ./src/fv/*.f90)
   LIST(APPEND flexiF90 ${fvF90})
 ENDIF()
 
@@ -302,7 +344,7 @@ ENDIF()
 
 ADD_LIBRARY(userblocklib STATIC ./src/output/read_userblock.c)
 ADD_LIBRARY(stacksizelib STATIC ./src/globals/stacksize.c)
-SET_TARGET_PROPERTIES(stacksizelib userblocklib PROPERTIES LINKER_LANGUAGE C
+SET_TARGET_PROPERTIES(stacksizelib userblocklib PROPERTIES LANGUAGE C LINKER_LANGUAGE C
                                                            COMPILE_FLAGS "-fPIC")
 
 # we link the statically built libs

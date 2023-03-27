@@ -1,3 +1,16 @@
+!=================================================================================================================================
+! Copyright (c) 2010-2016  Prof. Claus-Dieter Munz
+! This file is part of FLEXI, a high-order accurate framework for numerically solving PDEs with discontinuous Galerkin methods.
+! For more information see https://www.flexi-project.org and https://nrg.iag.uni-stuttgart.de/
+!
+! FLEXI is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License
+! as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+!
+! FLEXI is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty
+! of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License v3.0 for more details.
+!
+! You should have received a copy of the GNU General Public License along with FLEXI. If not, see <http://www.gnu.org/licenses/>.
+!=================================================================================================================================
 #include "flexi.h"
 
 !===================================================================================================================================
@@ -7,9 +20,9 @@
 !> We can then make usage of the following equality to calculate fluctuations (=mean of the square of the fluctuations):
 !> _____   _____________   _____   ______   ____         ___
 !> (U*U) = (u+u')*(u+u') = (u*u) + 2*u*u' + u'u' = u*u + u'u'                                                      ___       _
-!> where we split the total value of a variable U in the mean u and the fluctuating part u'. Thus, with the stored U*U and u=U we 
+!> where we split the total value of a variable U in the mean u and the fluctuating part u'. Thus, with the stored U*U and u=U we
 !> then calculate the fluctuations in here as:
-!> ____   ___  
+!> ____   ___
 !> u'u' = U*U - u*u
 !===================================================================================================================================
 PROGRAM CalcFluc
@@ -25,6 +38,7 @@ USE MOD_MPI,        ONLY:InitMPI
 #if USE_MPI
 USE MOD_MPI,        ONLY:FinalizeMPI
 #endif
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !-----------------------------------------------------------------------------------------------------------------------------------
 ! TYPE AND PARAMETER DEFINITIONS
@@ -224,9 +238,9 @@ SWRITE(UNIT_stdOut,'(A)') "==============================================   CALC
 SWRITE(UNIT_stdOut,'(132("="))')
 
 #if USE_MPI
+CALL FinalizeMPI()
 CALL MPI_FINALIZE(iError)
 IF(iError .NE. 0) STOP 'MPI finalize error'
-CALL FinalizeMPI()
 #endif
 
 CONTAINS
@@ -234,7 +248,7 @@ CONTAINS
 
 
 !===================================================================================================================================
-!> Read in the mean and mean square data sets from the TimeAvg file 
+!> Read in the mean and mean square data sets from the TimeAvg file
 !===================================================================================================================================
 SUBROUTINE Readin()
 IMPLICIT NONE

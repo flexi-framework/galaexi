@@ -1,9 +1,9 @@
 !=================================================================================================================================
-! Copyright (c) 2016  Prof. Claus-Dieter Munz 
+! Copyright (c) 2016  Prof. Claus-Dieter Munz
 ! This file is part of FLEXI, a high-order accurate framework for numerically solving PDEs with discontinuous Galerkin methods.
 ! For more information see https://www.flexi-project.org and https://nrg.iag.uni-stuttgart.de/
 !
-! FLEXI is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License 
+! FLEXI is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License
 ! as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 !
 ! FLEXI is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty
@@ -14,7 +14,7 @@
 #include "flexi.h"
 
 !===================================================================================================================================
-!> This tool will take a time-sequence of equi-spaced state files 
+!> This tool will take a time-sequence of equi-spaced state files
 !> and perform global dynamic mode decomposition
 !===================================================================================================================================
 PROGRAM DMD
@@ -70,28 +70,28 @@ CALL prms%read_options(Args(1))
 
 SWRITE(UNIT_stdOut,'(132("="))')
 SWRITE(UNIT_stdOut,'(A)')
-SWRITE(UNIT_stdOut,'(A)') &                          
-"      ___           ___           ___        "                   
 SWRITE(UNIT_stdOut,'(A)') &
-"     /\  \         /\__\         /\  \       "             
+"      ___           ___           ___        "
+SWRITE(UNIT_stdOut,'(A)') &
+"     /\  \         /\__\         /\  \       "
 SWRITE(UNIT_stdOut,'(A)') &
 "    /::\  \       /::|  |       /::\  \      "
 SWRITE(UNIT_stdOut,'(A)') &
-"   /:/\:\  \     /:|:|  |      /:/\:\  \     "              
+"   /:/\:\  \     /:|:|  |      /:/\:\  \     "
 SWRITE(UNIT_stdOut,'(A)') &
-"  /:/  \:\__\   /:/|:|__|__   /:/  \:\__\    " 
+"  /:/  \:\__\   /:/|:|__|__   /:/  \:\__\    "
 SWRITE(UNIT_stdOut,'(A)') &
-" /:/__/ \:|__| /:/ |::::\__\ /:/__/ \:|__|   "           
+" /:/__/ \:|__| /:/ |::::\__\ /:/__/ \:|__|   "
 SWRITE(UNIT_stdOut,'(A)') &
 " \:\  \ /:/  / \/__/~~/:/  / \:\  \ /:/  /   "
 SWRITE(UNIT_stdOut,'(A)') &
-"  \:\  /:/  /        /:/  /   \:\  /:/  /    " 
+"  \:\  /:/  /        /:/  /   \:\  /:/  /    "
 SWRITE(UNIT_stdOut,'(A)') &
-"   \:\/:/  /        /:/  /     \:\/:/  /     "              
+"   \:\/:/  /        /:/  /     \:\/:/  /     "
 SWRITE(UNIT_stdOut,'(A)') &
-"    \::/__/        /:/  /       \::/__/      "          
+"    \::/__/        /:/  /       \::/__/      "
 SWRITE(UNIT_stdOut,'(A)') &
-"     ~~            \/__/         ~~          " 
+"     ~~            \/__/         ~~          "
 SWRITE(UNIT_stdOut,'(A)')
 SWRITE(UNIT_stdOut,'(132("="))')
 
@@ -110,8 +110,8 @@ nTotalNew=REAL(nVar_State*(N_State+1)**3*nElems_State)
 !limit=(2**31-1)/8.
 limit=(2**28-1)/8. ! max. 32 bit integer / 8
 IF((nTotalNew.GT.limit))THEN
-  WRITE(UNIT_StdOut,'(A,F13.0,A)')' Resulting file size is too big! Total array size may not exceed', limit, ' entries!'
-  WRITE(UNIT_StdOut,'(A)')' Compile dmd without MPI'
+  WRITE(UNIT_stdOut,'(A,F13.0,A)')' Resulting file size is too big! Total array size may not exceed', limit, ' entries!'
+  WRITE(UNIT_stdOut,'(A)')' Compile dmd without MPI'
   STOP
 END IF
 #endif
@@ -124,13 +124,13 @@ CALL WriteDmdStateFile()
 CALL FinalizeDMD()
 CALL FinalizeMesh()
 #if USE_MPI
-CALL MPI_FINALIZE(iError)
-IF(iError .NE. 0) &
-  CALL abort(__STAMP__,'MPI finalize error',iError)
 CALL FinalizeMPI()
+CALL MPI_FINALIZE(iError)
+IF(iError .NE. 0) STOP 'MPI finalize error'
 #endif
-WRITE(UNIT_stdOut,'(132("="))')
-WRITE(UNIT_stdOut,'(A)') ' DMD TOOL FINISHED! '
-WRITE(UNIT_stdOut,'(132("="))')
+
+SWRITE(UNIT_stdOut,'(132("="))')
+SWRITE(UNIT_stdOut,'(A)') ' DMD TOOL FINISHED! '
+SWRITE(UNIT_stdOut,'(132("="))')
 
 END PROGRAM DMD

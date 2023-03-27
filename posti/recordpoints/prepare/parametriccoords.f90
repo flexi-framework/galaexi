@@ -51,16 +51,16 @@ IMPLICIT NONE
 ! LOCAL VARIABLES
 !===================================================================================================================================
 IF(.NOT.RPSetInitIsDone.OR.(.NOT.MeshInitIsDone))THEN
-  CALL abort(__STAMP__, &
+  CALL Abort(__STAMP__, &
        'GetRecordPoints not ready to be called or already called.')
 END IF
-SWRITE(UNIT_StdOut,'(132("-"))')
+SWRITE(UNIT_stdOut,'(132("-"))')
 SWRITE(UNIT_stdOut,'(A)') ' FIND RECORDPOINTS IN MESH...'
 CALL GetParametricCoordinates()
 CALL SortRP()
 
 SWRITE(UNIT_stdOut,'(A)')' FINDING RECORDPOINTS DONE!'
-SWRITE(UNIT_StdOut,'(132("-"))')
+SWRITE(UNIT_stdOut,'(132("-"))')
 END SUBROUTINE GetRecordPoints
 
 
@@ -70,18 +70,19 @@ END SUBROUTINE GetRecordPoints
 !===================================================================================================================================
 SUBROUTINE GetParametricCoordinates()
 ! MODULES
-USE MOD_Preproc
 USE MOD_Globals
-USE MOD_Mathtools,         ONLY: INVERSE
+USE MOD_Preproc
+USE MOD_Basis,             ONLY: LagrangeInterpolationPolys,ChebyGaussLobNodesAndWeights,BarycentricWeights
+USE MOD_Basis,             ONLY: PolynomialDerivativeMatrix
+USE MOD_ChangeBasis,       ONLY: ChangeBasis3D,ChangeBasis2D
+USE MOD_Interpolation,     ONLY: GetVandermonde,GetNodesAndWeights,GetDerivativeMatrix
+USE MOD_Interpolation_Vars
+USE MOD_Mesh_Vars,         ONLY: NGeo,Elem_xGP,SideToElem,nBCSides,Face_xGP,NormVec,nElems
+USE MOD_Newton,            ONLY: Newton
 USE MOD_Parameters,        ONLY: NSuper,maxTol
 USE MOD_RPSet_Vars,        ONLY: RPlist,nRP_global,tRP
 USE MOD_RPSet_Vars,        ONLY: nRP_global
-USE MOD_Mesh_Vars,         ONLY: NGeo,Elem_xGP,SideToElem,nBCSides,Face_xGP,NormVec,nElems
-USE MOD_Basis,             ONLY: LagrangeInterpolationPolys,ChebyGaussLobNodesAndWeights,BarycentricWeights
-USE MOD_Basis,             ONLY: PolynomialDerivativeMatrix
-USE MOD_Interpolation,     ONLY: GetVandermonde,GetNodesAndWeights,GetDerivativeMatrix
-USE MOD_Interpolation_Vars
-USE MOD_ChangeBasis,       ONLY: ChangeBasis3D,ChangeBasis2D
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !-----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
@@ -97,9 +98,9 @@ REAL                  :: xRP(3),xC(3)
 REAL                  :: Vdm_N_CLNGeo(0:NGeo,0:PP_N)
 REAL                  :: Vdm_CLNGeo_EquiNSuper(0:NSuper,0:NGeo)
 REAL                  :: Lag(1:3,0:NGeo)
-REAL                  :: F(1:3),eps_F,Xi(1:3),Jac(1:3,1:3),sJac(1:3,1:3)
+REAL                  :: F(1:3),Xi(1:3)
 INTEGER               :: i,j,k,l,iElem,nNodes
-INTEGER               :: iRP,NewtonIter
+INTEGER               :: iRP
 CHARACTER(LEN=255)    :: NodeType_Super
 TYPE(tRP),POINTER     :: aRP
 LOGICAL               :: changeBasisDone,calcJacobianDone
@@ -114,7 +115,7 @@ REAL                  :: NormVec_NSuper(3,0:NSuper,0:NSuper)
 REAL                  :: wBary_NSuper(0:NSuper), D_NSuper(0:NSuper,0:NSuper), Lag_NSuper(1:2,0:NSuper)
 REAL                  :: dxBC_NSuper(3,2,0:NSuper,0:NSuper)
 REAL                  :: Gmat(2,0:NSuper,0:NSuper),dGmat(2,2,0:NSuper,0:NSuper)
-REAL                  :: G(2),Xi2(2),Jac2(2,2),sJac2(2,2),xWinner(3),NormVecWinner(3)
+REAL                  :: Xi2(2),xWinner(3),NormVecWinner(3)
 !===================================================================================================================================
 ! Prepare CL basis evaluation
 CALL GetNodesAndWeights( NGeo, NodeTypeCL, Xi_CLNGeo,wIPBary=wBary_CLNGeo)
@@ -193,44 +194,7 @@ DO iElem=1,nElems
       calcJacobianDone=.TRUE.
     END IF
 
-    CALL LagrangeInterpolationPolys(Xi(1),NGeo,Xi_CLNGeo,wBary_CLNGeo,Lag(1,:))
-    CALL LagrangeInterpolationPolys(Xi(2),NGeo,Xi_CLNGeo,wBary_CLNGeo,Lag(2,:))
-    CALL LagrangeInterpolationPolys(Xi(3),NGeo,Xi_CLNGeo,wBary_CLNGeo,Lag(3,:))
-    ! F(xi) = x(xi) - xRP
-    F=-XRP
-    DO k=0,NGeo; DO j=0,NGeo; DO i=0,NGeo
-      F=F+XCL_NGeo(:,i,j,k)*Lag(1,i)*Lag(2,j)*Lag(3,k)
-    END DO; END DO; END DO
-
-    eps_F=1.E-10
-    NewtonIter=0
-    DO WHILE ((SUM(F*F).GT.eps_F).AND.(NewtonIter.LT.50))
-      NewtonIter=NewtonIter+1
-      ! Compute F Jacobian dx/dXi
-      Jac=0.
-      DO k=0,NGeo; DO j=0,NGeo; DO i=0,NGeo
-        Jac=Jac+dXCL_NGeo(:,:,i,j,k)*Lag(1,i)*Lag(2,j)*Lag(3,k)
-      END DO; END DO; END DO
-
-      ! Compute inverse of Jacobian
-      sJac=INVERSE(Jac)
-
-      ! Iterate Xi using Newton step
-      Xi = Xi - MATMUL(sJac,F)
-      !  if Newton gets outside reference space range [-1,1], exit.
-      ! But allow for some oscillation in the first couple of iterations, as we may discard the correct point/element!!
-      IF((NewtonIter.GT.4).AND.(ANY(ABS(Xi).GT.1.2))) EXIT
-
-      ! Compute function value
-      CALL LagrangeInterpolationPolys(Xi(1),NGeo,Xi_CLNGeo,wBary_CLNGeo,Lag(1,:))
-      CALL LagrangeInterpolationPolys(Xi(2),NGeo,Xi_CLNGeo,wBary_CLNGeo,Lag(2,:))
-      CALL LagrangeInterpolationPolys(Xi(3),NGeo,Xi_CLNGeo,wBary_CLNGeo,Lag(3,:))
-      ! F(xi) = x(xi) - xRP
-      F=-XRP
-      DO k=0,NGeo; DO j=0,NGeo; DO i=0,NGeo
-        F=F+XCL_NGeo(:,i,j,k)*Lag(1,i)*Lag(2,j)*Lag(3,k)
-      END DO; END DO; END DO
-    END DO !newton
+    CALL Newton(NGeo,XRP,dXCL_NGeo,Xi_CLNGeo,wBary_CLNGeo,XCL_NGeo(:,:,:,:),Xi,LagOut=Lag,FOut=F)
 
     ! check if result is better then previous result
     IF(MAXVAL(ABS(Xi)).LT.MAXVAL(ABS(aRP%xi))) THEN
@@ -258,8 +222,8 @@ END DO
 ! Remaining points: If the point is close to a boundary, project the point on the boundary
 IF(ANY(.NOT.RPFound)) THEN
   nRP_notfound=nRP_global-COUNT(RPFound)
-  SWRITE(UNIT_StdOut,'(A,I4,A,I4,A)')' ',nRP_notfound,' of ',nRP_global,' RPs have not been found inside the mesh.'
-  SWRITE(UNIT_StdOut,'(A)')' Attempting to project them on the closest boundary...'
+  SWRITE(UNIT_stdOut,'(A,I4,A,I4,A)')' ',nRP_notfound,' of ',nRP_global,' RPs have not been found inside the mesh.'
+  SWRITE(UNIT_stdOut,'(A)')' Attempting to project them on the closest boundary...'
   ALLOCATE(dist2RP(nRP_notfound))
   ALLOCATE(mapRP(nRP_global))
   iRP2=0
@@ -357,46 +321,8 @@ IF(ANY(.NOT.RPFound)) THEN
         END DO! i=0,NSuper
       END DO! j=0,NSuper
       ! get initial value of the functional G
-      CALL LagrangeInterpolationPolys(Xi2(1),NSuper,Xi_NSuper,wBary_NSuper,Lag_NSuper(1,:))
-      CALL LagrangeInterpolationPolys(Xi2(2),NSuper,Xi_NSuper,wBary_NSuper,Lag_NSuper(2,:))
-      G=0.
-      DO j=0,NSuper
-        DO i=0,NSuper
-          G=G+Gmat(:,i,j)*Lag_NSuper(1,i)*Lag_NSuper(2,j)
-        END DO! i=0,NSuper
-      END DO! j=0,NSuper
-      eps_F=1.E-10
-      NewtonIter=0
-      DO WHILE ((SUM(G*G).GT.eps_F).AND.(NewtonIter.LT.50))
-        NewtonIter=NewtonIter+1
-        ! Compute G Jacobian dG/dXi
 
-        Jac2=0.
-        DO j=0,NSuper
-          DO i=0,NSuper
-            Jac2=Jac2 + dGmat(:,:,i,j)*Lag_NSuper(1,i)*Lag_NSuper(2,j)
-          END DO !l=0,NSuper
-        END DO !i=0,NSuper
-
-        ! Compute inverse of Jacobian
-        sJac2=INVERSE(Jac2)
-
-        ! Iterate Xi using Newton step
-        Xi2 = Xi2 - MATMUL(sJac2,G)
-        ! if Newton gets outside reference space range [-1,1], exit.
-        ! But allow for some oscillation in the first couple of iterations, as we may discard the correct point/element!!
-        IF((NewtonIter.GT.4).AND.(ANY(ABS(Xi2).GT.1.2))) EXIT
-
-        ! Compute function value
-        CALL LagrangeInterpolationPolys(Xi2(1),NSuper,Xi_NSuper,wBary_NSuper,Lag_NSuper(1,:))
-        CALL LagrangeInterpolationPolys(Xi2(2),NSuper,Xi_NSuper,wBary_NSuper,Lag_NSuper(2,:))
-        G=0.
-        DO j=0,NSuper
-         DO i=0,NSuper
-           G=G+Gmat(:,i,j)*Lag_NSuper(1,i)*Lag_NSuper(2,j)
-         END DO! i=0,NSuper
-       END DO! j=0,NSuper
-      END DO !newton
+      CALL Newton(NSuper,(/0.,0./),dGmat,Xi_NSuper,wBary_NSuper,Gmat,Xi2,LagOut=Lag_NSuper)
 
       ! use Newton result if minimum is within parameter range, else see if supersampled
       ! initial guess is better than previous result
@@ -440,8 +366,8 @@ IF(ANY(.NOT.RPFound)) THEN
       END IF
     END DO! iRP=1,nRP_Global
   END DO! SideID=1,nBCSides
-  SWRITE(UNIT_StdOut,'(A)')' done.'
-  SWRITE(UNIT_StdOut,'(A,F15.8)')'  Max. distance: ',SQRT(MAXVAL(dist2RP))
+  SWRITE(UNIT_stdOut,'(A)')' done.'
+  SWRITE(UNIT_stdOut,'(A,F15.8)')'  Max. distance: ',SQRT(MAXVAL(dist2RP))
 
   DEALLOCATE(mapRP,dist2RP)
 END IF!(.NOT.ANY(RPFound)
@@ -453,7 +379,7 @@ DO iRP=1,nRP_Global
     IF(MAXVAL(ABS(aRP%Xi)).GT.maxTol)THEN
       ! RP has not been found
       WRITE(*,*) 'Record Point with ID :',iRP,' and Coordinates ',aRP%x, ' is a troublemaker!'
-      CALL abort(__STAMP__, &
+      CALL Abort(__STAMP__, &
            'Newton has reached 50 Iter, Point not found')
     END IF
   END IF

@@ -99,19 +99,19 @@ IMPLICIT NONE
 INTEGER          :: i
 !==================================================================================================================================
 ! Get the various analysis/output variables
-doCalcBodyForces    =GETLOGICAL('CalcBodyForces'   ,'.FALSE.')
-doCalcBulkState     =GETLOGICAL('CalcBulkState'    ,'.FALSE.')
-doCalcMeanFlux      =GETLOGICAL('CalcMeanFlux'     ,'.FALSE.')
-doCalcWallVelocity  =GETLOGICAL('CalcWallVelocity' ,'.FALSE.')
-doCalcTotalStates   =GETLOGICAL('CalcTotalStates'  ,'.FALSE.')
-doCalcResiduals     =GETLOGICAL('CalcResiduals'    ,'.FALSE.')
-doWriteBodyForces   =GETLOGICAL('WriteBodyForces'  ,'.TRUE.')
-doWriteBulkState    =GETLOGICAL('WriteBulkState'   ,'.TRUE.')
-doWriteMeanFlux     =GETLOGICAL('WriteMeanFlux'    ,'.TRUE.')
-doWriteWallVelocity =GETLOGICAL('WriteWallVelocity','.TRUE.')
-doWriteTotalStates  =GETLOGICAL('WriteTotalStates' ,'.TRUE.')
-doWriteResiduals    =GETLOGICAL('WriteResiduals'   ,'.TRUE.')
-doCalcTimeAverage   =GETLOGICAL('CalcTimeAverage'  ,'.FALSE.')
+doCalcBodyForces    = GETLOGICAL('CalcBodyForces')
+doCalcBulkState     = GETLOGICAL('CalcBulkState')
+doCalcMeanFlux      = GETLOGICAL('CalcMeanFlux')
+doCalcWallVelocity  = GETLOGICAL('CalcWallVelocity')
+doCalcTotalStates   = GETLOGICAL('CalcTotalStates')
+doCalcResiduals     = GETLOGICAL('CalcResiduals')
+doWriteBodyForces   = GETLOGICAL('WriteBodyForces')
+doWriteBulkState    = GETLOGICAL('WriteBulkState')
+doWriteMeanFlux     = GETLOGICAL('WriteMeanFlux')
+doWriteWallVelocity = GETLOGICAL('WriteWallVelocity')
+doWriteTotalStates  = GETLOGICAL('WriteTotalStates')
+doWriteResiduals    = GETLOGICAL('WriteResiduals')
+doCalcTimeAverage   = GETLOGICAL('CalcTimeAverage')
 
 ! Generate wallmap
 ALLOCATE(isWall(nBCs))
@@ -220,34 +220,34 @@ IF(doCalcResiduals)    CALL CalcResiduals(Residuals)
 
 
 IF(MPIRoot.AND.doCalcBodyforces)THEN
-  WRITE(UNIT_StdOut,*)'BodyForces (Pressure, Friction) : '
+  WRITE(UNIT_stdOut,*)'BodyForces (Pressure, Friction) : '
   WRITE(formatStr,'(A,I2,A)')'(A',maxlen,',6ES18.9)'
   DO i=1,nBCs
     IF(.NOT.isWall(i)) CYCLE
     IF (doWriteBodyForces) &
       CALL OutputToFile(FileName_BodyForce(i),(/Time/),(/9,1/),(/BodyForce(:,i),Fp(:,i),Fv(:,i)/))
-    WRITE(UNIT_StdOut,formatStr) ' '//TRIM(BoundaryName(i)),Fp(:,i),Fv(:,i)
+    WRITE(UNIT_stdOut,formatStr) ' '//TRIM(BoundaryName(i)),Fp(:,i),Fv(:,i)
   END DO
 END IF
 IF(MPIRoot.AND.doCalcWallVelocity)THEN
-  WRITE(UNIT_StdOut,*)'Wall Velocities (mean/min/max)  : '
+  WRITE(UNIT_stdOut,*)'Wall Velocities (mean/min/max)  : '
   WRITE(formatStr,'(A,I2,A)')'(A',maxlen,',3ES18.9)'
   DO i=1,nBCs
     IF(.NOT.isWall(i)) CYCLE
     IF (doWriteWallVelocity) &
       CALL OutputToFile(FileName_WallVel(i),(/Time/),(/3,1/),(/meanV(i),minV(i),maxV(i)/))
-    WRITE(UNIT_StdOut,formatStr) ' '//TRIM(BoundaryName(i)),meanV(i),minV(i),maxV(i)
+    WRITE(UNIT_stdOut,formatStr) ' '//TRIM(BoundaryName(i)),meanV(i),minV(i),maxV(i)
   END DO
 END IF
 
 IF(MPIRoot.AND.doCalcMeanFlux)THEN
   WRITE(formatStr,'(A,I2,A,I2,A)')'(A',maxlen,',',PP_nVar,'ES18.9)'
-  WRITE(UNIT_StdOut,*)'MeanFlux through boundaries     : '
+  WRITE(UNIT_stdOut,*)'MeanFlux through boundaries     : '
   DO i=1,nBCs
     IF((BoundaryType(i,BC_TYPE).EQ.1).AND.(BoundaryType(i,BC_ALPHA).LE.0)) CYCLE
     IF (doWriteMeanFlux) &
       CALL OutputToFile(FileName_MeanFlux(i),(/Time/),(/PP_nVar,1/),MeanFlux(:,i))
-    WRITE(UNIT_StdOut,formatStr) ' '//TRIM(BoundaryName(i)),MeanFlux(:,i)
+    WRITE(UNIT_stdOut,formatStr) ' '//TRIM(BoundaryName(i)),MeanFlux(:,i)
   END DO
 END IF  !(doCalcBodyforces)
 
@@ -255,19 +255,19 @@ IF(MPIRoot.AND.doCalcBulkState)THEN
   IF (doWriteBulkState) &
     CALL OutputToFile(FileName_Bulk,(/Time/),(/PP_nVarPrim+PP_nVar-1,1/),(/BulkPrim,BulkCons(2:PP_nVar)/))
   WRITE(formatStr,'(A,I2,A)')'(A14,',PP_nVarPrim,'ES18.9)'
-  WRITE(UNIT_StdOut,formatStr)' Bulk Prims : ',bulkPrim
+  WRITE(UNIT_stdOut,formatStr)' Bulk Prims : ',bulkPrim
   WRITE(formatStr,'(A,I2,A)')'(A14,',PP_nVar,'ES18.9)'
-  WRITE(UNIT_StdOut,formatStr)' Bulk Cons  : ',bulkCons
+  WRITE(UNIT_stdOut,formatStr)' Bulk Cons  : ',bulkCons
 END IF
 
 IF(MPIRoot.AND.doCalcTotalStates)THEN
-  WRITE(UNIT_StdOut,*)'Mean total states at boundaries : '
+  WRITE(UNIT_stdOut,*)'Mean total states at boundaries : '
   WRITE(formatStr,'(A,I2,A)')'(A',maxlen,',4ES18.9)'
   DO i=1,nBCs
     IF(BoundaryType(i,BC_TYPE).EQ.1) CYCLE
     IF (doWriteTotalStates) &
       CALL OutputToFile(FileName_TotalStates(i),(/Time/),(/4,1/),meanTotals(:,i) )
-    WRITE(UNIT_StdOut,formatStr) ' '//TRIM(BoundaryName(i)),MeanTotals(:,i)
+    WRITE(UNIT_stdOut,formatStr) ' '//TRIM(BoundaryName(i)),MeanTotals(:,i)
   END DO
 END IF
 
@@ -275,7 +275,7 @@ IF(MPIRoot.AND.doCalcResiduals)THEN
   IF (doWriteResiduals) &
     CALL OutputToFile(FileName_Residuals,(/Time/),(/PP_nVar,1/),Residuals)
   WRITE(formatStr,'(A,I2,A)')'(A14,',PP_nVar,'ES18.9)'
-  WRITE(UNIT_StdOut,formatStr)' Residuals Cons  : ',Residuals
+  WRITE(UNIT_stdOut,formatStr)' Residuals Cons  : ',Residuals
 END IF
 
 END SUBROUTINE AnalyzeEquation
@@ -301,19 +301,13 @@ REAL,INTENT(OUT)                :: Residuals(PP_nVar)                   !> Conse
 ! LOCAL VARIABLES
 REAL                            :: IntegrationWeight
 INTEGER                         :: iElem,i,j,k
-#if FV_ENABLED
-REAL                            :: FV_w3
-#endif
 !==================================================================================================================================
 Residuals=0.
-#if FV_ENABLED
-FV_w3 = FV_w**3
-#endif
 DO iElem=1,nElems
 #if FV_ENABLED
   IF (FV_Elems(iElem).GT.0) THEN ! FV Element
     DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      IntegrationWeight=FV_w3/sJ(i,j,k,iElem,1)
+      IntegrationWeight=FV_w(i)*FV_w(j)*FV_w(k)/sJ(i,j,k,iElem,1)
       Residuals = Residuals + Ut(:,i,j,k,iElem)**2*IntegrationWeight
     END DO; END DO; END DO !i,j,k
   ELSE ! DG element
@@ -350,7 +344,6 @@ USE MOD_PreProc
 USE MOD_Analyze_Vars,       ONLY: wGPVol,Vol
 USE MOD_Mesh_Vars,          ONLY: sJ,nElems
 USE MOD_DG_Vars,            ONLY: U,UPrim
-USE MOD_EOS,                ONLY: ConsToPrim
 #if FV_ENABLED
 USE MOD_FV_Vars,            ONLY: FV_Elems,FV_w
 #endif
@@ -366,20 +359,14 @@ INTEGER                         :: iElem,i,j,k
 #if USE_MPI
 REAL                            :: box(PP_nVar+PP_nVarPrim)
 #endif
-#if FV_ENABLED
-REAL                            :: FV_w3
-#endif
 !==================================================================================================================================
 BulkPrim=0.
 BulkCons=0.
-#if FV_ENABLED
-FV_w3 = FV_w**3
-#endif
 DO iElem=1,nElems
 #if FV_ENABLED
   IF (FV_Elems(iElem).GT.0) THEN ! FV Element
     DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      IntegrationWeight=FV_w3/sJ(i,j,k,iElem,1)
+      IntegrationWeight=FV_w(i)*FV_w(j)*FV_w(k)/sJ(i,j,k,iElem,1)
       BulkCons         =BulkCons+U(:,i,j,k,iElem)*IntegrationWeight
       BulkPrim         =BulkPrim+UPrim(:,i,j,k,iElem)*IntegrationWeight
     END DO; END DO; END DO !i,j,k
@@ -436,14 +423,8 @@ REAL,INTENT(OUT)             :: meanTotals(4,nBCs)           !< total and static
 REAL                           :: dA,c,mach
 REAL                           :: primvar(1:14),UE(PP_2Var)
 INTEGER                        :: SideID,i,j,iBC
-#if FV_ENABLED
-REAL                           :: FV_w_surf
-#endif
 !===================================================================================================================================
 meanTotals= 0.
-#if FV_ENABLED
-FV_w_surf = FV_w**(PP_dim-1)
-#endif
 DO SideID=1,nBCSides
   iBC=BC(SideID)
   IF(Boundarytype(iBC,BC_TYPE) .EQ. 1) CYCLE
@@ -487,7 +468,7 @@ DO SideID=1,nBCSides
  !   minV(iBC)=MIN(minV(iBC),locV)
 #if FV_ENABLED
     IF (FV_Elems_master(SideID).EQ.1) THEN ! FV element
-      dA=FV_w_surf*SurfElem(i,j,1,SideID)
+      dA=FV_w(i)*FV_w(j)*SurfElem(i,j,1,SideID)
     ELSE
 #endif
       dA=wGPSurf(i,j)*SurfElem(i,j,0,SideID)
@@ -543,16 +524,10 @@ REAL,INTENT(OUT)               :: meanV(nBCs)         !< Mean of wall velocity p
 ! LOCAL VARIABLES
 REAL                           :: dA,Vel(3),locV
 INTEGER                        :: iSide,i,j,iBC
-#if FV_ENABLED
-REAL                           :: FV_w_surf
-#endif
 !==================================================================================================================================
 minV =  1.e14
 maxV = -1.e14
 meanV= 0.
-#if FV_ENABLED
-FV_w_surf = FV_w**(PP_dim-1)
-#endif
 DO iSide=1,nBCSides
   iBC=BC(iSide)
   IF(.NOT.isWall(iBC)) CYCLE
@@ -564,7 +539,7 @@ DO iSide=1,nBCSides
     minV(iBC)=MIN(minV(iBC),locV)
 #if FV_ENABLED
     IF (FV_Elems_master(iSide).EQ.1) THEN ! FV element
-      dA=FV_w_surf*SurfElem(i,j,1,iSide)
+      dA=FV_w(i)*FV_w(j)*SurfElem(i,j,1,iSide)
     ELSE
 #endif
       dA=wGPSurf(i,j)*SurfElem(i,j,0,iSide)
@@ -614,14 +589,8 @@ REAL,INTENT(OUT)               :: MeanFlux(PP_nVar,nBCs)        !< Mean flux in 
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER                        :: iSide,iSurf,i,j
-#if FV_ENABLED
-REAL                           :: FV_w_surf
-#endif
 !==================================================================================================================================
 MeanFlux=0.
-#if FV_ENABLED
-FV_w_surf = FV_w**(PP_dim-1)
-#endif
 DO iSide=1,nSides-nMPISides_YOUR
   iSurf=AnalyzeSide(iSide)
   IF(iSurf.EQ.0) CYCLE
@@ -629,7 +598,7 @@ DO iSide=1,nSides-nMPISides_YOUR
   IF (FV_Elems_master(iSide).EQ.1) THEN ! FV element
     DO j=0,PP_NZ; DO i=0,PP_N
       ! Don't multiply with Surfelem, its already contained in the fluxes
-      MeanFlux(:,iSurf)=MeanFlux(:,iSurf)+Flux_master(:,i,j,iSide)*FV_w_surf
+      MeanFlux(:,iSurf)=MeanFlux(:,iSurf)+Flux_master(:,i,j,iSide)*FV_w(i)*FV_w(j)
     END DO; END DO
   ELSE ! DG element
 #endif

@@ -43,14 +43,14 @@ USE MOD_MPI,                     ONLY: InitMPIvars,FinalizeMPI
 #endif
 USE MOD_SwapMesh,                ONLY: InitSwapmesh,ReadOldStateFile,WriteNewStateFile,FinalizeSwapMesh
 USE MOD_InterpolateSolution,     ONLY: InterpolateSolution
+#if FV_ENABLED
+USE MOD_FV_Basis,                ONLY: InitFV_Basis,FinalizeFV_Basis
+#endif
 ! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !-----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER                            :: iArg
-#if USE_MPI
-REAL                               :: limit,nTotalNew,nTotalOld
-#endif
 !===================================================================================================================================
 CALL SetStackSizeUnlimited()
 CALL InitMPI()
@@ -71,7 +71,7 @@ CALL prms%CreateLogicalOption(  "useCurvedsOld"      , "Controls usage of high-o
 CALL prms%CreateLogicalOption(  "useCurvedsNew"      , "Controls usage of high-order information in new mesh. Turn off to discard "//&
                                                        "high-order data and treat curved meshes as linear meshes.", '.TRUE.')
 CALL prms%CreateIntOption(      "NInter"             , "Polynomial degree used for interpolation on new mesh (should be equal or  "//&
-                                                       "higher than NNew) - the state will be interpolated to this degree and then "//& 
+                                                       "higher than NNew) - the state will be interpolated to this degree and then "//&
                                                        "projected down to NNew")
 CALL prms%CreateIntOption(      "NNew"               , "Polynomial degree used in new state files")
 CALL prms%CreateIntOption(      "NSuper"             , "Polynomial degree used for supersampling on the old mesh, used to get an "//&
@@ -85,6 +85,7 @@ CALL prms%CreateRealOption(     "abortTolerance"     , "Tolerance used to decide
                                                        "RefState is given")
 CALL prms%CreateLogicalOption(  "ExtrudeTo3D"        , "Perform an extrusion of a one-layer mesh to the 3D version",'.FALSE.')
 CALL prms%CreateIntOption(      "ExtrudeK"           , "Layer which is used in extrusion")
+CALL prms%CreateLogicalOption(  "ExtrudePeriodic"    , "Perform a periodic extrusion of a 3D mesh to a mesh with extended z length",'.FALSE.') 
 
 ! Parse parameters
 ! check for command line argument --help or --markdown
@@ -123,16 +124,9 @@ CALL InitSwapmesh()
 CALL InitMPIvars()
 #endif
 
-#if USE_MPI
-nTotalNew=REAL(nVar_State*(NNew+1)**3*nElemsNew)
-nTotalOld=REAL(nVar_State*(NState+1)**3*nElemsOld)
-!limit=(2**31-1)/8.
-limit=(2**28-1)/8. ! max. 32 bit integer / 8
-IF((nTotalNew.GT.limit).OR.(nTotalOld.GT.limit))THEN
-  WRITE(UNIT_StdOut,'(A,F13.0,A)')' New or old state file size is too big! Total array size may not exceed', limit, ' entries!'
-  WRITE(UNIT_StdOut,'(A)')' Lower number of elements or NNew! Alternative: compile swapmesh without MPI'
-  STOP
-END IF
+#if FV_ENABLED
+! Required since it allocates some quantities written as HDF5 attributes to state file
+CALL InitFV_Basis()
 #endif
 
 ! Evaluate solution at new solution nodes
@@ -149,7 +143,6 @@ DO iArg=2,nArgs
   SWRITE(UNIT_stdOut,'(132("="))')
   CALL ReadOldStateFile(Args(iArg))
 
-
   SWRITE(UNIT_stdOut,'(A)') ' EVALUATING SOLUTION ON NEW MESH ...'
   CALL InterpolateSolution()
 
@@ -158,14 +151,17 @@ DO iArg=2,nArgs
 END DO
 
 CALL FinalizeSwapMesh()
-#if USE_MPI
-CALL MPI_FINALIZE(iError)
-IF(iError .NE. 0) &
-  CALL abort(__STAMP__,'MPI finalize error',iError)
-CALL FinalizeMPI()
+#if FV_ENABLED
+CALL FinalizeFV_Basis()
 #endif
-WRITE(UNIT_stdOut,'(132("="))')
-WRITE(UNIT_stdOut,'(A)') ' SWAPMESH TOOL FINISHED! '
-WRITE(UNIT_stdOut,'(132("="))')
+#if USE_MPI
+CALL FinalizeMPI()
+CALL MPI_FINALIZE(iError)
+IF(iError .NE. 0) STOP 'MPI finalize error'
+#endif
+
+SWRITE(UNIT_stdOut,'(132("="))')
+SWRITE(UNIT_stdOut,'(A)') ' SWAPMESH TOOL FINISHED! '
+SWRITE(UNIT_stdOut,'(132("="))')
 
 END PROGRAM swapMesh

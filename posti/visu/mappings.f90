@@ -112,7 +112,7 @@ IF (.NOT.DGonly) THEN
     DEALLOCATE(ElemData_loc,VarNamesElemData_loc,tmp)
   END IF
 
-  nElems_FV = SUM(FV_Elems_loc)
+  nElems_FV = COUNT(FV_Elems_loc.EQ.1)
   nElems_DG = nElems - nElems_FV
 
   ! build the mapping, that holds the global indices of all FV elements
@@ -142,7 +142,11 @@ ELSE
   nElems_DG = nElems
   nElems_FV = 0
   NVisu_FV = 1
+#if FV_RECONSTRUCT
+  NCalc_FV = NVisu_FV
+#else
   NCalc_FV = 0
+#endif
 
   ! build the mapping, that holds the global indices of all DG elements
   SDEALLOCATE(mapDGElemsToAllElems)
@@ -191,11 +195,11 @@ USE MOD_Globals
 USE MOD_Visu_Vars
 USE MOD_Restart_Vars    ,ONLY: RestartMode
 USE MOD_ReadInTools     ,ONLY: GETSTR,GETLOGICAL,CountOption
-USE MOD_StringTools     ,ONLY: STRICMP
+USE MOD_StringTools     ,ONLY: STRICMP,set_formatting,clear_formatting
 #if FV_RECONSTRUCT
 USE MOD_EOS_Posti       ,ONLY: AppendNeededPrims
 #endif
-
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 ! INPUT / OUTPUT VARIABLES
 !-----------------------------------------------------------------------------------------------------------------------------------
@@ -259,6 +263,13 @@ DO iVar=1,nVarIni
   END DO
 END DO
 
+! Warn the user when restarting from a time-averaged file and no mapping was found
+IF (nVarVisu.EQ.0 .AND. RestartMode.EQ.0) THEN
+  CALL PrintWarning('Trying to visualize a time-averaged file but no corresponding variable was found.\n'//&
+                    'Derived quantities are not available if file is missing conservative/primite variables.\n'//&
+                    'To access mean quantites, please prepend VarName with "Mean:VarName", "MeanSquare:VarName" or "Fluc:VarName"!')
+END IF
+
 ! check whether gradients are needed for any quantity
 DO iVar=1,nVarDep
   IF (mapAllVarsToSurfVisuVars(iVar).GT.0) THEN
@@ -276,12 +287,14 @@ DO iVar=1,nVarDep
   END DO
 END DO
 
-! print the dependecy table
-SWRITE(*,*) "Dependencies: ", withDGOperator
-WRITE(format,'(I2)') SIZE(DepTable,2)
-DO iVar=1,nVarDep
-  SWRITE (*,'('//format//'I2,A)') DepTable(iVar,:), " "//TRIM(VarnamesAll(iVar))
-END DO
+! print the dependency table
+IF (.NOT.DependenciesOutputDone) THEN
+  SWRITE(UNIT_stdOut,'(A,L1)') "Dependencies: ", withDGOperator
+  WRITE(format,'(I2)') SIZE(DepTable,2)
+  DO iVar=1,nVarDep
+    SWRITE (UNIT_stdOut,'('//format//'I2,A)') DepTable(iVar,:), " "//TRIM(VarnamesAll(iVar))
+  END DO
+END IF
 
 ! Build :
 !   mapDepToCalc = map, which stores at position x the position/index of the x.th quantity in the UCalc array
@@ -325,14 +338,6 @@ nVarCalc_FV = nVarCalc
 IF (StateFileMode) CALL AppendNeededPrims(mapDepToCalc,mapDepToCalc_FV,nVarCalc_FV)
 #endif
 
-! print the mappings
-WRITE(format,'(I3)') nVarAll
-SWRITE (*,'(A,'//format//'I3)') "mapDepToCalc             ",mapDepToCalc
-SWRITE (*,'(A,'//format//'I3)') "mapDepToCalc_FV          ",mapDepToCalc_FV
-SWRITE (*,'(A,'//format//'I3)') "mapAllVarsToVisuVars     ",mapAllVarsToVisuVars
-SWRITE (*,'(A,'//format//'I3)') "mapAllVarsToSurfVisuVars ",mapAllVarsToSurfVisuVars
-
-
 !---------------------- Surface visualization ----------------------------!
 
 ! Build the mapping for the surface visualization
@@ -355,7 +360,6 @@ END DO
 
 ! Set flag indicating if surface visualization is needed
 doSurfVisu = nBCNamesVisu.GT.0
-SWRITE (*,*) 'doSurfVisu: ',doSurfVisu
 
 ! check if any boundary changed
 changedBCnames = .TRUE.
@@ -367,8 +371,16 @@ SDEALLOCATE(mapAllBCNamesToVisuBCNames_old)
 ALLOCATE(mapAllBCNamesToVisuBCNames_old(1:nBCNamesAll))
 mapAllBCNamesToVisuBCNames_old = mapAllBCNamesToVisuBCNames
 
-
-SWRITE (*,'(A,'//format//'I3)') "mapAllBCNamesToVisuBCNames ",mapAllBCNamesToVisuBCNames
+! print the mappings
+IF (.NOT.DependenciesOutputDone) THEN
+  WRITE(format,'(I0)') nVarAll
+  SWRITE (*,'(A,'//format//'I0)') "mapDepToCalc             ",mapDepToCalc
+  SWRITE (*,'(A,'//format//'I0)') "mapDepToCalc_FV          ",mapDepToCalc_FV
+  SWRITE (*,'(A,'//format//'I0)') "mapAllVarsToVisuVars     ",mapAllVarsToVisuVars
+  SWRITE (*,'(A,'//format//'I0)') "mapAllVarsToSurfVisuVars ",mapAllVarsToSurfVisuVars
+  SWRITE (*,'(A,'//format//'I0)') "mapAllBCNamesToVisuBCNames ",mapAllBCNamesToVisuBCNames
+  DependenciesOutputDone = .TRUE.
+END IF
 
 END SUBROUTINE Build_mapDepToCalc_mapAllVarsToVisuVars
 

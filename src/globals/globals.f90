@@ -39,13 +39,13 @@ REAL              ::StartTime                                                 !<
 INTEGER           ::myRank,myLocalRank,myLeaderRank,myWorkerRank
 INTEGER           ::nProcessors,nLocalProcs,nLeaderProcs,nWorkerProcs
 INTEGER           ::MPI_COMM_FLEXI !< Flexi MPI communicator
-INTEGER           ::MPI_COMM_NODE                                             !< local node subgroup
-INTEGER           ::MPI_COMM_LEADERS                                          !< all node masters
-INTEGER           ::MPI_COMM_WORKERS                                          !< all non-master nodes
 LOGICAL           ::MPIRoot                                                   !< flag whether process is MPI root process
 LOGICAL           ::MPILocalRoot                                              !< flag whether process is root of MPI subgroup
 #if USE_MPI
 INTEGER           ::MPIStatus(MPI_STATUS_SIZE)
+INTEGER           ::MPI_COMM_NODE   =MPI_COMM_NULL                            !< local node subgroup
+INTEGER           ::MPI_COMM_LEADERS=MPI_COMM_NULL                            !< all node masters
+INTEGER           ::MPI_COMM_WORKERS=MPI_COMM_NULL                            !< all non-master nodes
 #endif
 
 LOGICAL           :: doGenerateUnittestReferenceData
@@ -146,8 +146,8 @@ REAL,OPTIONAL                     :: RealInfo        !< Error info (real)
 ! LOCAL VARIABLES
 CHARACTER(LEN=50)                 :: IntString,RealString
 !==================================================================================================================================
-IntString = ""
-RealString = ""
+IntString  = ''
+RealString = ''
 
 IF (PRESENT(IntInfo))  WRITE(IntString,"(A,I0)")  "\nIntInfo:  ", IntInfo
 IF (PRESENT(RealInfo)) WRITE(RealString,"(A,F24.19)") "\nRealInfo: ", RealInfo
@@ -161,6 +161,7 @@ SWRITE(UNIT_stdOut,*) '_________________________________________________________
 
 CALL FLUSH(UNIT_stdOut)
 #if USE_MPI
+CALL MPI_BARRIER(MPI_COMM_FLEXI,iError)
 CALL MPI_FINALIZE(iError)
 #endif
 ERROR STOP 1
@@ -220,15 +221,17 @@ END SUBROUTINE Abort
 !> print a warning to the command line (only MPI root)
 !==================================================================================================================================
 SUBROUTINE PrintWarning(msg)
+! MODULES
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 ! INPUT / OUTPUT VARIABLES
 CHARACTER(LEN=*) :: msg  !< output message
 !===================================================================================================================================
 IF (myRank.EQ.0) THEN
-  WRITE(UNIT_stdOut,*) '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
-  WRITE(UNIT_stdOut,*) 'WARNING:'
-  WRITE(UNIT_stdOut,*) TRIM(msg)
-  WRITE(UNIT_stdOut,*) '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+  WRITE(UNIT_stdOut,'(A)') '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+  WRITE(UNIT_stdOut,'(A)') 'WARNING:'
+  WRITE(UNIT_stdOut,'(A)') TRIM(msg)
+  WRITE(UNIT_stdOut,'(A)') '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
 END IF
 END SUBROUTINE PrintWarning
 
@@ -359,7 +362,7 @@ IF(ExistFile) THEN
         IF(IndNum.EQ.0)IndNum=LEN(TRIM(temp2))+1
         output=TRIM(ADJUSTL(temp2(1:IndNum-1)))
         DefMsg='GPFF'
-        SWRITE(UNIT_StdOut,'(a3,a30,a3,a33,a3,a7,a3)')' | ',TRIM(ParameterName),' | ', output,' | ',TRIM(DefMsg),' | '
+        SWRITE(UNIT_stdOut,'(a3,a30,a3,a33,a3,a7,a3)')' | ',TRIM(ParameterName),' | ', output,' | ',TRIM(DefMsg),' | '
         EXIT ! found the parameter -> exit loop
       END IF
     END IF

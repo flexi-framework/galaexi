@@ -47,21 +47,21 @@ CONTAINS
 !==================================================================================================================================
 SUBROUTINE DefineParametersAnalyze()
 ! MODULES
-USE MOD_ReadInTools ,ONLY: prms
-USE MOD_AnalyzeEquation ,ONLY: DefineParametersAnalyzeEquation
+USE MOD_ReadInTools,        ONLY: prms
+USE MOD_AnalyzeEquation,    ONLY: DefineParametersAnalyzeEquation
 IMPLICIT NONE
 !==================================================================================================================================
 CALL prms%SetSection("Analyze")
-CALL prms%CreateLogicalOption('CalcErrorNorms' , "Set true to compute L2 and LInf error norms at analyze step.",&
+CALL prms%CreateLogicalOption('CalcErrorNorms',  "Set true to compute L2 and LInf error norms at analyze step.",&
                                                  '.TRUE.')
 CALL prms%CreateLogicalOption('AnalyzeToFile',   "Set true to output result of error norms to a file (CalcErrorNorms=T)",&
                                                  '.FALSE.')
-CALL prms%CreateRealOption(   'Analyze_dt',      "Specifies time intervall at which analysis routines are called.",&
+CALL prms%CreateRealOption(   'analyze_dt',      "Specifies time intervall at which analysis routines are called.",&
                                                  '0.')
-CALL prms%CreateIntOption(    'nWriteData' ,     "Intervall as multiple of Analyze_dt at which HDF5 files "//&
+CALL prms%CreateIntOption(    'nWriteData',      "Intervall as multiple of analyze_dt at which HDF5 files "//&
                                                  "(e.g. State,TimeAvg,Fluc) are written.",&
                                                  '1')
-CALL prms%CreateIntOption(    'NAnalyze'   ,     "Polynomial degree at which analysis is performed (e.g. for L2 errors). "//&
+CALL prms%CreateIntOption(    'NAnalyze',        "Polynomial degree at which analysis is performed (e.g. for L2 errors). "//&
                                                  "Default: 2*N.")
 CALL prms%CreateIntOption(    'AnalyzeExactFunc',"Define exact function used for analyze (e.g. for computing L2 errors). "//&
                                                  "Default: Same as IniExactFunc")
@@ -69,6 +69,10 @@ CALL prms%CreateIntOption(    'AnalyzeRefState' ,"Define state used for analyze 
                                                  "Default: Same as IniRefState")
 CALL prms%CreateLogicalOption('doMeasureFlops',  "Set true to measure flop count, if compiled with PAPI.",&
                                                  '.TRUE.')
+CALL prms%CreateRealOption(   'PIDkill',         'Kill FLEXI if PID gets below this value (optional)',&
+                                                 '-1.0')
+CALL prms%CreateIntOption(    'NCalcPID'         ,'Compute PID after every Nth timestep.',&
+                                                  '1')
 CALL DefineParametersAnalyzeEquation()
 END SUBROUTINE DefineParametersAnalyze
 
@@ -107,32 +111,32 @@ CHARACTER(MAXVAL( (/( LEN_TRIM(StrVarNames(i)), i=1,SIZE(StrVarNames(:)) )/) )+5
 IF ((.NOT.InterpolationInitIsDone).OR.AnalyzeInitIsDone) THEN
   CALL CollectiveStop(__STAMP__,'InitAnalyse not ready to be called or already called.')
 END IF
-SWRITE(UNIT_StdOut,'(132("-"))')
+SWRITE(UNIT_stdOut,'(132("-"))')
 SWRITE(UNIT_stdOut,'(A)') ' INIT ANALYZE...'
 
 ! Get the various analysis/output variables
-doCalcErrorNorms  =GETLOGICAL('CalcErrorNorms' ,'.TRUE.')
-doAnalyzeToFile   =GETLOGICAL('AnalyzeToFile','.FALSE.')
-AnalyzeExactFunc  =GETINT('AnalyzeExactFunc',INTTOSTR(IniExactFunc))
-AnalyzeRefState   =GETINT('AnalyzeRefState' ,INTTOSTR(IniRefState))
+doCalcErrorNorms = GETLOGICAL('CalcErrorNorms')
+doAnalyzeToFile  = GETLOGICAL('AnalyzeToFile')
+AnalyzeExactFunc = GETINT('AnalyzeExactFunc',INTTOSTR(IniExactFunc))
+AnalyzeRefState  = GETINT('AnalyzeRefState' ,INTTOSTR(IniRefState))
 
-Analyze_dt        =GETREAL('Analyze_dt','0.0')
-nWriteData        =GETINT('nWriteData' ,'1')
-NAnalyze          =GETINT('NAnalyze'   ,INTTOSTR(2*(PP_N+1)))
+analyze_dt       = GETREAL('analyze_dt')
+nWriteData       = GETINT('nWriteData')
+NAnalyze         = GETINT('NAnalyze'   ,INTTOSTR(2*(PP_N+1)))
 #if PP_dim == 3
-NAnalyzeZ         =NAnalyze
+NAnalyzeZ        = NAnalyze
 #else
-NAnalyzeZ         =0
+NAnalyzeZ        = 0
 #endif
-! If Analyze_dt is set to 0 (default) or to a negative value, no analyze calls should be performed at all.
-! To achieve this, Analyze_dt is set to the final simulation time. This will prevent any calls of the analyze routine
+! If analyze_dt is set to 0 (default) or to a negative value, no analyze calls should be performed at all.
+! To achieve this, analyze_dt is set to the final simulation time. This will prevent any calls of the analyze routine
 ! except at the beginning and the end of the simulation.
-IF (Analyze_dt.LE.0.) THEN
-  Analyze_dt = TEnd
+IF (analyze_dt.LE.0.) THEN
+  analyze_dt = TEnd
   nWriteData = 1
 END IF
 
-WriteData_dt = Analyze_dt*nWriteData
+WriteData_dt = analyze_dt*nWriteData
 
 ! precompute integration weights
 ALLOCATE(wGPSurf(0:PP_N,0:PP_NZ),wGPVol(0:PP_N,0:PP_N,0:PP_NZ))
@@ -192,13 +196,13 @@ END DO
 ! Initialize eval routines
 CALL InitAnalyzeBasis(PP_N,NAnalyze,xGP,wBary)
 
-IF(doAnalyzeToFile)THEN
+IF(doAnalyzeToFile.AND.MPIRoot)THEN
   DO i=1,PP_nVar
     VarNames(i)                   = 'L2_'//TRIM(StrVarNames(i))
     VarNames(PP_nVar+1:PP_nVar+i) = 'LInf_'//TRIM(StrVarNames(i))
   END DO
   VarNames(2*PP_nVar+1:2*PP_nVar+5) = &
-    [CHARACTER(9) :: "timesteps","t_CPU","DOF","Ncells","nProcs"] ! gfortran hates mixed length arrays
+    [CHARACTER(9) :: 'timesteps','t_CPU','DOF','Ncells','nProcs'] ! gfortran hates mixed length arrays
   FileName_ErrNorm='out.'//TRIM(ProjectName)
   CALL InitOutputToFile(FileName_ErrNorm,'Analyze',2*PP_nVar+5,VarNames,lastLine)
   iterRestart    =MAX(lastLine(2*PP_nVar+1),0.)
@@ -208,12 +212,19 @@ END IF
 CALL InitAnalyzeEquation()
 CALL InitBenchmarking()
 
-AnalyzeInitIsDone=.TRUE.
-SWRITE(UNIT_StdOut,'(A,ES18.9)')' Volume of computational domain : ',Vol
-SWRITE(UNIT_stdOut,'(A)')' INIT ANALYZE DONE!'
-SWRITE(UNIT_StdOut,'(132("-"))')
-END SUBROUTINE InitAnalyze
+! Read in kill PID
+PID_kill     = GETREAL('PIDkill')
+IF (PID_kill.GT.0) THEN
+  nCalcPIDMax  = GETINT('nCalcPID')
+  PIDTimeStart = FLEXITIME()
+END IF
 
+AnalyzeInitIsDone = .TRUE.
+SWRITE(UNIT_stdOut,'(A,ES18.9)')' Volume of computational domain : ',Vol
+SWRITE(UNIT_stdOut,'(A)')       ' INIT ANALYZE DONE!'
+SWRITE(UNIT_stdOut,'(132("-"))')
+
+END SUBROUTINE InitAnalyze
 
 
 !==================================================================================================================================
@@ -225,10 +236,10 @@ SUBROUTINE InitAnalyzeBasis(N_in,Nloc,xGP,wBary)
 ! MODULES
 USE MOD_Globals
 USE MOD_Preproc
-USE MOD_Analyze_Vars, ONLY: wGPVolAnalyze,Vdm_GaussN_NAnalyze
-USE MOD_Basis,        ONLY: InitializeVandermonde
-USE MOD_Interpolation,ONLY: GetNodesAndWeights
-USE MOD_Interpolation_Vars,ONLY: NodeTypeGL
+USE MOD_Analyze_Vars,       ONLY: wGPVolAnalyze,Vdm_GaussN_NAnalyze
+USE MOD_Basis,              ONLY: InitializeVandermonde
+USE MOD_Interpolation,      ONLY: GetNodesAndWeights
+USE MOD_Interpolation_Vars, ONLY: NodeTypeGL
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -262,7 +273,6 @@ END DO; END DO
 END SUBROUTINE InitAnalyzeBasis
 
 
-
 !==================================================================================================================================
 !> Controls analysis routines and is called at analyze time levels
 !> - calls generic error norm computation
@@ -274,10 +284,12 @@ USE MOD_Globals
 USE MOD_PreProc
 USE MOD_Analyze_Vars
 USE MOD_AnalyzeEquation,    ONLY: AnalyzeEquation
-USE MOD_Output,             ONLY: OutputToFile
-USE MOD_Output_Vars,        ONLY: ProjectName
-USE MOD_Mesh_Vars,          ONLY: nGlobalElems
 USE MOD_Benchmarking,       ONLY: Benchmarking
+USE MOD_Mesh_Vars,          ONLY: nGlobalElems
+USE MOD_Output,             ONLY: OutputToFile,PrintStatusLine
+USE MOD_Output_Vars,        ONLY: ProjectName
+USE MOD_TimeDisc_Vars,      ONLY: dt,tStart,tEnd
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -292,33 +304,77 @@ REAL                            :: L_Inf_Error(PP_nVar),L_2_Error(PP_nVar)
 ! Graphical output
 CalcTime=FLEXITIME()
 RunTime=CalcTime-StartTime
-SWRITE(UNIT_StdOut,'(A14,ES16.7)')' Sim time   : ',Time
+SWRITE(UNIT_stdOut,'(A14,ES16.7)')' Sim time   : ',Time
 
 ! Calculate error norms
 IF(doCalcErrorNorms)THEN
   CALL CalcErrorNorms(Time,L_2_Error,L_Inf_Error)
-  IF(MPIroot) THEN
+  IF(MPIRoot) THEN
     WRITE(formatStr,'(A5,I1,A7)')'(A14,',PP_nVar,'ES18.9)'
-    WRITE(UNIT_StdOut,formatStr)' L_2        : ',L_2_Error
-    WRITE(UNIT_StdOut,formatStr)' L_inf      : ',L_Inf_Error
+    WRITE(UNIT_stdOut,formatStr)' L_2        : ',L_2_Error
+    WRITE(UNIT_stdOut,formatStr)' L_inf      : ',L_Inf_Error
     IF(doAnalyzeToFile)THEN
       CALL OutputToFile(FileName_ErrNorm,(/Time/),(/2*PP_nVar+5,1/),  (/L_2_Error,L_Inf_Error, &
                         REAL(iter)+iterRestart,RunTime+CalcTimeRestart,              &
                         REAL(nGlobalElems*(PP_N+1)**3),REAL(nGlobalElems),REAL(nProcessors)/))
     END IF
-  END IF !MPIroot
+  END IF !MPIRoot
 END IF  ! ErrorNorms
 
 CALL AnalyzeEquation(Time)
+CALL AnalyzePerformance()
 CALL Benchmarking()
 
-IF(MPIroot .AND. (Time.GT.0.)) THEN
-  WRITE(UNIT_StdOut,'(132("."))')
-  WRITE(UNIT_stdOut,'(A,A,A,F8.2,A)') ' FLEXI RUNNING ',TRIM(ProjectName),'... [',RunTime,' sec ]'
-  WRITE(UNIT_StdOut,'(132("-"))')
-  WRITE(UNIT_StdOut,*)
+IF(Time.GT.0.) THEN
+  SWRITE(UNIT_stdOut,'(132("-"))')
+  CALL PrintStatusLine(time,dt,tStart,tEnd,doETA=.TRUE.)
+  SWRITE(UNIT_stdOut,'(132("."))')
+  SWRITE(UNIT_stdOut,'(A,A,A,F8.2,A)') ' FLEXI RUNNING ',TRIM(ProjectName),'... [',RunTime,' sec ]'
+  SWRITE(UNIT_stdOut,'(132("-"))')
+  SWRITE(UNIT_stdOut,*)
 END IF
 END SUBROUTINE Analyze
+
+
+!==================================================================================================================================
+!> Calculates current code performance
+!==================================================================================================================================
+SUBROUTINE AnalyzePerformance()
+! MODULES
+USE MOD_Globals
+USE MOD_Preproc
+USE MOD_Analyze_Vars,       ONLY: PID,PIDTimeStart,PIDTimeEnd,PID_kill,nCalcPID,nCalcPIDMax
+USE MOD_Mesh_Vars,          ONLY: nGlobalElems
+USE MOD_TimeDisc_Vars,      ONLY: nRKStages
+! IMPLICIT VARIABLE HANDLING
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------!
+! INPUT / OUTPUT VARIABLES
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+!==================================================================================================================================
+
+IF (PID_kill.LE.0) RETURN
+
+! Return if no timestep update requested in this iteration
+IF (nCalcPID.GE.1) THEN
+  nCalcPID = nCalcPID - 1
+  RETURN
+ELSE
+  nCalcPID = nCalcPIDMax - 1
+END IF
+
+! Get calculation time per DOF
+PIDTimeEnd = FLEXITIME()
+PID        = (PIDTimeEnd-PIDTimeStart)*REAL(nProcessors)/(REAL(nGlobalElems)*REAL((PP_N+1)**PP_dim))/nRKStages
+
+! Abort if PID is too low
+IF (PID.LT.PID_kill) &
+  CALL CollectiveStop(__STAMP__,'Aborting due to low performance, PID',RealInfo=PID)
+
+PIDTimeStart = PIDTimeStart
+
+END SUBROUTINE AnalyzePerformance
 
 
 !==================================================================================================================================
@@ -353,14 +409,10 @@ REAL                            :: J_NAnalyze(1,0:NAnalyze,0:NAnalyze,0:NAnalyze
 REAL                            :: J_N(1,0:PP_N,0:PP_N,0:PP_NZ)
 REAL                            :: IntegrationWeight
 #if FV_ENABLED
-REAL                            :: FV_w_volume
 REAL                            :: U_DG(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ)
 REAL                            :: U_FV(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ)
 #endif
 !==================================================================================================================================
-#if FV_ENABLED
-FV_w_volume = FV_w**PP_dim
-#endif
 ! Calculate error norms
 L_Inf_Error(:)=-1.E10
 L_2_Error(:)=0.
@@ -380,7 +432,7 @@ DO iElem=1,nElems
       DO l=0,PP_N
         DO k=0,PP_N
           L_Inf_Error = MAX(L_Inf_Error,ABS(U(:,k,l,m,iElem) - U_FV(:,k,l,m)))
-          IntegrationWeight = FV_w_volume/sJ(k,l,m,iElem,1)
+          IntegrationWeight = FV_w(k)*FV_w(l)*FV_w(m)/sJ(k,l,m,iElem,1)
           ! To sum over the elements, We compute here the square of the L_2 error
           L_2_Error = L_2_Error+(U(:,k,l,m,iElem) - U_FV(:,k,l,m))*(U(:,k,l,m,iElem) - U_FV(:,k,l,m))*IntegrationWeight
         END DO ! k
@@ -390,7 +442,7 @@ DO iElem=1,nElems
 #endif
    ! Interpolate the physical position Elem_xGP to the analyze position, needed for exact function
    CALL ChangeBasisVolume(3,PP_N,NAnalyze,Vdm_GaussN_NAnalyze,Elem_xGP(1:3,:,:,:,iElem),Coords_NAnalyze(1:3,:,:,:))
-   ! Interpolate the Jacobian to the analyze grid: be carefull we interpolate the inverse of the inverse of the jacobian ;-)
+   ! Interpolate the Jacobian to the analyze grid: be careful we interpolate the inverse of the inverse of the Jacobian ;-)
    J_N(1,0:PP_N,0:PP_N,0:PP_NZ)=1./sJ(:,:,:,iElem,0)
    CALL ChangeBasisVolume(1,PP_N,NAnalyze,Vdm_GaussN_NAnalyze,J_N,J_NAnalyze)
    ! Interpolate the solution to the analyze grid
@@ -432,8 +484,8 @@ END SUBROUTINE CalcErrorNorms
 !==================================================================================================================================
 SUBROUTINE FinalizeAnalyze()
 ! MODULES
-USE MOD_AnalyzeEquation,   ONLY: FinalizeAnalyzeEquation
-USE MOD_Analyze_Vars,      ONLY: AnalyzeInitIsDone,wGPSurf,wGPVol,Surf,wGPVolAnalyze,Vdm_GaussN_NAnalyze,ElemVol
+USE MOD_AnalyzeEquation,    ONLY: FinalizeAnalyzeEquation
+USE MOD_Analyze_Vars,       ONLY: AnalyzeInitIsDone,wGPSurf,wGPVol,Surf,wGPVolAnalyze,Vdm_GaussN_NAnalyze,ElemVol
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
@@ -446,7 +498,7 @@ SDEALLOCATE(wGPVol)
 SDEALLOCATE(wGPSurf)
 SDEALLOCATE(ElemVol)
 AnalyzeInitIsDone = .FALSE.
-END SUBROUTINE FinalizeAnalyze
 
+END SUBROUTINE FinalizeAnalyze
 
 END MODULE MOD_Analyze

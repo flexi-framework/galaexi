@@ -30,7 +30,7 @@ CHARACTER(LEN=255)                :: fileType = ''               !< possible val
                                                                  !< * 'Mesh'
 CHARACTER(LEN=255)                :: prmfile_old = ''            !< saves the filename of the previous FLEXI parameter file
 CHARACTER(LEN=255)                :: statefile_old = ''          !< saves the filename of the previous state (*.h5)
-CHARACTER(LEN=255)                :: MeshFile = ''               !< acutal filename of the mesh used for visualization
+CHARACTER(LEN=255)                :: MeshFile = ''               !< actual filename of the mesh used for visualization
 CHARACTER(LEN=255)                :: MeshFile_state = ''         !< filename of the mesh given in the state file
 CHARACTER(LEN=255)                :: MeshFile_old = ''           !< saves  previous MeshFile
 CHARACTER(LEN=255)                :: NodeTypeVisuPosti = "VISU"  !< NodeType used for visualization output
@@ -53,6 +53,7 @@ REAL                              :: OutputTime                  !< simulation t
 LOGICAL                           :: hasFV_Elems = .FALSE.       !< flag indicating if state file contains any FV elements
 LOGICAL                           :: DGonly = .FALSE.            !< flag to force visualization of FV elements as DG elements
 LOGICAL                           :: DGonly_old = .TRUE.         !< saves previous DGonly
+LOGICAL                           :: HighOrder = .FALSE.         !< flag to enable high-order element representation
 INTEGER,ALLOCATABLE               :: mapDGElemsToAllElems(:)     !< maps element index of DG elements to all elements
 INTEGER,ALLOCATABLE               :: mapFVElemsToAllElems(:)     !< maps element index of FV elements to all elements
 INTEGER,ALLOCATABLE               :: FV_Elems_loc(:)             !< current distribution of FV/DG elems
@@ -67,7 +68,7 @@ LOGICAL                           :: Avg2D                       !< Flag indicat
 LOGICAL                           :: Avg2D_old = .FALSE.         !< Previus state of Avg2D flag, used to check for change
 LOGICAL                           :: Avg2DHDF5Output             !< Flag indicating if the averaged solution should be written to a
                                                                  !< .h5 file
-
+LOGICAL                           :: DependenciesOutputDone=.FALSE. !< Flag indicating if dependency table was already written
 
 ! The following flags indicate if during successive visualizations of (different) state files the respective properties
 ! changed. For example the mesh file of different state files in a timeseries is the same ...
@@ -153,6 +154,7 @@ INTEGER,ALLOCATABLE,TARGET            :: nodeidsSurf_FV(:)            !< nodeIDs
 ! ==============================================================================================================================
 ! Avg2D
 ! ==============================================================================================================================
+LOGICAL                           :: IJK_exists                  !< IJK sorting of elements
 INTEGER,ALLOCATABLE               :: Elem_IJK(:,:)               !< IJK sorting of elements
 INTEGER,ALLOCATABLE               :: Elem_IJK_glob(:,:)          !< IJK sorting of global elements for parallel avgerage
 INTEGER                           :: nElems_IJK(3)               !< Number of elements in structured direction

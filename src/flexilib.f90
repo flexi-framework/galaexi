@@ -46,7 +46,7 @@ USE MOD_Eos,               ONLY:DefineParametersEos
 USE MOD_Exactfunc,         ONLY:DefineParametersExactFunc
 USE MOD_Mortar,            ONLY:InitMortar
 USE MOD_Equation,          ONLY:DefineParametersEquation,InitEquation
-USE MOD_Testcase,          ONLY:DefineParametersTestcase
+USE MOD_TestCase,          ONLY:DefineParametersTestcase
 USE MOD_DG,                ONLY:InitDG
 #if PARABOLIC
 USE MOD_Lifting,           ONLY:DefineParametersLifting,InitLifting
@@ -57,23 +57,23 @@ USE MOD_IO_HDF5,           ONLY:DefineParametersIO_HDF5,InitIOHDF5
 USE MOD_Output,            ONLY:DefineParametersOutput,InitOutput
 USE MOD_Analyze,           ONLY:DefineParametersAnalyze,InitAnalyze
 USE MOD_RecordPoints,      ONLY:DefineParametersRecordPoints,InitRecordPoints
-USE MOD_TimeDisc,          ONLY:DefineParametersTimedisc,InitTimeDisc,TimeDisc
+USE MOD_TimeDisc,          ONLY:TimeDisc
+USE MOD_TimeDisc_Functions,ONLY:DefineParametersTimedisc,InitTimeDisc
 USE MOD_Implicit,          ONLY:DefineParametersImplicit,InitImplicit
 USE MOD_Precond,           ONLY:DefineParametersPrecond
 USE MOD_MPI,               ONLY:DefineParametersMPI,InitMPI
 #if USE_MPI
 USE MOD_MPI,               ONLY:InitMPIvars
-#endif
+#endif /*USE_MPI*/
 USE MOD_Sponge,            ONLY:DefineParametersSponge,InitSponge
 #if FV_ENABLED
 USE MOD_FV,                ONLY:DefineParametersFV,InitFV
 USE MOD_FV_Basis,          ONLY:InitFV_Basis
-#endif
 USE MOD_Indicator,         ONLY:DefineParametersIndicator,InitIndicator
+#endif
 USE MOD_ReadInTools,       ONLY:prms,IgnoredParameters,PrintDefaultParameterFile,ExtractParameterFile
-USE MOD_Restart_Vars,      ONLY:RestartFile
 USE MOD_StringTools,       ONLY:STRICMP, GetFileExtension
-USE MOD_Unittest,          ONLY:GenerateUnittestReferenceData        
+USE MOD_Unittest,          ONLY:GenerateUnittestReferenceData
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -84,6 +84,7 @@ INTEGER,INTENT(IN),OPTIONAL   :: mpi_comm_loc
 ! LOCAL VARIABLES
 REAL                    :: Time                              !< Used to measure simulation time
 LOGICAL                 :: userblockFound
+CHARACTER(LEN=255)      :: RestartFile_loc = ''
 !==================================================================================================================================
 CALL SetStackSizeUnlimited()
 IF(PRESENT(mpi_comm_loc))THEN
@@ -104,14 +105,14 @@ IF (nArgs.GT.2) THEN
 END IF
 ParameterFile = Args(1)
 IF (nArgs.GT.1) THEN
-  RestartFile = Args(2)
+  RestartFile_loc = Args(2)
 ELSE IF (STRICMP(GetFileExtension(ParameterFile), "h5")) THEN
   ParameterFile = ".flexi.ini"
   CALL ExtractParameterFile(Args(1), ParameterFile, userblockFound)
   IF (.NOT.userblockFound) THEN
     CALL CollectiveStop(__STAMP__, "No userblock found in state file '"//TRIM(Args(1))//"'")
   END IF
-  RestartFile = Args(1)
+  RestartFile_loc = Args(1)
 END IF
 CALL DefineParametersMPI()
 CALL DefineParametersIO_HDF5()
@@ -125,8 +126,8 @@ CALL DefineParametersExactFunc()
 CALL DefineParametersTestcase()
 CALL DefineParametersFilter()
 CALL DefineParametersOverintegration()
-CALL DefineParametersIndicator()
 #if FV_ENABLED
+CALL DefineParametersIndicator()
 CALL DefineParametersFV()
 #endif
 #if PARABOLIC
@@ -142,6 +143,14 @@ CALL DefineParametersRecordPoints()
 ! check for command line argument --help or --markdown
 IF (doPrintHelp.GT.0) THEN
   CALL PrintDefaultParameterFile(doPrintHelp.EQ.2, Args(1))
+#if USE_MPI
+  ! free the communicator
+  CALL MPI_BARRIER  (MPI_COMM_FLEXI,iError)
+  CALL MPI_COMM_FREE(MPI_COMM_FLEXI,iError)
+  ! we also have to finalize MPI itself here
+  CALL MPI_FINALIZE(iError)
+  IF(iError .NE. 0) STOP 'MPI finalize error'
+#endif
   STOP
 END IF
 CALL prms%read_options(ParameterFile)
@@ -187,16 +196,16 @@ CALL InitFV_Basis()
 CALL InitMortar()
 CALL InitOutput()
 CALL InitMesh(meshMode=2)
-CALL InitRestart()
+CALL InitRestart(RestartFile_loc)
 CALL InitFilter()
 CALL InitOverintegration()
-CALL InitIndicator()
 #if USE_MPI
 CALL InitMPIvars()
 #endif
 CALL InitEquation()
 CALL InitDG()
 #if FV_ENABLED
+CALL InitIndicator()
 CALL InitFV()
 #endif
 #if PARABOLIC
@@ -232,35 +241,35 @@ END SUBROUTINE InitFlexi
 !==================================================================================================================================
 SUBROUTINE FinalizeFlexi()
 ! MODULES
-USE MOD_Commandline_Arguments,ONLY:FinalizeCommandlineArguments
 USE MOD_Globals
-USE MOD_Restart,           ONLY:FinalizeRestart
+USE MOD_Analyze,           ONLY:FinalizeAnalyze
+USE MOD_Commandline_Arguments,ONLY:FinalizeCommandlineArguments
+USE MOD_DG,                ONLY:FinalizeDG
+USE MOD_Equation,          ONLY:FinalizeEquation
+USE MOD_Filter,            ONLY:FinalizeFilter
+USE MOD_Implicit,          ONLY:FinalizeImplicit
 USE MOD_Interpolation,     ONLY:FinalizeInterpolation
+USE MOD_IO_HDF5,           ONLY:FinalizeIOHDF5
 USE MOD_Mesh,              ONLY:FinalizeMesh
 USE MOD_Mortar,            ONLY:FinalizeMortar
-USE MOD_Equation,          ONLY:FinalizeEquation
-USE MOD_DG,                ONLY:FinalizeDG
+USE MOD_Output,            ONLY:FinalizeOutput
+USE MOD_Overintegration,   ONLY:FinalizeOverintegration
+USE MOD_ReadInTools,       ONLY:FinalizeParameters
+USE MOD_RecordPoints,      ONLY:FinalizeRecordPoints
+USE MOD_Restart,           ONLY:FinalizeRestart
+USE MOD_Sponge,            ONLY:FinalizeSponge
+USE MOD_TimeDisc_Functions,ONLY:FinalizeTimeDisc
 #if PARABOLIC
 USE MOD_Lifting,           ONLY:FinalizeLifting
 #endif /*PARABOLIC*/
-USE MOD_Filter,            ONLY:FinalizeFilter
-USE MOD_Overintegration,   ONLY:FinalizeOverintegration
-USE MOD_Output,            ONLY:FinalizeOutput
-USE MOD_Analyze,           ONLY:FinalizeAnalyze
-USE MOD_RecordPoints,      ONLY:FinalizeRecordPoints
-USE MOD_Implicit,          ONLY:FinalizeImplicit
-USE MOD_TimeDisc,          ONLY:FinalizeTimeDisc
 #if USE_MPI
 USE MOD_MPI,               ONLY:FinalizeMPI
-#endif
-USE MOD_Sponge,            ONLY:FinalizeSponge
+#endif /*USE_MPI*/
 #if FV_ENABLED
 USE MOD_FV,                ONLY:FinalizeFV
 USE MOD_FV_Basis,          ONLY:FinalizeFV_Basis
-#endif
 USE MOD_Indicator,         ONLY:FinalizeIndicator
-USE MOD_ReadInTools,       ONLY:FinalizeParameters
-USE MOD_IO_HDF5,           ONLY:FinalizeIOHDF5
+#endif /*FV_ENABLED*/
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
@@ -290,8 +299,8 @@ CALL FinalizeOverintegration()
 CALL FinalizeFilter()
 #if FV_ENABLED
 CALL FinalizeFV_Basis()
-#endif
 CALL FinalizeIndicator()
+#endif
 ! Measure simulation duration
 Time=FLEXITIME()
 CALL FinalizeParameters()

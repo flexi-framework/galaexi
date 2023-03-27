@@ -25,10 +25,10 @@ PROGRAM postrec
 USE MOD_Globals
 USE MOD_PreProc
 USE MOD_Commandline_Arguments
-USE MOD_StringTools                 ,ONLY:STRICMP, GetFileExtension
+USE MOD_StringTools                 ,ONLY:STRICMP,GetFileExtension
 USE MOD_ReadInTools                 ,ONLY:prms,PrintDefaultParameterFile
 USE MOD_ParametersVisu              ,ONLY:equiTimeSpacing,doSpec,doFluctuations,doTurb,doFilter,doEnsemble
-USE MOD_ParametersVisu              ,ONLY:Plane_doBLProps
+USE MOD_ParametersVisu              ,ONLY:Plane_doBLProps,Box_doBLProps
 USE MOD_RPSetVisu                   ,ONLY:FinalizeRPSet
 USE MOD_RPData                      ,ONLY:ReadRPData,AssembleRPData,FinalizeRPData
 USE MOD_OutputRPVisu
@@ -42,6 +42,9 @@ USE MOD_EnsembleRP                  ,ONLY:EnsembleRP
 USE MOD_MPI                         ,ONLY:DefineParametersMPI,InitMPI
 USE MOD_IO_HDF5                     ,ONLY:DefineParametersIO_HDF5,InitIOHDF5
 USE MOD_EOS                         ,ONLY:DefineParametersEOS,InitEOS
+#if USE_MPI
+USE MOD_MPI                         ,ONLY:FinalizeMPI
+#endif /*USE_MPI*/
 ! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !-----------------------------------------------------------------------------------------------------------------------------------
@@ -108,7 +111,7 @@ DO iArg=1,nDataFiles
   IF(InputDataFile(iExt+1:iExt+2) .NE. 'h5') &
     CALL CollectiveStop(__STAMP__,'ERROR - Invalid file extension!')
   ! Read in main attributes from given HDF5 State File
-  WRITE(UNIT_stdOUT,*) "READING DATA FROM RP FILE """,TRIM(InputDataFile), """"
+  WRITE(UNIT_stdOut,*) "READING DATA FROM RP FILE """,TRIM(InputDataFile), """"
   IF(iArg.EQ.1) THEN
     CALL ReadRPData(InputDataFile,firstFile=.TRUE.)
   ELSE
@@ -131,6 +134,7 @@ IF(doFluctuations)     CALL CalcFluctuations()
 IF(doFilter)           CALL FilterRP()
 IF(doSpec)             CALL Spec()
 IF(Plane_doBLProps)    CALL Plane_BLProps()
+IF(Box_doBLProps)      CALL Box_BLProps()
 IF(doTurb)             CALL Turbulence()
 CALL OutputRP()
 CALL FinalizeInterpolation()
@@ -141,10 +145,11 @@ CALL FinalizeRPData()
 CALL FinalizeSpec()
 CALL FinalizeCommandlineArguments()
 #if USE_MPI
+CALL FinalizeMPI()
 CALL MPI_FINALIZE(iError)
-IF(iError .NE. 0) &
-  CALL CollectiveStop(__STAMP__,'MPI finalize error',iError)
+IF(iError .NE. 0) STOP 'MPI finalize error'
 #endif
+
 WRITE(UNIT_stdOut,'(132("="))')
 WRITE(UNIT_stdOut,'(A)') ' RECORDPOINTS POSTPROC FINISHED! '
 WRITE(UNIT_stdOut,'(132("="))')
@@ -183,6 +188,8 @@ CALL prms%CreateLogicalOption('equiTimeSpacing'    ,"Set to interpolate the temp
 CALL prms%CreateLogicalOption('OutputPoints'       ,"General option to turn off the output of points",".TRUE.")
 CALL prms%CreateLogicalOption('OutputLines'        ,"General option to turn off the output of lines",".TRUE.")
 CALL prms%CreateLogicalOption('OutputPlanes'       ,"General option to turn off the output of planes",".TRUE.")
+CALL prms%CreateLogicalOption('OutputBoxes'        ,"General option to turn off the output of boxes",".TRUE.")
+
 
 CALL prms%CreateLogicalOption('doFFT'              ,"Calculate a fast Fourier transform of the time signal",".FALSE.")
 CALL prms%CreateLogicalOption('doPSD'              ,"Calculate the power spectral density of the time signal",".FALSE.")
@@ -201,7 +208,10 @@ CALL prms%CreateRealOption   ('chord'              ,"TODO")
 
 CALL prms%CreateLogicalOption('doTurb'             ,"Set to compute a temporal FFT for each RP and compute turbulent quantities&
                                                     & like the kinetic energy over wave number",".FALSE.")
-
+CALL prms%CreateLogicalOption('Box_doBLProps'      ,"Set to calculate seperate boundary layer quantities for boundary layer&
+                                                    & planes",".FALSE.")
+CALL prms%CreateIntOption    ('Box_BLvelScaling'   ,"Choose scaling for boundary layer quantities. 0: no scaling, 1: laminar&
+                                                    & scaling, 3: turbulent scaling")
 CALL prms%CreateLogicalOption('Plane_doBLProps'    ,"Set to calculate seperate boundary layer quantities for boundary layer&
                                                      & planes",".FALSE.")
 CALL prms%CreateIntOption    ('Plane_BLvelScaling' ,"Choose scaling for boundary layer quantities. 0: no scaling, 1: laminar&
@@ -209,6 +219,10 @@ CALL prms%CreateIntOption    ('Plane_BLvelScaling' ,"Choose scaling for boundary
 CALL prms%CreateIntOption    ('RPRefState'         ,"Refstate required for computation of e.g. cp.")
 CALL prms%CreateRealArrayOption('RefState',     "State(s) in primitive variables (density, velx, vely, velz, pressure).",&
                                                 multiple=.TRUE.)
+
+CALL prms%CreateLogicalOption('Box_LocalCoords'    ,"Set to use local instead of global coordinates along boxes",".FALSE.")
+CALL prms%CreateLogicalOption('Box_LocalVel'       ,"Set to use local instead of global velocities along boxes",".FALSE.")
+
 CALL prms%CreateLogicalOption('Plane_LocalCoords'  ,"Set to use local instead of global coordinates along planes",".FALSE.")
 CALL prms%CreateLogicalOption('Plane_LocalVel'     ,"Set to use local instead of global velocities along planes",".FALSE.")
 
@@ -256,22 +270,24 @@ Projectname=GETSTR('ProjectName')
 ! =============================================================================== !
 ! RP INFO
 ! =============================================================================== !
+
 nGroups_visu=CountOption('GroupName')
+
 ALLOCATE(GroupNames_visu(nGroups_visu))
+
 DO iGroup=1,nGroups_visu
-  GroupNames_visu(iGroup)=GETSTR('Groupname','none')
+  GroupNames_visu(iGroup) = GETSTR('Groupname','none')
 END DO
-RP_SET_defined=.FALSE.
-RP_DefFile=GETSTR('RP_DefFile','none')
-IF(TRIM(RP_defFile).NE.'none') THEN
-  RP_SET_defined=.TRUE.
-END IF
+
+RP_SET_defined = .FALSE.
+RP_DefFile     = GETSTR('RP_DefFile','none')
+IF(TRIM(RP_defFile).NE.'none') RP_SET_defined=.TRUE.
 
 ! use primitive variables for derived quantities if they exist in the state file
-usePrims=GETLOGICAL('usePrims','.FALSE.')
+usePrims  = GETLOGICAL('usePrims','.FALSE.')
 
 ! rescale RPs if required
-meshScale=GETREAL('meshScale','1.')
+meshScale = GETREAL('meshScale','1.')
 
 ! =============================================================================== !
 ! TIME INTERVAL
@@ -334,6 +350,26 @@ IF(doEnsemble) THEN
 END IF
 
 ! =============================================================================== !
+! BOX OPTIONS
+! =============================================================================== !
+OutputBoxes     =GETLOGICAL('OutputBoxes','.TRUE.')
+Box_LocalCoords =GETLOGICAL('Box_LocalCoords','.FALSE.')
+Box_LocalVel    =GETLOGICAL('Box_LocalVel','.FALSE.')
+Box_doBLProps   =GETLOGICAL('Box_doBLProps','.FALSE.')
+IF(Box_doBLProps) THEN ! for BL properties we need local coords and velocities
+  WRITE(UNIT_StdOut,'(A)')' BL properties depend on local velocities and coordinates'
+  WRITE(UNIT_StdOut,'(A)')' and are calculated based on time-averaged data.'
+  WRITE(UNIT_StdOut,'(A)')' Setting Box_localCoords=.TRUE. and Box_localVel=.TRUE..'
+  CalcTimeAverage  =.TRUE.
+  OutputTimeAverage=.TRUE.
+  Box_LocalCoords=.TRUE.
+  Box_LocalVel   =.TRUE.
+  Box_BLvelScaling  =GETINT('Box_BLvelScaling','0') ! 0 - no scaling.
+  ! 1 - "laminar scaling": scale velocity with u_delta and PlaneY with delta99
+  ! 2 - "turbulent scaling:" calculate u+ and y+
+END IF
+
+! =============================================================================== !
 ! PLANE OPTIONS
 ! =============================================================================== !
 OutputPlanes      =GETLOGICAL('OutputPlanes','.TRUE.')
@@ -341,9 +377,9 @@ Plane_LocalCoords =GETLOGICAL('Plane_LocalCoords','.FALSE.')
 Plane_LocalVel    =GETLOGICAL('Plane_LocalVel','.FALSE.')
 Plane_doBLProps   =GETLOGICAL('Plane_doBLProps','.FALSE.')
 IF(Plane_doBLProps) THEN ! for BL properties we need local coords and velocities
-  WRITE(UNIT_StdOut,'(A)')' BL properties depend on local velocities and coordinates'
-  WRITE(UNIT_StdOut,'(A)')' and are calculated based on time-averaged data.'
-  WRITE(UNIT_StdOut,'(A)')' Setting Plane_localCoords=.TRUE. and Plane_localVel=.TRUE..'
+  WRITE(UNIT_stdOut,'(A)')' BL properties depend on local velocities and coordinates'
+  WRITE(UNIT_stdOut,'(A)')' and are calculated based on time-averaged data.'
+  WRITE(UNIT_stdOut,'(A)')' Setting Plane_localCoords=.TRUE. and Plane_localVel=.TRUE..'
   CalcTimeAverage  =.TRUE.
   OutputTimeAverage=.TRUE.
   Plane_LocalCoords=.TRUE.
@@ -351,14 +387,19 @@ IF(Plane_doBLProps) THEN ! for BL properties we need local coords and velocities
   Plane_BLvelScaling  =GETINT('Plane_BLvelScaling','0') ! 0 - no scaling.
   ! 1 - "laminar scaling": scale velocity with u_delta and PlaneY with delta99
   ! 2 - "turbulent scaling:" calculate u+ and y+
+END IF
 
+! =============================================================================== !
+! REFSTATE
+! =============================================================================== !
+IF(Plane_doBLProps.OR.Box_doBLProps) THEN
   nRefState=CountOption('RefState')
   RPRefState  = GETINT('RPRefState', "0")
   IF(RPRefState.GT.nRefState)THEN
     CALL CollectiveStop(__STAMP__,&
       'ERROR: Ini not defined! (Ini,nRefState):',RPRefState,REAL(nRefState))
   ELSE IF(RPRefState .EQ. 0)THEN
-    SWRITE(UNIT_StdOut,'(A)')' No RefState specified, using the first one'
+    SWRITE(UNIT_stdOut,'(A)')' No RefState specified, using the first one'
     RPRefState=1
   END IF
 
@@ -367,7 +408,7 @@ IF(Plane_doBLProps) THEN ! for BL properties we need local coords and velocities
     RefStatePrim(1:5,i)  = GETREALARRAY('RefState',5)
 #if PP_dim==2
   IF(RefStatePrim(4,i).NE.0.) THEN
-    SWRITE(UNIT_StdOut,'(A)')' You are computing in 2D! RefStatePrim(4) will be set to zero!'
+    SWRITE(UNIT_stdOut,'(A)')' You are computing in 2D! RefStatePrim(4) will be set to zero!'
     RefStatePrim(4,i)=0.
   END IF
 #endif
@@ -378,6 +419,7 @@ IF(Plane_doBLProps) THEN ! for BL properties we need local coords and velocities
   pInf   = RefStatePrim(5,RPRefState)
   SDEALLOCATE(RefStatePrim)
 END IF
+
 ! =============================================================================== !
 ! LINE OPTIONS
 ! =============================================================================== !
@@ -482,4 +524,3 @@ WRITE (*,'(A,'//format//'I3)') "mapCalc ",mapCalc
 WRITE (*,'(A,'//format//'I3)') "mapVisu ",mapVisu
 
 END SUBROUTINE Build_mapCalc_mapVisu
-

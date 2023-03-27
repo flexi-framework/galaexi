@@ -55,20 +55,20 @@ USE MOD_ReadInTools ,ONLY: prms
 IMPLICIT NONE
 !==================================================================================================================================
 CALL prms%SetSection("Preconditioner")
-CALL prms%CreateIntOption(    'PrecondType',     "Preconditioner Type (0: no Preconditioner, 1: analytic, 2: finite difference, 3:&
-                                                 & compute both and compare)", value='1')
-CALL prms%CreateIntOption(    'PrecondIter',     "Defines how often preconditioner is built", value='1')
-CALL prms%CreateIntOption(    'SolveSystem',     "Solver of the preconditioned system (0: exact LU inversion, 1: inexact ILU(0) &
-                                                 &inversion, always with NoFillIn=T)", value='1')
+CALL prms%CreateIntOption(    'PrecondType',     "Preconditioner Type (0: no Preconditioner, 1: analytic, 2: finite difference, 3: &
+                                                 & compute both and compare)"                                     , value='1')
+CALL prms%CreateIntOption(    'PrecondIter',     "Defines how often preconditioner is built"                      , value='1')
+CALL prms%CreateIntOption(    'SolveSystem',     "Solver of the preconditioned system (0: exact LU inversion, 1: inexact ILU(0)    &
+                                                 &inversion, always with NoFillIn=T)"                             , value='1')
 CALL prms%CreateIntOption(    'DebugMatrix',     "Write Jacobians to file for debug purposes (0: no output, 1: non-inverted matrix,&
-                                                 &2: additionally inverted matrix, 3: additionally check inversion accuracy)",&
-                                                  value='0')
-CALL prms%CreateLogicalOption('HyperbolicPrecond',    "Preconditioner only for the hyperbolic flux", value='.FALSE.')
+                                                 &2: additionally inverted matrix, 3: additionally check inversion accuracy)"      &
+                                                                                                                  , value='0')
+CALL prms%CreateLogicalOption('HyperbolicPrecond',"Preconditioner only for the hyperbolic flux"                   , value='.FALSE.')
 #if PARABOLIC
 CALL prms%CreateLogicalOption('NoFillIn'   ,     "Precond for parabolic system forced to have the same sparsity as the &
-                                                 &Euler Precond", value='.FALSE.')
+                                                 &Euler Precond"                                                  , value='.FALSE.')
 #endif
-CALL prms%CreateLogicalOption('DoDisplayPrecond',"Display building time of preconditioner",'.FALSE.')
+CALL prms%CreateLogicalOption('DoDisplayPrecond',"Display building time of preconditioner"                        , value='.FALSE.')
 
 END SUBROUTINE DefineParametersPrecond
 
@@ -85,6 +85,9 @@ USE MOD_Mesh_Vars     ,ONLY:nElems
 USE MOD_Implicit_Vars ,ONLY:nDOFVarElem
 USE MOD_Jac_ex        ,ONLY:InitJac_ex
 USE MOD_ReadInTools   ,ONLY:GETINT,GETLOGICAL
+#if PP_dim==3
+USE MOD_Mesh_Vars     ,ONLY:firstInnerSide,lastInnerSide,SideToElem
+#endif
 ! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !-----------------------------------------------------------------------------------------------------------------------------------
@@ -93,30 +96,45 @@ IMPLICIT NONE
 ! OUTPUT VARIABLES
 !-----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
+#if PP_dim==3
+INTEGER                   :: i
+#endif
 !===================================================================================================================================
 IF(PrecondInitIsDone)THEN
    SWRITE(*,*) "InitPrecond already called."
    RETURN
 END IF
-SWRITE(UNIT_StdOut,'(132("-"))')
+SWRITE(UNIT_stdOut,'(132("-"))')
 SWRITE(UNIT_stdOut,'(A)') ' INIT PRECONDITIONER...'
 
-PrecondType       = GETINT(    'PrecondType',      '1' )
-PrecondIter       = GETINT(    'PrecondIter',      '1' )
-SolveSystem       = GETINT(    'SolveSystem',      '1' )
-DebugMatrix       = GETINT(    'DebugMatrix',      '0' )
-HyperbolicPrecond = GETLOGICAL('HyperbolicPrecond','.FALSE.')
+PrecondType       = GETINT(    'PrecondType')
+PrecondIter       = GETINT(    'PrecondIter')
+SolveSystem       = GETINT(    'SolveSystem')
+DebugMatrix       = GETINT(    'DebugMatrix')
+HyperbolicPrecond = GETLOGICAL('HyperbolicPrecond')
 #if PARABOLIC
-NoFillIn          = GETLOGICAL('NoFillIn',         '.FALSE.')
+NoFillIn          = GETLOGICAL('NoFillIn')
 #endif
-DoDisplayPrecond  = GETLOGICAL('DoDisplayPrecond', '.FALSE.')
+DoDisplayPrecond  = GETLOGICAL('DoDisplayPrecond')
 
 ! Allocate the preconditioner matrix
 ALLOCATE(Ploc(1:nDOFVarElem,1:nDOFVarElem))
 IF(PrecondType.EQ.3) ALLOCATE(Ploc1(1:nDOFVarElem,1:nDOFVarElem))
 
 ! Initialization of the analytical Preconditioner
-IF ((PrecondType.EQ.1).OR.(PrecondType.EQ.3))  CALL InitJac_Ex()
+IF ((PrecondType.EQ.2).OR.(PrecondType.EQ.3)) THEN
+#if PP_dim==3
+  ! Abort for 2D periodic meshes, when compiling in 3D. Preconditioner is not working in that case
+  DO i=firstInnerSide,lastInnerSide
+    IF(SideToElem(S2E_ELEM_ID,i).EQ.SideToElem(S2E_NB_ELEM_ID,i)) THEN
+      CALL CollectiveStop(__STAMP__,'ERROR - This is a 2D mesh.')
+    ENDIF
+  END DO
+#endif
+END IF
+
+! Initialization of the analytical Preconditioner
+IF ((PrecondType.EQ.1).OR.(PrecondType.EQ.3)) CALL InitJac_Ex()
 
 ! Method how to solve the preconditioned linear system
 IF(PrecondType.NE.0)THEN
@@ -135,7 +153,7 @@ END IF
 
 PrecondInitIsDone = .TRUE.
 SWRITE(UNIT_stdOut,'(A)')' INIT PRECONDITIONER DONE!'
-SWRITE(UNIT_StdOut,'(132("-"))')
+SWRITE(UNIT_stdOut,'(132("-"))')
 END SUBROUTINE InitPrecond
 
 !===================================================================================================================================
@@ -207,7 +225,7 @@ IF(PrecondType.EQ.0) RETURN !NO PRECONDITIONER
 
 ! Output of building time for preconditioner
 IF(DoDisplayPrecond)THEN
-  SWRITE(UNIT_StdOut,'(132("-"))')
+  SWRITE(UNIT_stdOut,'(132("-"))')
   SWRITE(UNIT_stdOut,'(A)') ' BUILD PRECONDITIONER...'
 END IF
 
@@ -311,7 +329,7 @@ DO iElem=1,nElems
                 ' relative difference: ', MAXVAL(ABS(Ploc1))/MAX(ABS(Ploc(ind(1),ind(2))),1.E-16)
     IF(MAXVAL(ABS(Ploc1)).GT.1.0E-4) STOP
   CASE DEFAULT
-    CALL abort(__STAMP__,'No valid preconditioner chosen!')
+    CALL Abort(__STAMP__,'No valid preconditioner chosen!')
   END SELECT
 
   ! add contibution I-alpha*dt*dRdU
@@ -330,7 +348,7 @@ DO iElem=1,nElems
   CASE(1)
     CALL BuildILU0(Ploc,iElem)
   CASE DEFAULT
-    CALL abort(__STAMP__,'No valid linear solver for inverting preconditioner chosen!')
+    CALL Abort(__STAMP__,'No valid linear solver for inverting preconditioner chosen!')
   END SELECT
   IF(DebugMatrix.NE.0) CALL CheckBJPrecond(Ploc,invP(:,:,iElem),iElem)
 END DO !iElem
@@ -345,7 +363,7 @@ IF(DoDisplayPrecond)THEN
 #endif /*MPI*/
   SWRITE(UNIT_stdOut,'(A,F11.3,A)')' TOTAL DERIVATING & INVERTING TIME =[',Time,' ]'
   SWRITE(UNIT_stdOut,'(A)')' BUILD PRECONDITIONER DONE!'
-  SWRITE(UNIT_StdOut,'(132("-"))')
+  SWRITE(UNIT_stdOut,'(132("-"))')
 END IF
 
 END SUBROUTINE  BuildPrecond

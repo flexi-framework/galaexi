@@ -17,7 +17,7 @@
 !==================================================================================================================================
 !> Subroutines defining one specific testcase with all necessary variables
 !==================================================================================================================================
-MODULE MOD_Testcase
+MODULE MOD_TestCase
 ! MODULES
 IMPLICIT NONE
 PRIVATE
@@ -49,7 +49,7 @@ END INTERFACE
 !END INTERFACE
 
 INTERFACE AnalyzeTestCase
-  MODULE PROCEDURE DO_NOTHING
+  MODULE PROCEDURE DO_NOTHING_LOG
 END INTERFACE
 
 INTERFACE GetBoundaryFluxTestcase
@@ -125,7 +125,7 @@ REAL,INTENT(OUT)                :: Resu_tt(5)  !< second time deriv of exact fuc
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 !==================================================================================================================================
-CALL abort(__STAMP__,'Exactfunction not specified!')
+CALL Abort(__STAMP__,'Exactfunction not specified!')
 Resu=-1.
 Resu_t =-1.
 Resu_tt=-1.
@@ -196,8 +196,15 @@ END SUBROUTINE TestcaseSource
 !==================================================================================================================================
 SUBROUTINE DO_NOTHING(optionalREAL,optionalREAL2)
 IMPLICIT NONE
-REAL,OPTIONAL,INTENT(IN)  :: optionalREAL,optionalREAL2
+REAL,OPTIONAL,INTENT(IN)    :: optionalREAL,optionalREAL2
 END SUBROUTINE DO_NOTHING
+
+
+SUBROUTINE DO_NOTHING_LOG(optionalREAL,optionalLOG)
+IMPLICIT NONE
+REAL,OPTIONAL,INTENT(IN)    :: optionalREAL
+LOGICAL,OPTIONAL,INTENT(IN) :: optionalLOG
+END SUBROUTINE DO_NOTHING_LOG
 
 
 SUBROUTINE GetBoundaryFluxTestcase(SideID,t,Nloc,Flux,UPrim_master,                   &
@@ -249,4 +256,4 @@ REAL,INTENT(OUT)   :: Flux(     PP_nVarLifting,0:PP_N,0:PP_NZ) !< lifting bounda
 !==================================================================================================================================
 END SUBROUTINE Lifting_GetBoundaryFluxTestcase
 
-END MODULE MOD_Testcase
+END MODULE MOD_TestCase

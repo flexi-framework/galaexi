@@ -27,8 +27,11 @@ INTERFACE GetBLPlane
   MODULE PROCEDURE GetBLPlane
 END INTERFACE
 
+INTERFACE GetBLBox
+  MODULE PROCEDURE GetBLBox
+END INTERFACE
 
-PUBLIC :: GetBLPlane
+PUBLIC :: GetBLPlane,GetBLBox
 !===================================================================================================================================
 
 CONTAINS
@@ -157,6 +160,189 @@ Plane%TangVec=TangVecRP
 DEALLOCATE(RPlist_tmp,NormVecRP,TangVecRP,coeff,s)
 END SUBROUTINE GetBLPlane
 
+!===================================================================================================================================
+!> Define a spline from control points, create equidistant parametrization along that spline, project it on
+!> the closest boundary and create a box along the boundary normals
+!===================================================================================================================================
+SUBROUTINE GetBLBox(Box,nCP,nSP,height,fac,xCP)
+! MODULES
+USE MOD_Globals
+USE MOD_PreProc
+USE MOD_RPSet_Vars,ONLY:tBox,tRPlist
+USE MOD_RPSet_Vars,ONLY:GetNewRP
+USE MOD_Spline    ,ONLY:GetSpline,GetEquiPoints,EvalSpline,EvalSplineDeriv,EvalEquiError
+IMPLICIT NONE
+!-----------------------------------------------------------------------------------------------------------------------------------
+! INPUT VARIABLES
+TYPE(tBox),POINTER              :: Box
+INTEGER,INTENT(IN)              :: nCP
+INTEGER,INTENT(IN)              :: nSP
+REAL,INTENT(IN)                 :: height(nCP,nSP),fac
+REAL,INTENT(IN)                 :: xCP(3,nCP,nSP)
+!-----------------------------------------------------------------------------------------------------------------------------------
+! OUTPUT VARIABLES
+!-----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                         :: nRP(3),i,j,k,iCP,iSP,iter
+REAL                            :: x_loc(3),s_loc,dx_loc(3)
+TYPE(tRPlist),POINTER           :: RPlist_tmp(:,:)
+REAL,ALLOCATABLE                :: xRP(:,:,:),xRP_tmp(:,:,:),NormVecRP(:,:,:),TangVecRP(:,:,:),dh(:)
+REAL,ALLOCATABLE                :: s(:,:),s_mod(:),s_equi(:,:),coeff(:,:,:,:)
+REAL                            :: h,t,height_loc,EquiErr,EquiErrSum
+INTEGER,ALLOCATABLE             :: Points(:)
+INTEGER                         :: iBase
+REAL,ALLOCATABLE                :: xBase(:,:,:),heightBase(:,:),depth(:)
+!===================================================================================================================================
+
+! get resolution
+nRP=Box%nRP(1:3)
+
+ALLOCATE(RPlist_tmp(nRP(1),nRP(3)))
+ALLOCATE(NormVecRP(3,nRP(1),nRP(3)))
+ALLOCATE(TangVecRP(3,nRP(1),nRP(3)))
+ALLOCATE(xRP(3,nRP(1),nRP(3)))
+ALLOCATE(xRP_tmp(3,nRP(1),nRP(3)))
+ALLOCATE(s_equi(nRP(1),nRP(3)))
+ALLOCATE(coeff(3,4,nCP-1,nRP(3)),s(nCP,nRP(3)))
+
+! linear interpolation of data
+ALLOCATE(depth(nSP-1))
+ALLOCATE(Points(nSP-1))
+DO iSP=2,nSP
+  depth(iSP-1) = (xCP( 3,1,iSP)-xCP( 3,1,iSP-1))/(xCP( 3,1,nSP)-xCP( 3,1,1))
+END DO
+Points=FLOOR((REAL(nRP(3))-REAL(nSP))*depth)
+iSP = 1
+DO WHILE(SUM(Points).LT.(nRP(3)-nSP))
+  Points(iSP) = Points(iSP)+1
+  iSP = iSP+1
+  IF (iSP.EQ.nSP) iSP = 1
+END DO
+ALLOCATE(xBase(3,nCP,nRP(3)))
+ALLOCATE(heightBase(nCP,nRP(3)))
+iBase = 0
+iSP = 1
+DO k=1,nRP(3)
+  IF (iBase.EQ.(Points(iSP)+1)) THEN
+    iBase = 0
+    iSP = iSP+1
+  END IF
+  IF (iBase.EQ.0) THEN ! reuse provided data
+    xBase(:,:,k)    = xCP( :,:,iSP)
+    heightBase(:,k) = height(:,iSP)
+  ELSE ! linear interpolation between lines
+      ! in x
+      xBase(1,:,k)    = xCP(1,:,iSP)+(xCP(1,:,iSP+1)-xCP(1,:,iSP))/(Points(iSP)+1)*iBase
+      ! in y
+      xBase(2,:,k)    = xCP(2,:,iSP)+(xCP(2,:,iSP+1)-xCP(2,:,iSP))/(Points(iSP)+1)*iBase
+      ! in z
+      xBase(3,:,k)    = xCP(3,:,iSP)+(xCP(3,:,iSP+1)-xCP(3,:,iSP))/(Points(iSP)+1)*iBase
+      ! height
+      heightBase(:,k) = height(:,iSP)+(height(:,iSP+1)-height(:,iSP))/(Points(iSP)+1)*iBase
+  END IF
+  iBase = iBase+1
+END DO
+
+DO k=1,nRP(3) ! Iterate along each point in z direction
+  CALL GetSpline(3,nCP,xBase(:,:,k),coeff(:,:,:,k),s(:,k)) ! get spline coefficients and arclength variable s
+
+  ! Sampling of the spline to nRP(1) and allocate first row of RPs
+  DO i=1,nRP(1)
+    s_loc=s(nCP,k)*(i-1)/(nRP(1)-1)
+    CALL EvalSpline(3,nCP,s_loc,s(:,k),coeff(:,:,:,k),x_loc)
+    CALL GetNewRP(Box%RP_ptr(i,1,k)%RP,Box%GroupID,x_loc)
+    RPlist_tmp(i,k)%RP=>Box%RP_ptr(i,1,k)%RP
+  END DO ! i
+
+  ! projection of the supersampled points on the closest boundary
+  CALL ProjectRPtoBC(nRP(1),RPlist_tmp(:,k),NormVecRP(:,:,k))
+  DO i=1,nRP(1)
+    RPlist_tmp(i,k)%RP%x=RPlist_tmp(i,k)%RP%xF
+    xRP(:,i,k)=RPlist_tmp(i,k)%RP%xF
+  END DO
+END DO
+
+!iterate between projection and equidistant partitioning
+DO iter=1,10
+  ! get equidistant distribution along projected spline
+  xRP_tmp = xRP
+  EquiErrSum = 0.
+  DO k=1,nRP(3)
+    CALL GetEquiPoints(3,nRP(1),nRP(1),xRP_tmp(:,:,k),xRP(:,:,k),s_equi(:,k))
+    DO i=1,nRP(1)
+      RPlist_tmp(i,k)%RP%x=xRP(:,i,k)
+    END DO
+    ! evaluate deviation from equidistancy
+    CALL EvalEquiError(3,nRP(1),xRP(:,:,k),EquiErr)
+    EquiErrSum = EquiErrSum+EquiErr
+  END DO
+  WRITE(*,*) 'After partitioning ',EquiErrSum/nRP(3)
+  ! project the equidistant points again to get their normal vector
+  EquiErrSum = 0.
+  DO k=1,nRP(3)
+    CALL ProjectRPtoBC(nRP(1),RPlist_tmp,NormVecRP)
+    DO i=1,nRP(1)
+      RPlist_tmp(i,k)%RP%x=RPlist_tmp(i,k)%RP%xF
+      xRP(:,i,k)=RPlist_tmp(i,k)%RP%xF
+    END DO
+    ! evaluate deviation from equidistancy
+    CALL EvalEquiError(3,nRP(1),xRP(:,:,k),EquiErr)
+    EquiErrSum = EquiErrSum + EquiErr
+  END DO
+  WRITE(*,*) 'After projection ',iter, EquiErrSum/nRP(3)
+END DO
+
+! calculate the tangent vector
+DEALLOCATE(coeff)
+ALLOCATE(s_mod(nRP(1)),coeff(3,4,nRP(1)-1,nRP(3)))
+DO k=1,nRP(3) ! Iterate along each point in z direction
+  CALL GetSpline(3,nRP(1),xRP(:,:,k),coeff(:,:,:,k),s_mod) ! get the spline through the projected points
+
+  ! get the tangent vector in each point
+  DO i=1,nRP(1)
+    !derivative of the spline
+    CALL EvalSplineDeriv(3,nRP(1),s_mod(i),s_mod,coeff(:,:,:,k),dx_loc)
+    !project it on the local surface
+    tangVecRP(:,i,k)=dx_loc - SUM(dx_loc(1:3)*NormVecRP(1:3,i,k))*NormVecRP(:,i,k)
+    tangVecRP(:,i,k)=tangVecRP(:,i,k)/SQRT(DOT_PRODUCT(tangVecRP(:,i,k),tangVecRP(:,i,k)))
+  END DO
+END DO
+
+! extrapolation of the BL mesh along the boundary normals to height
+ALLOCATE(dh(2:nRP(2)))
+dh(2)=1.
+DO i=3,nRP(2)
+  dh(i)=dh(i-1)*fac
+END DO
+dh(:)=dh(:)/SUM(dh(:))
+iCP=2
+DO k=1,nRP(3)
+  DO i=1,nRP(1)
+    s_loc=s(nCP,k)*(i-1)/(nRP(1)-1)
+    ! linear interpolation of the height between control points
+    DO WHILE(s(iCP,k).LT.(s_loc-100.*PP_RealTolerance))
+      iCP=iCP+1
+    END DO
+    iCP=MIN(iCP,nCP)
+  !  IF(s_loc.GE.s(iCP)) iCP=MAX(iCP+1,nCP)
+    t=(s_loc-s(iCP-1,k))/(s(iCP,k)-s(iCP-1,k))
+    height_loc=heightBase(iCP-1,k)*(1-t)+heightBase(iCP,k)*t
+    h=0.
+    DO j=2,nRP(2)
+      h=h+dh(j)
+      x_loc=Box%RP_ptr(i,1,k)%RP%x+NormVecRP(:,i,k)*h*height_loc
+      CALL GetNewRP(Box%RP_ptr(i,j,k)%RP,Box%GroupID,x_loc)
+    END DO
+  END DO
+END DO
+
+ALLOCATE(Box%NormVec(3,nRP(1),nRP(3)))
+ALLOCATE(Box%TangVec(3,nRP(1),nRP(3)))
+Box%NormVec=NormVecRP
+Box%TangVec=TangVecRP
+
+DEALLOCATE(RPlist_tmp,NormVecRP,TangVecRP,coeff,s,depth,xBase,heightBase,Points)
+END SUBROUTINE GetBLBox
 
 
 !===================================================================================================================================
@@ -202,7 +388,7 @@ REAL                  :: G(2),Xi2(2),Jac2(2,2),sJac2(2,2),xWinner(3),NormVecWinn
 REAL                  :: F(1:3),eps_F
 
 !===================================================================================================================================
-SWRITE(UNIT_StdOut,'(A,I4,A)')' Project ',nRP,' RPs on the closest boundary...'
+SWRITE(UNIT_stdOut,'(A,I4,A)')' Project ',nRP,' RPs on the closest boundary...'
 iRP2=0
 dist2RP=HUGE(1.)
 NormVecRP=0.
@@ -283,7 +469,8 @@ DO SideID=1,nBCSides
         END DO !l=0,NSuper
       END DO! i=0,NSuper
     END DO! j=0,NSuper
-    ! get initial value of the functional G
+
+    ! Get initial value of the functional G
     CALL LagrangeInterpolationPolys(Xi2(1),NSuper,Xi_NSuper,wBary_NSuper,Lag_NSuper(1,:))
     CALL LagrangeInterpolationPolys(Xi2(2),NSuper,Xi_NSuper,wBary_NSuper,Lag_NSuper(2,:))
     G=0.
@@ -292,12 +479,14 @@ DO SideID=1,nBCSides
         G=G+Gmat(:,i,j)*Lag_NSuper(1,i)*Lag_NSuper(2,j)
       END DO! i=0,NSuper
     END DO! j=0,NSuper
+
+    ! Start Newton
     eps_F=1.E-10*(SUM(G*G))
     NewtonIter=0
     DO WHILE ((SUM(G*G).GT.eps_F).AND.(NewtonIter.LT.50))
       NewtonIter=NewtonIter+1
-      ! Compute G Jacobian dG/dXi
 
+      ! Compute G Jacobian dG/dXi
       Jac2=0.
       DO j=0,NSuper
         DO i=0,NSuper
@@ -317,6 +506,8 @@ DO SideID=1,nBCSides
       ! Compute function value
       CALL LagrangeInterpolationPolys(Xi2(1),NSuper,Xi_NSuper,wBary_NSuper,Lag_NSuper(1,:))
       CALL LagrangeInterpolationPolys(Xi2(2),NSuper,Xi_NSuper,wBary_NSuper,Lag_NSuper(2,:))
+      ! Exit if we are far enough outside of [-1,1] for the basis to reach 'Infinity' overflow
+      IF (ANY(ABS(Lag_NSuper(:,:)).GT.(HUGE(1.)))) EXIT
       G=0.
       DO j=0,NSuper
        DO i=0,NSuper
@@ -366,13 +557,13 @@ DO SideID=1,nBCSides
       ! find the side with minimum distance
       dist2RP(iRP)=Winner_Dist2
       NormVecRP(:,iRP)=-NormVecWinner
-!       SWRITE(UNIT_StdOut,'(A,I4,A,3F8.4,A,3F8.4,A)')' Projected RP ',iRP,' with coordinates ',aRP%x,' to ',ARP%xF,'.'
+!       SWRITE(UNIT_stdOut,'(A,I4,A,3F8.4,A,3F8.4,A)')' Projected RP ',iRP,' with coordinates ',aRP%x,' to ',ARP%xF,'.'
     END IF
   END DO! iRP=1,nRP
 END DO! SideID=1,nBCSides
 
-SWRITE(UNIT_StdOut,'(A)')' done.'
-SWRITE(UNIT_StdOut,'(A,F15.8)')'  Max. distance: ',SQRT(MAXVAL(dist2RP))
+SWRITE(UNIT_stdOut,'(A)')' done.'
+SWRITE(UNIT_stdOut,'(A,F15.8)')'  Max. distance: ',SQRT(MAXVAL(dist2RP))
 END SUBROUTINE ProjectRPtoBC
 
 

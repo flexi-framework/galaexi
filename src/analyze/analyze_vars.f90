@@ -22,14 +22,19 @@ SAVE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! GLOBAL VARIABLES
 !----------------------------------------------------------------------------------------------------------------------------------
-INTEGER              :: NWriteData=1                      !< data output (writing/visualizeing the solution, timeaverages etc.)
-                                                          !< is performed every multiple of Analyze_dt
-REAL                 :: Analyze_dt                        !< time intervall at which analysis routines are called
+INTEGER              :: nWriteData=1                      !< data output (writing/visualizeing the solution, timeaverages etc.)
+                                                          !< is performed every multiple of analyze_dt
+REAL                 :: analyze_dt                        !< time intervall at which analysis routines are called
 REAL                 :: WriteData_dt                      !< time intervall at which solution data is written
 REAL                 :: tWriteData                        !< actual time at which next solution IO will be performed
 ! precomputed variables
-#if FV_ENABLED
-INTEGER              :: totalFV_nElems=0
+#if FV_ENABLED == 1
+INTEGER(KIND=8)      :: totalFV_nElems=0                  !< total number of FV elements in domain
+#elif FV_ENABLED == 2
+REAL                 :: FV_totalAlpha=0.                  !< average of blending coefficient in domain
+#endif
+#if PP_LIMITER
+INTEGER(KIND=8)      :: totalPP_nElems=0                  !< number of elements limited with positiy-preserving limiter
 #endif
 REAL,ALLOCATABLE     :: wGPSurf(:,:)                      !< wGPSurf(i,j)=wGP(i)*wGP(j)
 REAL,ALLOCATABLE     :: wGPVol(:,:,:)                     !< wGPVol(i,j,k)=wGP(i)*wGP(j)*wGP(k)
@@ -39,6 +44,14 @@ REAL                 :: Vol                               !< volume of the domai
 ! Analyze features
 LOGICAL              :: doCalcErrorNorms  =.FALSE.        !< marks whether error norms should be computed
 LOGICAL              :: doAnalyzeToFile   =.FALSE.        !< marks whether error norms should be written to a file
+
+! Performance features
+REAL                 :: PIDTimeStart                      !< start system time for PID calculation
+REAL                 :: PIDTimeEnd                        !< end   system time for PID calculation
+REAL                 :: PID_kill                          !< kill PID for FLEXI
+INTEGER              :: nCalcPID                          !< counter for iterations since last PID calculation
+INTEGER              :: nCalcPIDMax                       !< compute PID at least after every Nth iteration
+REAL                 :: PID                               !< current PID in FLEXI
 
 ! Analyze to file
 REAL                 :: iterRestart=0                     !< contains iteration count of previous computation in case a restart is

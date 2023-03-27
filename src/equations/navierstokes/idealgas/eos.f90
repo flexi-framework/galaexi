@@ -32,12 +32,14 @@ END INTERFACE
 INTERFACE ConsToPrim
   MODULE PROCEDURE ConsToPrim
   MODULE PROCEDURE ConsToPrim_Side
+  MODULE PROCEDURE ConsToPrim_Elem
   MODULE PROCEDURE ConsToPrim_Volume
 END INTERFACE
 
 INTERFACE PrimToCons
   MODULE PROCEDURE PrimToCons
   MODULE PROCEDURE PrimToCons_Side
+  MODULE PROCEDURE PrimToCons_Elem
   MODULE PROCEDURE PrimToCons_Volume
 END INTERFACE
 
@@ -73,12 +75,12 @@ CALL prms%CreateLogicalOption('UseNonDimensionalEqn',"Set true to compute R and 
                                                 '.FALSE.')
 CALL prms%CreateRealOption(     'BulkMach',     "Bulk Mach     (UseNonDimensionEqn=T)")
 CALL prms%CreateRealOption(     'BulkReynolds', "Bulk Reynolds (UseNonDimensionEqn=T)")
-CALL prms%CreateRealOption(     'kappa',        "Heat capacity ratio / isentropic exponent", '1.4')
-CALL prms%CreateRealOption(     'R',            "Specific gas constant", '287.058')
-CALL prms%CreateRealOption(     'Pr',           "Prandtl number", '0.72')
-CALL prms%CreateRealOption(     'mu0',          "Dynamic Viscosity", '0.')
-CALL prms%CreateRealOption(     'Ts',           "Sutherland's law for variable viscosity: Ts", '110.4')
-CALL prms%CreateRealOption(     'Tref',         "Sutherland's law for variable viscosity: Tref ", '273.15')
+CALL prms%CreateRealOption(     'kappa',        "Heat capacity ratio / isentropic exponent"        , '1.4')
+CALL prms%CreateRealOption(     'R',            "Specific gas constant"                            , '287.058')
+CALL prms%CreateRealOption(     'Pr',           "Prandtl number"                                   , '0.72')
+CALL prms%CreateRealOption(     'mu0',          "Dynamic Viscosity"                                , '0.')
+CALL prms%CreateRealOption(     'Ts',           "Sutherland's law for variable viscosity: Ts"      , '110.4')
+CALL prms%CreateRealOption(     'Tref',         "Sutherland's law for variable viscosity: Tref "   , '273.15')
 CALL prms%CreateRealOption(     'ExpoSuth',     "Sutherland's law for variable viscosity: Exponent", '1.5')
 
 END SUBROUTINE DefineParametersEos
@@ -112,24 +114,24 @@ USE MOD_EOS_Vars      ,ONLY: Tref,ExpoSuth
 REAL    :: BulkMach,BulkReynolds
 LOGICAL :: UseNonDimensionalEqn=.FALSE.
 !==================================================================================================================================
-SWRITE(UNIT_StdOut,'(132("-"))')
+SWRITE(UNIT_stdOut,'(132("-"))')
 SWRITE(UNIT_stdOut,'(A)') ' INIT IDEAL GAS...'
 
 
-UseNonDimensionalEqn=GETLOGICAL('UseNonDimensionalEqn','.FALSE.')
+UseNonDimensionalEqn=GETLOGICAL('UseNonDimensionalEqn')
 IF(UseNonDimensionalEqn)THEN
-  BulkMach    =GETREAL('BulkMach')
-  BulkReynolds=GETREAL('BulkReynolds')
+  BulkMach     = GETREAL('BulkMach')
+  BulkReynolds = GETREAL('BulkReynolds')
 END IF
 
 ! Gas constants
-Kappa    =GETREAL('kappa','1.4')
-KappaM1  =Kappa-1.
-sKappaM1 =1./KappaM1
-KappaP1  =Kappa+1.
-sKappaP1 =1./(KappaP1)
+Kappa    = GETREAL('kappa')
+KappaM1  = Kappa-1.
+sKappaM1 = 1./KappaM1
+KappaP1  = Kappa+1.
+sKappaP1 = 1./(KappaP1)
 IF(.NOT. UseNonDimensionalEqn)THEN
-  R=GETREAL('R','287.058')
+  R=GETREAL('R')
 ELSE
   R=1./(Kappa*BulkMach*BulkMach)
   SWRITE(UNIT_stdOut,'(A,ES16.7)')' |                              R | Set to 1/(Kappa*BulkMach**2)=',R
@@ -139,14 +141,14 @@ cp=R*kappa/(kappa-1.)
 cv=R/(kappa-1.)
 
 #if PARABOLIC
-Pr       =GETREAL('Pr','0.72')
+Pr       =GETREAL('Pr')
 KappasPr =Kappa/Pr
 
 ! Viscosity
 #if   PP_VISC == 0
 ! Constant viscosity
 IF(.NOT. UseNonDimensionalEqn)THEN
-  mu0=GETREAL('mu0','0.0')
+  mu0=GETREAL('mu0')
 ELSE
   mu0=1./BulkReynolds
   SWRITE(UNIT_stdOut,'(A,ES16.7)')' |                            mu0 | Set to 1/BulkReynolds=',mu0
@@ -154,22 +156,22 @@ END IF
 #elif PP_VISC == 1
 ! mu-Sutherland
 ! Coefficients from White, F. M., Viscous fluid flow, McGraw-Hill, 2006
-mu0     =GETREAL('mu0','1.716E-5')
-Ts      =GETREAL('Ts','110.4')
-Tref    =1./GETREAL('Tref','273.15')
-ExpoSuth=GETREAL('ExpoSuth','1.5')
+mu0     =GETREAL('mu0')
+Ts      =GETREAL('Ts')
+Tref    =1./GETREAL('Tref')
+ExpoSuth=GETREAL('ExpoSuth')
 Ts      =Ts*Tref
 cSuth   =Ts**ExpoSuth*(1+Ts)/(2*Ts*Ts)
 #elif PP_VISC == 2
 ! mu power-law
 IF(.NOT. UseNonDimensionalEqn)THEN
-  mu0=GETREAL('mu0','0.')
+  mu0=GETREAL('mu0')
   Tref    =GETREAL('Tref')
 ELSE
   mu0=1./BulkReynolds
   SWRITE(UNIT_stdOut,'(A,ES16.7)')' |                            mu0 | Set to 1/BulkReynolds=',mu0
   Tref=1.
-  SWRITE(UNIT_stdOut,*)'|                           Tref | Set to 1.'
+  SWRITE(UNIT_stdOut,'(A)')       ' |                           Tref | Set to 1.'
 END IF
 ExpoSuth=GETREAL('ExpoSuth')
 mu0     =mu0/Tref**ExpoSuth
@@ -177,7 +179,7 @@ mu0     =mu0/Tref**ExpoSuth
 #endif /*PARABOLIC*/
 
 SWRITE(UNIT_stdOut,'(A)')' INIT IDEAL-GAS DONE!'
-SWRITE(UNIT_StdOut,'(132("-"))')
+SWRITE(UNIT_stdOut,'(132("-"))')
 END SUBROUTINE InitEos
 
 !==================================================================================================================================
@@ -230,6 +232,26 @@ DO q=0,ZDIM(Nloc); DO p=0,Nloc
   CALL ConsToPrim(prim(:,p,q),cons(:,p,q))
 END DO; END DO
 END SUBROUTINE ConsToPrim_Side
+
+!==================================================================================================================================
+!> Transformation from conservative variables to primitive variables in the whole volume
+!==================================================================================================================================
+PPURE SUBROUTINE ConsToPrim_Elem(Nloc,prim,cons)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,INTENT(IN) :: Nloc                                         !< local polynomial degree of solution representation
+REAL,INTENT(IN)    :: cons(PP_nVar    ,0:Nloc,0:Nloc,0:ZDIM(Nloc)) !< vector of conservative variables
+REAL,INTENT(OUT)   :: prim(PP_nVarPrim,0:Nloc,0:Nloc,0:ZDIM(Nloc)) !< vector of primitive variables
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER            :: i,j,k
+!==================================================================================================================================
+DO k=0,ZDIM(Nloc); DO j=0,Nloc; DO i=0,Nloc
+  CALL ConsToPrim(prim(:,i,j,k),cons(:,i,j,k))
+END DO; END DO; END DO! i,j,k=0,Nloc
+END SUBROUTINE ConsToPrim_Elem
 
 !==================================================================================================================================
 !> Transformation from conservative variables to primitive variables in the whole volume
@@ -300,6 +322,26 @@ DO q=0,ZDIM(Nloc); DO p=0,Nloc
   CALL PrimToCons(prim(:,p,q),cons(:,p,q))
 END DO; END DO ! p,q=0,Nloc
 END SUBROUTINE PrimToCons_Side
+
+!==================================================================================================================================
+!> Transformation from primitive to conservative variables in the whole volume
+!==================================================================================================================================
+PPURE SUBROUTINE PrimToCons_Elem(Nloc,prim,cons)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,INTENT(IN) :: Nloc                                             !< local polynomial degree of solution representation
+REAL,INTENT(IN)    :: prim(PP_nVarPrim,0:Nloc,0:Nloc,0:ZDIM(Nloc))     !< vector of primitive variables
+REAL,INTENT(OUT)   :: cons(PP_nVar    ,0:Nloc,0:Nloc,0:ZDIM(Nloc))     !< vector of conservative variables
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER            :: i,j,k
+!==================================================================================================================================
+DO k=0,ZDIM(Nloc); DO j=0,Nloc; DO i=0,Nloc
+  CALL PrimToCons(prim(:,i,j,k),cons(:,i,j,k))
+END DO; END DO; END DO
+END SUBROUTINE PrimToCons_Elem
 
 !==================================================================================================================================
 !> Transformation from primitive to conservative variables in the whole volume

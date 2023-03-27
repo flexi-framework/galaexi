@@ -43,6 +43,9 @@ INTEGER(HID_T)           :: File_ID             !< file which is currently opene
 INTEGER(HID_T)           :: Plist_File_ID       !< property list of file which is currently opened
 INTEGER(HSIZE_T),POINTER :: HSize(:)            !< HDF5 array size (temporary variable)
 INTEGER                  :: nDims               !< data size dimensions
+INTEGER,PARAMETER        :: nLimit = INT(REAL(HUGE(INT(1,KIND=4)))/REAL(KIND(REAL(1))))
+                                                !< Max number of entries in double arrays for HDF5 IO. Limit is computed as
+                                                !< INT( Max. Bytes allowed by MPI (2GB per rank) / Size of single double entry)
 INTEGER                  :: MPIInfo             !< hardware / storage specific / file system MPI parameters to pass to HDF5
                                                 !< for optimized performance on specific systems
 
@@ -129,6 +132,7 @@ CONTAINS
 SUBROUTINE DefineParametersIO_HDF5()
 ! MODULES
 USE MOD_ReadInTools ,ONLY: prms
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !==================================================================================================================================
 CALL prms%SetSection("IO_HDF5")
@@ -136,7 +140,7 @@ CALL prms%CreateLogicalOption('gatheredWrite', "Set true to activate gathered HD
                                                "Only local group masters will write data after gathering from local slaves.",&
                                                '.FALSE.')
 #if PP_dim == 2
-CALL prms%CreateLogicalOption('output2D'     , "Set true to activate hdf5 data output with flat third dimension.",'.FALSE.')
+CALL prms%CreateLogicalOption('output2D'     , "Set true to activate hdf5 data output with flat third dimension.",'.TRUE.')
 #endif
 END SUBROUTINE DefineParametersIO_HDF5
 
@@ -147,6 +151,7 @@ SUBROUTINE InitIOHDF5()
 ! MODULES
 USE MOD_Globals
 USE MOD_ReadInTools,ONLY:GETLOGICAL
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -154,12 +159,12 @@ IMPLICIT NONE
 ! LOCAL VARIABLES
 !==================================================================================================================================
 gatheredWrite=.FALSE.
-IF(nLeaderProcs.LT.nProcessors) gatheredWrite=GETLOGICAL('gatheredWrite','.FALSE.')
+IF(nLeaderProcs.LT.nProcessors) gatheredWrite=GETLOGICAL('gatheredWrite')
 
 #if PP_dim == 3
 output2D = .FALSE.
 #else
-output2D = GETLOGICAL('output2D','.TRUE.')
+output2D = GETLOGICAL('output2D')
 #endif
 
 CALL InitMPIInfo()
@@ -171,6 +176,7 @@ END SUBROUTINE InitIOHDF5
 SUBROUTINE InitMPIInfo()
 ! MODULES
 USE MOD_Globals
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -185,7 +191,7 @@ CALL MPI_Info_Create(MPIInfo, iError)
 MPIInfo=MPI_INFO_NULL
 
 ! Large block IO extremely slow on Juqeen cluster (only available on IBM clusters)
-!CALL MPI_Info_set(MPIInfo, "IBM_largeblock_io", "true", ierror)
+!CALL MPI_Info_set(MPIInfo, "IBM_largeblock_io", "true", iError)
 #ifdef LUSTRE
 CALL MPI_Info_Create(MPIInfo, iError)
 ! For lustre file system:
@@ -206,6 +212,7 @@ END SUBROUTINE InitMPIInfo
 SUBROUTINE OpenDataFile(FileString,create,single,readOnly,communicatorOpt,userblockSize)
 ! MODULES
 USE MOD_Globals
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -257,7 +264,7 @@ IF(create)THEN
   END IF
   CALL H5FCREATE_F(TRIM(FileString), H5F_ACC_TRUNC_F, File_ID, iError, creation_prp = Plist_File_ID)
 ELSE
-  IF(.NOT.FILEEXISTS(FileString)) CALL abort(__STAMP__,&
+  IF(.NOT.FILEEXISTS(FileString)) CALL Abort(__STAMP__,&
     'ERROR: Specified file '//TRIM(FileString)//' does not exist.')
   IF (readOnly) THEN
     CALL H5FOPEN_F(  TRIM(FileString), H5F_ACC_RDONLY_F,  File_ID, iError, access_prp = Plist_File_ID)
@@ -265,7 +272,7 @@ ELSE
     CALL H5FOPEN_F(  TRIM(FileString), H5F_ACC_RDWR_F,  File_ID, iError, access_prp = Plist_File_ID)
   END IF
 END IF
-IF(iError.NE.0) CALL abort(__STAMP__,&
+IF(iError.NE.0) CALL Abort(__STAMP__,&
   'ERROR: Could not open or create file '//TRIM(FileString))
 
 LOGWRITE(*,*)'...DONE!'
@@ -279,6 +286,7 @@ END SUBROUTINE OpenDataFile
 SUBROUTINE CloseDataFile()
 ! MODULES
 USE MOD_Globals,ONLY:UNIT_logOut,Logging
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -303,6 +311,7 @@ SUBROUTINE AddToElemData(ElementOut_In,VarName,RealArray,RealScalar,IntArray,Int
 ! MODULES
 USE MOD_Globals
 USE MOD_Mesh_Vars,ONLY:nElems
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -372,6 +381,7 @@ SUBROUTINE AddToFieldData(FieldOut_In,nVal,DataSetName,VarNames,RealArray,Eval,d
 USE MOD_PreProc
 USE MOD_Globals
 USE MOD_Mesh_Vars,ONLY:nElems
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -438,7 +448,10 @@ END SUBROUTINE AddToFieldData
 !> Takes a group and reads the names of the datasets
 !==================================================================================================================================
 SUBROUTINE GetDatasetNamesInGroup(group,names)
+! MODULES
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
 CHARACTER(LEN=*)               :: group    !< name of group
 CHARACTER(LEN=255),ALLOCATABLE :: names(:) !< names of datasets
@@ -446,10 +459,10 @@ CHARACTER(LEN=255),ALLOCATABLE :: names(:) !< names of datasets
 ! LOCAL VARIABLES
 INTEGER                        :: nMembers,i,type
 !===================================================================================================================================
-CALL H5GN_MEMBERS_F(File_ID, TRIM(group), nMembers, ierror)
+CALL H5GN_MEMBERS_F(File_ID, TRIM(group), nMembers, iError)
 ALLOCATE(names(nMembers))
 DO i=1,nMembers
-  CALL h5gget_obj_info_idx_f(File_ID, TRIM(group), i-1, names(i), type, ierror)
+  CALL h5gget_obj_info_idx_f(File_ID, TRIM(group), i-1, names(i), type, iError)
   IF (type.NE.H5G_DATASET_F) names(i) = ''
 END DO
 END SUBROUTINE GetDatasetNamesInGroup
@@ -460,6 +473,7 @@ END SUBROUTINE GetDatasetNamesInGroup
 !==================================================================================================================================
 SUBROUTINE FinalizeIOHDF5()
 ! MODULES
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -477,6 +491,7 @@ END SUBROUTINE FinalizeIOHDF5
 !==================================================================================================================================
 SUBROUTINE FinalizeElemData(ElementOut_In)
 ! MODULES
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -512,6 +527,7 @@ END SUBROUTINE FinalizeElemData
 !==================================================================================================================================
 SUBROUTINE FinalizeFieldData(FieldOut_In)
 ! MODULES
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES

@@ -31,8 +31,8 @@ END INTERFACE
 PUBLIC::InitMPI
 
 #if USE_MPI
-INTERFACE InitMPIvars
-  MODULE PROCEDURE InitMPIvars
+INTERFACE InitMPIVars
+  MODULE PROCEDURE InitMPIVars
 END INTERFACE
 
 !INTERFACE StartReceiveMPIData
@@ -53,22 +53,33 @@ INTERFACE StartExchange_FV_Elems
 END INTERFACE
 #endif
 
+#if FV_ENABLED == 2
+INTERFACE StartExchange_FV_alpha
+  MODULE PROCEDURE StartExchange_FV_alpha
+END INTERFACE
+#endif
+
 INTERFACE FinalizeMPI
   MODULE PROCEDURE FinalizeMPI
 END INTERFACE
+#endif /*USE_MPI*/
 
+PUBLIC::DefineParametersMPI
+#if USE_MPI
 PUBLIC::InitMPIvars
 PUBLIC::StartReceiveMPIData
 PUBLIC::StartSendMPIData
 #if FV_ENABLED
 PUBLIC::StartExchange_FV_Elems
 #endif
+#if FV_ENABLED == 2
+PUBLIC::StartExchange_FV_alpha
+#endif
 PUBLIC::FinishExchangeMPIData
 PUBLIC::FinalizeMPI
 #endif
 !==================================================================================================================================
 
-PUBLIC::DefineParametersMPI
 CONTAINS
 
 !==================================================================================================================================
@@ -114,7 +125,8 @@ ELSE
   IF(.NOT.initDone) CALL MPI_INIT(iError)
   IF(iError .NE. 0) &
     CALL Abort(__STAMP__,'Error in MPI_INIT',iError)
-  MPI_COMM_FLEXI = MPI_COMM_WORLD
+  ! Duplicate communicator instead of just copying it. Creates a clean copy with all the cached information intact
+  CALL MPI_COMM_DUP(MPI_COMM_WORLD,MPI_COMM_FLEXI,iError)
 END IF
 
 CALL MPI_COMM_RANK(MPI_COMM_FLEXI, myRank     , iError)
@@ -191,12 +203,12 @@ DataSizeSidePrim  =PP_nVarPrim*(PP_N+1)*(PP_NZ+1)
 DataSizeSideGrad  =PP_nVarLifting*(PP_N+1)*(PP_NZ+1)
 
 ! split communicator into smaller groups (e.g. for local nodes)
-GroupSize=GETINT('GroupSize','0')
+GroupSize=GETINT('GroupSize')
 IF(GroupSize.LT.1)THEN ! group procs by node
-  CALL MPI_COMM_SPLIT(MPI_COMM_FLEXI,myRank,myRank,MPI_COMM_NODE,iError)
+  CALL MPI_COMM_SPLIT(MPI_COMM_FLEXI,myRank,0,MPI_COMM_NODE,iError)
 ELSE ! use groupsize
   color=myRank/GroupSize
-  CALL MPI_COMM_SPLIT(MPI_COMM_FLEXI,color,myRank,MPI_COMM_NODE,iError)
+  CALL MPI_COMM_SPLIT(MPI_COMM_FLEXI,color,0,MPI_COMM_NODE,iError)
 END IF
 CALL MPI_COMM_RANK(MPI_COMM_NODE,myLocalRank,iError)
 CALL MPI_COMM_SIZE(MPI_COMM_NODE,nLocalProcs,iError)
@@ -208,12 +220,12 @@ MPI_COMM_WORKERS=MPI_COMM_NULL
 myLeaderRank=-1
 myWorkerRank=-1
 IF(myLocalRank.EQ.0)THEN
-  CALL MPI_COMM_SPLIT(MPI_COMM_FLEXI,0,myRank,MPI_COMM_LEADERS,iError)
+  CALL MPI_COMM_SPLIT(MPI_COMM_FLEXI,0,0,MPI_COMM_LEADERS,iError)
   CALL MPI_COMM_RANK( MPI_COMM_LEADERS,myLeaderRank,iError)
   CALL MPI_COMM_SIZE( MPI_COMM_LEADERS,nLeaderProcs,iError)
   nWorkerProcs=nProcessors-nLeaderProcs
 ELSE
-  CALL MPI_COMM_SPLIT(MPI_COMM_FLEXI,1,myRank,MPI_COMM_WORKERS,iError)
+  CALL MPI_COMM_SPLIT(MPI_COMM_FLEXI,1,0,MPI_COMM_WORKERS,iError)
   CALL MPI_COMM_RANK( MPI_COMM_WORKERS,myWorkerRank,iError)
   CALL MPI_COMM_SIZE( MPI_COMM_WORKERS,nWorkerProcs,iError)
   nLeaderProcs=nProcessors-nWorkerProcs
@@ -344,6 +356,56 @@ END DO !iProc=1,nNBProcs
 END SUBROUTINE StartExchange_FV_Elems
 #endif
 
+#if FV_ENABLED == 2
+!==================================================================================================================================
+!> Subroutine that performs the send and receive operations for the FV_elems information at the face
+!> that has to be exchanged between processors.
+!==================================================================================================================================
+SUBROUTINE StartExchange_FV_alpha(FV_alpha,LowerBound,UpperBound,SendRequest,RecRequest,SendID)
+! MODULES
+USE MOD_Globals
+USE MOD_PreProc
+USE MOD_MPI_Vars
+! IMPLICIT VARIABLE HANDLING
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,INTENT(IN)    :: SendID                          !< defines the send / receive direction -> 1=send MINE/receive YOUR,
+                                                         !< 2=send YOUR / receive MINE
+INTEGER,INTENT(IN)    :: LowerBound                      !< lower side index for last dimension of FV_Elems
+INTEGER,INTENT(IN)    :: UpperBound                      !< upper side index for last dimension of FV_Elems
+INTEGER,INTENT(OUT)   :: SendRequest(nNbProcs)           !< communicatio handles for send
+INTEGER,INTENT(OUT)   :: RecRequest(nNbProcs)            !< communicatio handles for receive
+REAL,INTENT(INOUT)    :: FV_alpha(LowerBound:UpperBound) !< information about FV_Elems at faces to be communicated
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                     :: iNBProc
+!==================================================================================================================================
+DO iNbProc=1,nNbProcs
+  ! Start send face data
+  IF(nMPISides_send(iNbProc,SendID).GT.0)THEN
+    nSendVal    =nMPISides_send(iNbProc,SendID)
+    SideID_start=OffsetMPISides_send(iNbProc-1,SendID)+1
+    SideID_end  =OffsetMPISides_send(iNbProc,SendID)
+    CALL MPI_ISEND(FV_alpha(SideID_start:SideID_end),nSendVal,MPI_DOUBLE_PRECISION,  &
+                    nbProc(iNbProc),0,MPI_COMM_FLEXI,SendRequest(iNbProc),iError)
+  ELSE
+    SendRequest(iNbProc)=MPI_REQUEST_NULL
+  END IF
+  ! Start receive face data
+  IF(nMPISides_rec(iNbProc,SendID).GT.0)THEN
+    nRecVal     =nMPISides_rec(iNbProc,SendID)
+    SideID_start=OffsetMPISides_rec(iNbProc-1,SendID)+1
+    SideID_end  =OffsetMPISides_rec(iNbProc,SendID)
+    CALL MPI_IRECV(FV_alpha(SideID_start:SideID_end),nRecVal,MPI_DOUBLE_PRECISION,  &
+                    nbProc(iNbProc),0,MPI_COMM_FLEXI,RecRequest(iNbProc),iError)
+  ELSE
+    RecRequest(iNbProc)=MPI_REQUEST_NULL
+  END IF
+END DO !iProc=1,nNBProcs
+END SUBROUTINE StartExchange_FV_alpha
+#endif /*FV_ENABLED == 2*/
+
 
 
 !==================================================================================================================================
@@ -372,6 +434,7 @@ END SUBROUTINE FinishExchangeMPIData
 !==================================================================================================================================
 SUBROUTINE FinalizeMPI()
 ! MODULES
+USE MOD_Globals
 USE MOD_MPI_Vars
 IMPLICIT NONE
 !==================================================================================================================================
@@ -402,8 +465,12 @@ SDEALLOCATE(nMPISides_send)
 SDEALLOCATE(nMPISides_rec)
 SDEALLOCATE(OffsetMPISides_send)
 SDEALLOCATE(OffsetMPISides_rec)
-END SUBROUTINE FinalizeMPI
 
+! Free MPI communicators
+IF(MPI_COMM_WORKERS.NE.MPI_COMM_NULL) CALL MPI_COMM_FREE(MPI_COMM_WORKERS,iError)
+IF(MPI_COMM_LEADERS.NE.MPI_COMM_NULL) CALL MPI_COMM_FREE(MPI_COMM_LEADERS,iError)
+
+END SUBROUTINE FinalizeMPI
 #endif /*USE_MPI*/
 
 END MODULE MOD_MPI

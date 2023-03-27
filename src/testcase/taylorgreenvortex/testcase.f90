@@ -21,7 +21,7 @@
 !==================================================================================================================================
 !> Subroutines defining the Taylor-Green isentropic vortex testcase
 !==================================================================================================================================
-MODULE MOD_Testcase
+MODULE MOD_TestCase
 ! MODULES
 IMPLICIT NONE
 PRIVATE
@@ -52,8 +52,8 @@ END INTERFACE
 !  MODULE PROCEDURE TestcaseSource
 !END INTERFACE
 
-INTERFACE AnalyzeTestCase
-  MODULE PROCEDURE AnalyzeTestCase
+INTERFACE AnalyzeTestcase
+  MODULE PROCEDURE AnalyzeTestcase
 END INTERFACE
 
 INTERFACE GetBoundaryFluxTestcase
@@ -74,7 +74,7 @@ PUBLIC:: FinalizeTestcase
 PUBLIC:: ExactFuncTestcase
 PUBLIC:: TestcaseSource
 PUBLIC:: CalcForcing
-PUBLIC:: AnalyzeTestCase
+PUBLIC:: AnalyzeTestcase
 PUBLIC:: GetBoundaryFluxTestcase
 PUBLIC:: GetBoundaryFVgradientTestcase
 PUBLIC:: Lifting_GetBoundaryFluxTestcase
@@ -93,7 +93,7 @@ IMPLICIT NONE
 CALL prms%SetSection("Testcase")
 CALL prms%CreateIntOption('nWriteStats', "Write testcase statistics to file at every n-th AnalyzeTestcase step.", '100')
 CALL prms%CreateIntOption('nAnalyzeTestCase', "Call testcase specific analysis routines every n-th timestep. "//&
-                                              "(Note: always called at global analyze level)", '10')
+                                              "(Note: always called at global analyze level)"                   , '10')
 END SUBROUTINE DefineParametersTestcase
 
 
@@ -114,7 +114,7 @@ IMPLICIT NONE
 ! LOCAL VARIABLES
 CHARACTER(LEN=31)        :: varnames(nTGVVars)
 !==================================================================================================================================
-SWRITE(UNIT_StdOut,'(132("-"))')
+SWRITE(UNIT_stdOut,'(132("-"))')
 SWRITE(UNIT_stdOut,'(A)') ' INIT TESTCASE TAYLOR-GREEN VORTEX...'
 
 #if FV_ENABLED
@@ -123,8 +123,8 @@ CALL CollectiveStop(__STAMP__, &
 #endif
 
 ! Length of Buffer for TGV output
-nWriteStats      = GETINT( 'nWriteStats','100')
-nAnalyzeTestCase = GETINT( 'nAnalyzeTestCase','10')
+nWriteStats      = GETINT( 'nWriteStats')
+nAnalyzeTestCase = GETINT( 'nAnalyzeTestCase')
 
 IF(MPIRoot)THEN
   ALLOCATE(Time(nWriteStats))
@@ -156,7 +156,7 @@ IF(MPIRoot)THEN
 END IF
 
 SWRITE(UNIT_stdOut,'(A)')' INIT TESTCASE TAYLOR-GREEN VORTEX DONE!'
-SWRITE(UNIT_StdOut,'(132("-"))')
+SWRITE(UNIT_stdOut,'(132("-"))')
 END SUBROUTINE InitTestcase
 
 
@@ -213,7 +213,7 @@ END SUBROUTINE TestcaseSource
 !==================================================================================================================================
 !> Perform TGV-specific analysis: compute dissipation rates, kinetic energy and enstrophy
 !==================================================================================================================================
-SUBROUTINE AnalyzeTestcase(t)
+SUBROUTINE AnalyzeTestcase(t,doFlush)
 ! MODULES
 USE MOD_PreProc
 USE MOD_Globals
@@ -235,6 +235,7 @@ IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
 REAL,INTENT(IN)                 :: t                      !< simulation time
+LOGICAL,INTENT(IN)              :: doFlush                !< indicate that data has to be written
 !----------------------------------------------------------------------------------------------------------------------------------
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
@@ -444,13 +445,13 @@ IF(MPIRoot)THEN
 #else
   writeBuf(1:nTGVvars,ioCounter) = (/Ekin,Ekin_comp,mean_temperature,uprime,mean_entropy/)
 #endif
-  IF(ioCounter.EQ.nWriteStats)THEN
+  IF(ioCounter.EQ.nWriteStats .OR. doFlush)THEN
     CALL WriteStats()
     ioCounter=0
   END IF
 END IF
 
-END SUBROUTINE AnalyzeTestCase
+END SUBROUTINE AnalyzeTestcase
 
 
 !==================================================================================================================================
@@ -477,7 +478,6 @@ USE MOD_TestCase_Vars,ONLY:writeBuf,Time
 IMPLICIT NONE
 !==================================================================================================================================
 IF(MPIRoot)THEN
-  CALL WriteStats()
   DEALLOCATE(Time)
   DEALLOCATE(writeBuf)
 END IF
@@ -539,5 +539,4 @@ REAL,INTENT(OUT)   :: Flux(     PP_nVarLifting,0:PP_N,0:PP_NZ) !< lifting bounda
 !==================================================================================================================================
 END SUBROUTINE Lifting_GetBoundaryFluxTestcase
 
-END MODULE MOD_Testcase
-
+END MODULE MOD_TestCase
