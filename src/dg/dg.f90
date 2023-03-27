@@ -97,7 +97,6 @@ CALL InitDGBasis(PP_N, xGP,wGP,L_minus,L_plus,D ,D_T ,D_Hat ,D_Hat_T ,L_HatMinus
 ALLOCATE(U(        PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 ! Allocate the time derivative / solution update /residual vector dU/dt: element-based
 ALLOCATE(Ut(       PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
-ALLOCATE(Ut_VolInt(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 U=0.
 Ut=0.
 
@@ -192,7 +191,6 @@ DO iMass=0,N_in
 END DO
 D_Hat  = -MATMUL(Minv,MATMUL(TRANSPOSE(D),M))
 D_Hat_T= TRANSPOSE(D_hat)
-!$acc enter data copyin(D_Hat_T)
 
 #ifdef SPLIT_DG
 ! Use a modified D matrix for the strong form volume integral, that incorporates the inner fluxes that are subtracted from the
@@ -227,7 +225,7 @@ SUBROUTINE DGTimeDerivative_weakForm(t)
 USE MOD_Globals
 USE MOD_Preproc
 USE MOD_Vector
-USE MOD_DG_Vars             ,ONLY: Ut,Ut_VolInt,U,U_slave,U_master,Flux_master,Flux_slave,L_HatPlus,L_HatMinus
+USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave,L_HatPlus,L_HatMinus
 USE MOD_DG_Vars             ,ONLY: UPrim,UPrim_master,UPrim_slave
 !USE MOD_DG_Vars,             ONLY: nTotalU
 USE MOD_VolInt
@@ -284,17 +282,12 @@ USE MOD_EddyVisc_Vars       ,ONLY: ComputeEddyViscosity, muSGS, muSGS_master, mu
 USE MOD_ProlongToFace       ,ONLY: ProlongToFace
 USE MOD_TimeDisc_Vars       ,ONLY: CurrentStage
 #endif
-USE MOD_Mesh_Vars           ,ONLY: nElems
-USE MOD_EOS_Vars,ONLY:KappaM1,R
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
 REAL,INTENT(IN)                 :: t                      !< Current time
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER                         :: iElem,nElemstmp!,tmp
-REAL                            :: KappaM1tmp,Rtmp
-! !$acc declare create(tmp)
 !==================================================================================================================================
 
 ! -----------------------------------------------------------------------------
@@ -324,30 +317,7 @@ REAL                            :: KappaM1tmp,Rtmp
 IF(FilterType.GT.0) CALL Filter_Pointer(U,FilterMat)
 
 ! 2. Convert Volume solution to primitive
-! !$acc update device(tmp)
-! !$acc data
-! !$acc parallel
-! print*,'@@@',nElems,tmp
-! DO iElem=1,nElems
-!   tmp=iElem+5
-! END DO
-! !$acc end parallel
-! !$acc end data 
-
-nElemstmp=nElems
-KappaM1tmp=KappaM1
-Rtmp=R
-!$acc data copyin(U,nElemstmp,KappaM1tmp,Rtmp,nElems) copyout(UPrim,U_master,U_slave)
-!$acc parallel
-nElems=nElemstmp
-KappaM1=KappaM1tmp
-R=Rtmp
 CALL ConsToPrim(PP_N,UPrim,U)
-!$acc end parallel
-
-CALL VolInt()
-
-
 
 ! 3. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
 ! -----------------------------------------------------------------------------------------------------------
@@ -394,7 +364,6 @@ CALL StartSendMPIData(   FV_multi_slave,DataSizeSidePrim,1,nSides,MPIRequest_FV_
 ! Step 3 for all remaining sides
 ! 3.1)
 CALL ProlongToFaceCons(PP_N,U,U_master,U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
-!$acc end data
 CALL U_MortarCons(U_master,U_slave,doMPISides=.FALSE.)
 #if FV_ENABLED
 ! 3.2)
@@ -505,8 +474,7 @@ END IF
 #endif /*PARABOLIC*/
 
 ! 8. Compute volume integral contribution and add to Ut
-!CALL VolInt(Ut_VolInt)
-Ut=0.!Ut_VolInt
+CALL VolInt(Ut)
 
 #if FV_ENABLED
 ! [ 9. Volume integral (advective and viscous) for all FV elements ]
@@ -576,9 +544,8 @@ CALL Flux_MortarCons(Flux_master,Flux_slave,doMPISides=.TRUE.,weak=.TRUE.)
 CALL SurfIntCons(PP_N,Flux_master,Flux_slave,Ut,.TRUE.,L_HatMinus,L_HatPlus)
 #endif /*USE_MPI*/
 
-!$acc wait
 ! 11. Swap to right sign :)
-Ut=-1.*(Ut+Ut_VolInt)
+Ut=-Ut
 
 ! 12. Compute source terms and sponge (in physical space, conversion to reference space inside routines)
 IF(doCalcSource) CALL CalcSource(Ut,t)
@@ -651,7 +618,6 @@ IMPLICIT NONE
 SDEALLOCATE(D)
 SDEALLOCATE(D_T)
 SDEALLOCATE(D_Hat)
-!$acc exit data delete(D_Hat_T)
 SDEALLOCATE(D_Hat_T)
 #if SPLIT_DG
 SDEALLOCATE(DVolSurf)

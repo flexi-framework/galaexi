@@ -68,7 +68,6 @@ CONTAINS
 !> Compute advection part of the Navier-Stokes fluxes in all space dimensions using the conservative and primitive variables
 !==================================================================================================================================
 PPURE SUBROUTINE EvalFlux3D_Point(U,UPrim,f,g,h)
-!$acc routine
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -90,19 +89,19 @@ f(DENS) = U(MOM1)                             ! rho*u
 f(MOM1) = U(MOM1) * UPrim(VEL1) + UPrim(PRES) ! rho*u²+p
 f(MOM2) = U(MOM1) * UPrim(VEL2)               ! rho*u*v
 f(MOM3) = U(MOM1) * UPrim(VEL3)               ! rho*u*w
-f(PRES) = Ep * UPrim(VEL1)                    ! (rho*e+p)*u
+f(ENER) = Ep * UPrim(VEL1)                    ! (rho*e+p)*u
 ! Euler fluxes y-direction
 g(DENS) = U(MOM2)                             ! rho*v
 g(MOM1) = f(MOM2)                             ! rho*u*v
 g(MOM2) = U(MOM2) * UPrim(VEL2) + UPrim(PRES) ! rho*v²+p
 g(MOM3) = U(MOM2) * UPrim(VEL3)               ! rho*v*w
-g(PRES) = Ep * UPrim(VEL2)                    ! (rho*e+p)*v
+g(ENER) = Ep * UPrim(VEL2)                    ! (rho*e+p)*v
 ! Euler fluxes z-direction
 h(DENS) = U(MOM3)                             ! rho*v
 h(MOM1) = f(MOM3)                             ! rho*u*w
 h(MOM2) = g(MOM3)                             ! rho*v*w
 h(MOM3) = U(MOM3) * UPrim(VEL3) + UPrim(PRES) ! rho*v²+p
-h(PRES) = Ep * UPrim(VEL3)                    ! (rho*e+p)*w
+h(ENER) = Ep * UPrim(VEL3)                    ! (rho*e+p)*w
 #else
 
 ! Euler part
@@ -127,7 +126,6 @@ END SUBROUTINE EvalFlux3D_Point
 !> Wrapper routine to compute the advection part of the Navier-Stokes fluxes for a single volume cell
 !==================================================================================================================================
 PPURE SUBROUTINE EvalFlux3D_Volume(Nloc,U,UPrim,f,g,h)
-!$acc routine vector
 ! MODULES
 USE MOD_PreProc
 IMPLICIT NONE
@@ -142,19 +140,9 @@ REAL,DIMENSION(PP_nVar    ,0:Nloc,0:Nloc,0:ZDIM(Nloc)),INTENT(OUT) :: f,g,h
 ! LOCAL VARIABLES
 INTEGER             :: i,j,k
 !==================================================================================================================================
-!$acc loop independent
-DO k=0,ZDIM(Nloc)
-!$acc loop independent
-DO j=0,Nloc
-!$acc loop independent
-DO i=0,Nloc
+DO k=0,ZDIM(Nloc);  DO j=0,Nloc; DO i=0,Nloc
   CALL EvalFlux3D_Point(U(:,i,j,k),UPrim(:,i,j,k),f(:,i,j,k),g(:,i,j,k),h(:,i,j,k))
-END DO
-!$acc end loop
-END DO
-!$acc end loop
-END DO ! i,j,k
-!$acc end loop
+END DO; END DO; END DO ! i,j,k
 END SUBROUTINE EvalFlux3D_Volume
 
 #if PARABOLIC

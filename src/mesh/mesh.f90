@@ -438,9 +438,6 @@ SDEALLOCATE(BoundaryType)
 
 ! Volume
 SDEALLOCATE(Elem_xGP)
-!$acc exit data delete(Metrics_fTilde)
-!$acc exit data delete(Metrics_gTilde)
-!$acc exit data delete(Metrics_hTilde)
 SDEALLOCATE(Metrics_fTilde)
 SDEALLOCATE(Metrics_gTilde)
 SDEALLOCATE(Metrics_hTilde)

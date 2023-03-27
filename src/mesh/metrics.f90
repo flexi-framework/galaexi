@@ -529,9 +529,6 @@ DO iElem=1,nElems
                          NormVec,TangVec1,TangVec2,SurfElem,Face_xGP,Ja_Face)
   END IF
 END DO !iElem=1,nElems
-!$acc enter data copyin(Metrics_fTilde)
-!$acc enter data copyin(Metrics_gTilde)
-!$acc enter data copyin(Metrics_hTilde)
 
 #if USE_MPI
 ! Send surface geomtry informations from mpi master to mpi slave
