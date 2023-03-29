@@ -340,6 +340,9 @@ IF (meshMode.GT.1) THEN
   ALLOCATE(Metrics_fTilde(3,0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
   ALLOCATE(Metrics_gTilde(3,0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
   ALLOCATE(Metrics_hTilde(3,0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
+  !@cuf ALLOCATE(d_Metrics_fTilde(3,0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
+  !@cuf ALLOCATE(d_Metrics_gTilde(3,0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
+  !@cuf ALLOCATE(d_Metrics_hTilde(3,0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
   ALLOCATE(            sJ(  0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
   ALLOCATE(     scaledJac(  0:PP_N,0:PP_N,0:PP_NZ,nElems))
   NGeoRef=3*NGeo ! build jacobian at higher degree
@@ -371,6 +374,9 @@ IF (meshMode.GT.1) THEN
 #endif
   SWRITE(UNIT_stdOut,'(A)') "NOW CALLING calcMetrics..."
   CALL CalcMetrics()     ! DG metrics
+  !@cuf d_Metrics_fTilde = Metrics_fTilde
+  !@cuf d_Metrics_gTilde = Metrics_gTilde
+  !@cuf d_Metrics_hTilde = Metrics_hTilde
 #if FV_ENABLED
   CALL InitFV_Metrics()  ! FV metrics
 #endif

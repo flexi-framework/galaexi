@@ -95,8 +95,10 @@ CALL InitDGBasis(PP_N, xGP,wGP,L_minus,L_plus,D ,D_T ,D_Hat ,D_Hat_T ,L_HatMinus
 
 ! Allocate the local DG solution (JU or U): element-based
 ALLOCATE(U(        PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
+!@cuf ALLOCATE(d_U(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 ! Allocate the time derivative / solution update /residual vector dU/dt: element-based
 ALLOCATE(Ut(       PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
+!@cuf ALLOCATE(d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 U=0.
 Ut=0.
 
@@ -109,6 +111,7 @@ U_slave=0.
 
 ! Repeat the U, U_Minus, U_Plus structure for the primitive quantities
 ALLOCATE(UPrim(       PP_nVarPrim,0:PP_N,0:PP_N,0:PP_NZ,nElems))
+!@cuf ALLOCATE(d_UPrim(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 ALLOCATE(UPrim_master(PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
 ALLOCATE(UPrim_slave( PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
 UPrim=0.
@@ -223,6 +226,7 @@ USE MOD_Globals
 USE MOD_Preproc
 USE MOD_Vector
 USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave,L_HatPlus,L_HatMinus
+!@cuf USE MOD_DG_Vars          ,ONLY: d_U,d_UPrim,d_Ut
 USE MOD_DG_Vars             ,ONLY: UPrim,UPrim_master,UPrim_slave
 !USE MOD_DG_Vars,             ONLY: nTotalU
 USE MOD_VolInt
@@ -316,6 +320,8 @@ IF(FilterType.GT.0) CALL Filter_Pointer(U,FilterMat)
 
 ! 2. Convert Volume solution to primitive
 CALL ConsToPrim(PP_N,UPrim,U)
+d_U     = U
+d_UPrim = UPrim
 
 ! 3. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
 ! -----------------------------------------------------------------------------------------------------------
@@ -472,7 +478,8 @@ END IF
 #endif /*PARABOLIC*/
 
 ! 8. Compute volume integral contribution and add to Ut
-CALL VolInt(Ut)
+CALL VolInt(d_Ut)
+Ut = d_Ut
 
 #if FV_ENABLED
 ! [ 9. Volume integral (advective and viscous) for all FV elements ]
