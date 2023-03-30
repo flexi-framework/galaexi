@@ -136,24 +136,30 @@ IMPLICIT NONE
 REAL,DEVICE,INTENT(OUT)   :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER            :: i,j,k,l,iElem
-INTEGER,PARAMETER  :: nElems_Block=4
+INTEGER,PARAMETER  :: nElems_Block=32
+INTEGER            :: i,j,k,l,iElem,iiElem,nElems_myBlock
+INTEGER            :: lastElem
 #if VOLINT_VISC
-REAL,DIMENSION(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ) :: fv,gv,hv  !< Volume viscous fluxes at GP
+REAL,DIMENSION(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block) :: fv,gv,hv  !< Volume viscous fluxes at GP
 #endif
-REAL,DEVICE,DIMENSION(PP_nVar    ,0:PP_N,0:PP_N,0:PP_NZ) :: d_f, d_g, d_h
+REAL,DEVICE,DIMENSION(PP_nVar    ,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block) :: d_f, d_g, d_h
 REAL,DEVICE,DIMENSION(0:PP_N,0:PP_N) :: d_D_hat_T
 !==================================================================================================================================
 ! Diffusive part
 d_D_hat_T = D_hat_T
-DO iElem=1,nElems
+DO iElem=1,nElems,nElems_Block
 #if FV_ENABLED
   IF (FV_Elems(iElem).EQ.1) CYCLE ! FV Elem
 #endif
+  lastElem    = MIN(nElems,iElem+nElems_Block-1)
+  nElems_myBlock = lastElem-iElem+1
+
   ! Cut out the local DG solution for a grid cell iElem and all Gauss points from the global field
   ! Compute for all Gauss point values the Cartesian flux components
   !CALL EvalFlux3D(PP_N,U(:,:,:,:,iElem),UPrim(:,:,:,:,iElem),f,g,h)
-  CALL EvalFlux3D_Volume<<<nDOFElem/256+1,256>>>(nDOFElem,d_U(:,:,:,:,iElem),d_UPrim(:,:,:,:,iElem),d_f,d_g,d_h)
+  CALL EvalFlux3D_Volume<<<(nDOFElem*nElems_myBlock)/256+1,256>>>(nDOFElem*nElems_myBlock,d_U(    :,:,:,:,iElem:lastElem) &
+                                                                                         ,d_UPrim(:,:,:,:,iElem:lastElem) &
+                                                                                         ,d_f,d_g,d_h)
 
 #if VOLINT_VISC
   CALL EvalDiffFlux3D( UPrim(:,:,:,:,iElem),&
@@ -169,40 +175,30 @@ DO iElem=1,nElems
 #endif
 #endif
 
-  CALL VolInt_Metrics_GPU<<<nDOFElem/256+1,256>>>(nDOFElem,d_f,d_g,d_h,d_Metrics_fTilde(:,:,:,:,iElem,0),&
-                                                                       d_Metrics_gTilde(:,:,:,:,iElem,0),&
-                                                                       d_Metrics_hTilde(:,:,:,:,iElem,0))
-  !$cuf kernel do(3) <<< *, * >>>
-  DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      ! Update the time derivative with the spatial derivatives of the transformed fluxes
-      d_Ut(:,i,j,k,iElem) =                 d_D_Hat_T(0,i)*d_f(:,0,j,k) + &
+  CALL VolInt_Metrics_GPU<<<(nDOFElem*nElems_myBlock)/256+1,256>>>(nDOFElem*nElems_myBlock, &
+                                                                   d_f,d_g,d_h,             &
+                                                                   d_Metrics_fTilde(:,:,:,:,iElem:lastElem,0), &
+                                                                   d_Metrics_gTilde(:,:,:,:,iElem:lastElem,0), &
+                                                                   d_Metrics_hTilde(:,:,:,:,iElem:lastElem,0))
+  !$cuf kernel do(4) <<< *, 256 >>>
+  DO iiElem=1,nElems_myBlock
+    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
+        ! Update the time derivative with the spatial derivatives of the transformed fluxes
+        d_Ut(:,i,j,k,iElem+iiElem-1) =         d_D_Hat_T(0,i)*d_f(:,0,j,k,iiElem) + &
 #if PP_dim==3
-                                            d_D_Hat_T(0,k)*d_h(:,i,j,0) + &
+                                               d_D_Hat_T(0,k)*d_h(:,i,j,0,iiElem) + &
 #endif
-                                            d_D_Hat_T(0,j)*d_g(:,i,0,k)
-    DO l=1,PP_N
-      ! Update the time derivative with the spatial derivatives of the transformed fluxes
-      d_Ut(:,i,j,k,iElem) = d_Ut(:,i,j,k,iElem) + d_D_Hat_T(l,i)*d_f(:,l,j,k) + &
+                                               d_D_Hat_T(0,j)*d_g(:,i,0,k,iiElem)
+        DO l=1,PP_N
+          ! Update the time derivative with the spatial derivatives of the transformed fluxes
+          d_Ut(:,i,j,k,iElem+iiElem-1) = d_Ut(:,i,j,k,iElem+iiElem-1) + d_D_Hat_T(l,i)*d_f(:,l,j,k,iiElem) + &
 #if PP_dim==3
-                                      d_D_Hat_T(l,k)*d_h(:,i,j,l) + &
+                                                                        d_D_Hat_T(l,k)*d_h(:,i,j,l,iiElem) + &
 #endif
-                                      d_D_Hat_T(l,j)*d_g(:,i,l,k)
-    END DO ! l
-  END DO; END DO; END DO !i,j,k
-
-!  !@ $cuf kernel do(3) <<< *, * >>>
-!  d_Ut(:,:,:,:) = 0.
-!  DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-!    DO l=0,PP_N
-!      ! Update the time derivative with the spatial derivatives of the transformed fluxes
-!      d_Ut(:,i,j,k) = d_Ut(:,i,j,k) + d_D_Hat_T(l,i)*d_f(:,l,j,k) + &
-!#if PP_dim==3
-!                                      d_D_Hat_T(l,k)*d_h(:,i,j,l) + &
-!#endif
-!                                      d_D_Hat_T(l,j)*d_g(:,i,l,k)
-!    END DO ! l
-!  END DO; END DO; END DO !i,j,k
-  !Ut(:,:,:,:,iElem) = d_Ut(:,:,:,:,iElem)
+                                                                        d_D_Hat_T(l,j)*d_g(:,i,l,k,iiElem)
+      END DO ! l
+    END DO; END DO; END DO !i,j,k
+  END DO !iiElem
 
 END DO ! iElem
 END SUBROUTINE VolInt_weakForm
