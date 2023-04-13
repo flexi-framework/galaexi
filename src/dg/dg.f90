@@ -111,7 +111,7 @@ U_slave=0.
 
 ! Repeat the U, U_Minus, U_Plus structure for the primitive quantities
 ALLOCATE(UPrim(       PP_nVarPrim,0:PP_N,0:PP_N,0:PP_NZ,nElems))
-!@cuf ALLOCATE(d_UPrim(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
+!@cuf ALLOCATE(d_UPrim(PP_nVarPrim,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 ALLOCATE(UPrim_master(PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
 ALLOCATE(UPrim_slave( PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
 UPrim=0.
@@ -227,7 +227,7 @@ USE MOD_Preproc
 USE MOD_Vector
 USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave,L_HatPlus,L_HatMinus
 !@cuf USE MOD_DG_Vars          ,ONLY: d_U,d_UPrim,d_Ut
-USE MOD_DG_Vars             ,ONLY: UPrim,UPrim_master,UPrim_slave
+USE MOD_DG_Vars             ,ONLY: UPrim,UPrim_master,UPrim_slave,nDOFElem
 !USE MOD_DG_Vars,             ONLY: nTotalU
 USE MOD_VolInt
 USE MOD_SurfIntCons         ,ONLY: SurfIntCons
@@ -242,6 +242,7 @@ USE MOD_TestCase            ,ONLY: TestcaseSource
 USE MOD_TestCase_Vars       ,ONLY: doTCSource
 USE MOD_Equation            ,ONLY: GetPrimitiveStateSurface,GetConservativeStateSurface
 USE MOD_EOS                 ,ONLY: ConsToPrim
+USE MOD_EOS                 ,ONLY: ConsToPrim_Volume_GPU
 USE MOD_Exactfunc           ,ONLY: CalcSource
 USE MOD_Equation_Vars       ,ONLY: doCalcSource
 USE MOD_Sponge              ,ONLY: Sponge
@@ -259,6 +260,7 @@ USE MOD_MPI_Vars
 USE MOD_MPI                 ,ONLY: StartReceiveMPIData,StartSendMPIData,FinishExchangeMPIData
 USE MOD_Mesh_Vars,           ONLY: nSides
 #endif /*USE_MPI*/
+USE MOD_Mesh_Vars,           ONLY: nElems
 #if FV_ENABLED
 USE MOD_FV_Vars             ,ONLY: FV_Elems_master,FV_Elems_slave,FV_Elems_Sum
 USE MOD_FV_Mortar           ,ONLY: FV_Elems_Mortar
@@ -319,9 +321,8 @@ REAL,INTENT(IN)                 :: t                      !< Current time
 IF(FilterType.GT.0) CALL Filter_Pointer(U,FilterMat)
 
 ! 2. Convert Volume solution to primitive
-CALL ConsToPrim(PP_N,UPrim,U)
 d_U     = U
-d_UPrim = UPrim
+CALL ConsToPrim_Volume_GPU<<<nElems*nDOFElem/256+1,256>>>(nElems*nDOFElem,d_UPrim,d_U)
 
 ! 3. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
 ! -----------------------------------------------------------------------------------------------------------

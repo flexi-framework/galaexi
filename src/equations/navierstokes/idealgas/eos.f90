@@ -30,7 +30,7 @@ INTERFACE InitEOS
 END INTERFACE
 
 INTERFACE ConsToPrim
-  MODULE PROCEDURE ConsToPrim
+  MODULE PROCEDURE ConsToPrim_Point
   MODULE PROCEDURE ConsToPrim_Side
   MODULE PROCEDURE ConsToPrim_Elem
   MODULE PROCEDURE ConsToPrim_Volume
@@ -49,6 +49,7 @@ END INTERFACE
 
 PUBLIC::InitEos
 PUBLIC::ConsToPrim
+PUBLIC::ConsToPrim_Volume_GPU
 PUBLIC::PrimToCons
 PUBLIC::PRESSURE_RIEMANN
 PUBLIC::DefineParametersEos
@@ -187,9 +188,9 @@ END SUBROUTINE InitEos
 !==================================================================================================================================
 !> Transformation from conservative variables to primitive variables for a single state
 !==================================================================================================================================
-PPURE SUBROUTINE ConsToPrim(prim,cons)
+ATTRIBUTES(DEVICE,HOST) SUBROUTINE ConsToPrim_Compute(prim,cons)
 ! MODULES
-USE MOD_EOS_Vars,ONLY:KappaM1,R
+!USE MOD_EOS_Vars,ONLY:KappaM1,R
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -197,6 +198,8 @@ REAL,INTENT(IN)  :: cons(PP_nVar)     !< vector of conservative variables
 REAL,INTENT(OUT) :: prim(PP_nVarPrim) !< vector of primitive variables (density,velocities,temperature,pressure)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
+REAL,PARAMETER   :: KappaM1=0.4
+REAL,PARAMETER   :: R=287.1
 REAL             :: sRho    ! 1/Rho
 !==================================================================================================================================
 sRho=1./cons(DENS)
@@ -213,12 +216,28 @@ prim(VEL3)=0.
 prim(PRES)=KappaM1*(cons(ENER)-0.5*SUM(cons(MOMV)*prim(VELV)))
 ! temperature
 prim(TEMP) = prim(PRES)*sRho / R
-END SUBROUTINE ConsToPrim
+END SUBROUTINE ConsToPrim_Compute
+
+!==================================================================================================================================
+!> Transformation from conservative variables to primitive variables in a single point
+!==================================================================================================================================
+SUBROUTINE ConsToPrim_Point(prim,cons)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+REAL,INTENT(IN)    :: cons(PP_nVar)     !< vector of conservative variables
+REAL,INTENT(OUT)   :: prim(PP_nVarPrim) !< vector of primitive variables
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+!==================================================================================================================================
+CALL ConsToPrim_Compute(prim(:),cons(:))
+END SUBROUTINE ConsToPrim_Point
 
 !==================================================================================================================================
 !> Transformation from conservative variables to primitive variables on a single side
 !==================================================================================================================================
-PPURE SUBROUTINE ConsToPrim_Side(Nloc,prim,cons)
+SUBROUTINE ConsToPrim_Side(Nloc,prim,cons)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -231,14 +250,14 @@ REAL,INTENT(OUT)   :: prim(PP_nVarPrim,0:Nloc,0:ZDIM(Nloc)) !< vector of primiti
 INTEGER            :: p,q
 !==================================================================================================================================
 DO q=0,ZDIM(Nloc); DO p=0,Nloc
-  CALL ConsToPrim(prim(:,p,q),cons(:,p,q))
+  CALL ConsToPrim_Compute(prim(:,p,q),cons(:,p,q))
 END DO; END DO
 END SUBROUTINE ConsToPrim_Side
 
 !==================================================================================================================================
 !> Transformation from conservative variables to primitive variables in the whole volume
 !==================================================================================================================================
-PPURE SUBROUTINE ConsToPrim_Elem(Nloc,prim,cons)
+SUBROUTINE ConsToPrim_Elem(Nloc,prim,cons)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -251,14 +270,14 @@ REAL,INTENT(OUT)   :: prim(PP_nVarPrim,0:Nloc,0:Nloc,0:ZDIM(Nloc)) !< vector of 
 INTEGER            :: i,j,k
 !==================================================================================================================================
 DO k=0,ZDIM(Nloc); DO j=0,Nloc; DO i=0,Nloc
-  CALL ConsToPrim(prim(:,i,j,k),cons(:,i,j,k))
+  CALL ConsToPrim_Compute(prim(:,i,j,k),cons(:,i,j,k))
 END DO; END DO; END DO! i,j,k=0,Nloc
 END SUBROUTINE ConsToPrim_Elem
 
 !==================================================================================================================================
 !> Transformation from conservative variables to primitive variables in the whole volume
 !==================================================================================================================================
-PPURE SUBROUTINE ConsToPrim_Volume(Nloc,prim,cons)
+SUBROUTINE ConsToPrim_Volume(Nloc,prim,cons)
 ! MODULES
 USE MOD_Mesh_Vars,ONLY:nElems
 IMPLICIT NONE
@@ -273,10 +292,31 @@ INTEGER            :: i,j,k,iElem
 !==================================================================================================================================
 DO iElem=1,nElems
   DO k=0,ZDIM(Nloc); DO j=0,Nloc; DO i=0,Nloc
-    CALL ConsToPrim(prim(:,i,j,k,iElem),cons(:,i,j,k,iElem))
+    CALL ConsToPrim_Compute(prim(:,i,j,k,iElem),cons(:,i,j,k,iElem))
   END DO; END DO; END DO! i,j,k=0,Nloc
 END DO ! iElem
 END SUBROUTINE ConsToPrim_Volume
+
+
+!==================================================================================================================================
+!> Transformation from conservative variables to primitive variables in the whole volume
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE ConsToPrim_Volume_GPU(nDof,prim,cons)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN) :: nDOF                     !< local polynomial degree of solution representation
+REAL,INTENT(IN)    :: cons(PP_nVar    ,1:nDOF) !< vector of conservative variables
+REAL,INTENT(OUT)   :: prim(PP_nVarPrim,1:nDOF) !< vector of primitive variables
+!@cuf ATTRIBUTES(DEVICE) :: cons,prim
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER            :: i
+!==================================================================================================================================
+i = (blockidx%x-1) * blockdim%x + threadidx%x
+IF(i.LE.nDOF) CALL ConsToPrim_Compute(prim(:,i),cons(:,i))
+END SUBROUTINE ConsToPrim_Volume_GPU
 
 !==================================================================================================================================
 !> Transformation from primitive to conservative variables for a single state
