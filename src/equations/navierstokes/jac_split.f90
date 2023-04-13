@@ -287,48 +287,48 @@ dfdu = 0.5*(MetricRef(1)+Metric(1))*fJac(:,:) + &
 
 END SUBROUTINE Jac_Split_PI
 
-!===================================================================================================================================
-!> Calculate jacobian of an arbitrary split flux using the finite difference approach (EXPENSIVE BUT FOR ALL FLUXES)
-!===================================================================================================================================
-PPURE SUBROUTINE Jac_Split_FD(U,UPrim,URef,UPrimRef,Metric,MetricRef,dfdu)
-! MODULES
-USE MOD_Preproc
-USE MOD_Globals
-USE MOD_SplitFlux     ,ONLY: SplitDGVolume_pointer
-USE MOD_Implicit_Vars ,ONLY: reps0_O1,sreps0_O1
-USE MOD_EOS           ,ONLY: ConsToPrim
-! IMPLICIT VARIABLE HANDLING
-IMPLICIT NONE
-!-----------------------------------------------------------------------------------------------------------------------------------
-! INPUT VARIABLES
-REAL,DIMENSION(PP_nVar    ),INTENT(IN)  :: U             !< conserved variables
-REAL,DIMENSION(PP_nVarPrim),INTENT(IN)  :: UPrim         !< primitive variables
-REAL,DIMENSION(PP_nVar    ),INTENT(IN)  :: URef          !< conserved variables
-REAL,DIMENSION(PP_nVarPrim),INTENT(IN)  :: UPrimRef      !< primitive variables
-REAL,DIMENSION(1:3        ),INTENT(IN)  :: Metric        !< metric terms
-REAL,DIMENSION(1:3        ),INTENT(IN)  :: MetricRef     !< metric terms
-!-----------------------------------------------------------------------------------------------------------------------------------
-! OUTPUT VARIABLES
-REAL,DIMENSION(PP_nVar,PP_nVar),INTENT(OUT) :: dfdu      !< dof local jacobian of volume split flux
-!-----------------------------------------------------------------------------------------------------------------------------------
-! LOCAL VARIABLES
-REAL                                    :: FluxTilde(PP_nVar),UTilde(PP_nVar),UPrimTilde(PP_nVarPrim),Flux(PP_nVar)
-INTEGER                                 :: iVar, jVar
-!===================================================================================================================================
-
-CALL SplitDGVolume_pointer(Uref,UPrimRef,U,UPrim,MetricRef,Metric,Flux)
-UTilde = U
-! Pertubate each variable and use FD (first order) to approximate the derivative
-DO jVar=1,PP_nVar
-  UTilde(jVar) = UTilde(jVar) + reps0_O1
-  CALL ConsToPrim(UPrimTilde,UTilde)
-  CALL SplitDGVolume_pointer(Uref,UPrimRef,UTilde,UPrimTilde,MetricRef,Metric,FluxTilde)
-  DO iVar=1,PP_nVar
-    dfdu(iVar,jVar) = (FluxTilde(iVar)-Flux(iVar))*sreps0_O1
-  END DO ! iVar
-  UTilde = U
-END DO
-END SUBROUTINE
+!!===================================================================================================================================
+!!> Calculate jacobian of an arbitrary split flux using the finite difference approach (EXPENSIVE BUT FOR ALL FLUXES)
+!!===================================================================================================================================
+!PPURE SUBROUTINE Jac_Split_FD(U,UPrim,URef,UPrimRef,Metric,MetricRef,dfdu)
+!! MODULES
+!USE MOD_Preproc
+!USE MOD_Globals
+!USE MOD_SplitFlux     ,ONLY: SplitDGVolume_pointer
+!USE MOD_Implicit_Vars ,ONLY: reps0_O1,sreps0_O1
+!USE MOD_EOS           ,ONLY: ConsToPrim
+!! IMPLICIT VARIABLE HANDLING
+!IMPLICIT NONE
+!!-----------------------------------------------------------------------------------------------------------------------------------
+!! INPUT VARIABLES
+!REAL,DIMENSION(PP_nVar    ),INTENT(IN)  :: U             !< conserved variables
+!REAL,DIMENSION(PP_nVarPrim),INTENT(IN)  :: UPrim         !< primitive variables
+!REAL,DIMENSION(PP_nVar    ),INTENT(IN)  :: URef          !< conserved variables
+!REAL,DIMENSION(PP_nVarPrim),INTENT(IN)  :: UPrimRef      !< primitive variables
+!REAL,DIMENSION(1:3        ),INTENT(IN)  :: Metric        !< metric terms
+!REAL,DIMENSION(1:3        ),INTENT(IN)  :: MetricRef     !< metric terms
+!!-----------------------------------------------------------------------------------------------------------------------------------
+!! OUTPUT VARIABLES
+!REAL,DIMENSION(PP_nVar,PP_nVar),INTENT(OUT) :: dfdu      !< dof local jacobian of volume split flux
+!!-----------------------------------------------------------------------------------------------------------------------------------
+!! LOCAL VARIABLES
+!REAL                                    :: FluxTilde(PP_nVar),UTilde(PP_nVar),UPrimTilde(PP_nVarPrim),Flux(PP_nVar)
+!INTEGER                                 :: iVar, jVar
+!!===================================================================================================================================
+!
+!CALL SplitDGVolume_pointer(Uref,UPrimRef,U,UPrim,MetricRef,Metric,Flux)
+!UTilde = U
+!! Pertubate each variable and use FD (first order) to approximate the derivative
+!DO jVar=1,PP_nVar
+!  UTilde(jVar) = UTilde(jVar) + reps0_O1
+!  CALL ConsToPrim(UPrimTilde,UTilde)
+!  CALL SplitDGVolume_pointer(Uref,UPrimRef,UTilde,UPrimTilde,MetricRef,Metric,FluxTilde)
+!  DO iVar=1,PP_nVar
+!    dfdu(iVar,jVar) = (FluxTilde(iVar)-Flux(iVar))*sreps0_O1
+!  END DO ! iVar
+!  UTilde = U
+!END DO
+!END SUBROUTINE
 
 #endif /*SPLIT_DG*/
 END MODULE MOD_Jac_Split

@@ -35,7 +35,7 @@ PRIVATE
 
 PUBLIC :: TimeStepByLSERKW2
 PUBLIC :: TimeStepByLSERKK3
-PUBLIC :: TimeStepByESDIRK
+!PUBLIC :: TimeStepByESDIRK
 !==================================================================================================================================
 
 CONTAINS
@@ -194,124 +194,124 @@ END DO
 
 END SUBROUTINE TimeStepByLSERKK3
 
-!===================================================================================================================================
-!> This procedure takes the current time t, the time step dt and the solution at
-!> the current time U(t) and returns the solution at the next time level.
-!> ESDIRK time integrator with RKA/b/c from Butcher tableau:
-!>
-!> Un=U
-!> Calculation of the explicit terms for every stage i=1,...,s of the ESDIRK
-!> RHS_(i-1) = Un + dt * sum(j=1,i-1) a_ij  Ut(t^n + c_j delta t^n, U_j)
-!> Call Newton for searching the roots of the function
-!> F(U) = U - RHS(i-1) - a_ii * delta t * Ut(t^n + c_i * delta t^n, U) = 0
-!===================================================================================================================================
-SUBROUTINE TimeStepByESDIRK(t)
-! MODULES
-USE MOD_Globals
-USE MOD_PreProc
-USE MOD_DG                ,ONLY: DGTimeDerivative_weakForm
-USE MOD_DG_Vars           ,ONLY: U,Ut
-USE MOD_Implicit          ,ONLY: Newton
-USE MOD_Implicit_Vars     ,ONLY: LinSolverRHS,adaptepsNewton,epsNewton,nDOFVarProc,nGMRESIterdt,NewtonConverged,nInnerGMRES
-USE MOD_Mathtools         ,ONLY: GlobalVectorDotProduct
-USE MOD_Mesh_Vars         ,ONLY: nElems
-USE MOD_Precond           ,ONLY: BuildPrecond
-USE MOD_Precond_Vars      ,ONLY: PrecondIter
-USE MOD_Predictor         ,ONLY: Predictor,PredictorStoreValues
-USE MOD_TimeDisc_Vars     ,ONLY: dt,nRKStages,RKA_implicit,RKc_implicit,iter,CFLScale,CFLScale_Readin
-USE MOD_TimeDisc_Vars     ,ONLY: RKb_implicit,RKb_embedded,safety,ESDIRK_gamma
-#if PARABOLIC
-USE MOD_TimeDisc_Vars     ,ONLY: DFLScale,DFLScale_Readin
-#endif
-#if FV_ENABLED
-USE MOD_Indicator         ,ONLY: CalcIndicator
-#endif /*FV_ENABLED*/
-#if FV_ENABLED == 1
-USE MOD_FV_Switching      ,ONLY: FV_Switch
-#endif /*FV_ENABLED==1*/
-IMPLICIT NONE
-!-----------------------------------------------------------------------------------------------------------------------------------
-! INPUT/OUTPUT VARIABLES
-REAL,INTENT(INOUT) :: t   !< current simulation time
-!-----------------------------------------------------------------------------------------------------------------------------------
-! LOCAL VARIABLES
-REAL    :: Ut_implicit(1:PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems,1:nRKStages) ! temporal variable for Ut_implicit
-REAL    :: Un(1:PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)
-INTEGER :: iStage,iCounter
-REAL    :: tStage
-REAL    :: delta_embedded(1:PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)          ! difference between solution obtained with
-                                                                             ! full order scheme and embedded scheme
-!===================================================================================================================================
-!CALL DGTimeDerivative_weakForm(t)! has to be called before preconditioner to fill U_master/slave ! already called in timedisc
-IF ((iter==0).OR.(MOD(iter,PrecondIter)==0)) CALL BuildPrecond(t,ESDIRK_gamma,dt)
-tStage                   = t
-Un                       = U
-Ut_implicit(:,:,:,:,:,1) = Ut
-DO iStage=2,nRKStages
-  IF (NewtonConverged) THEN
-    ! Time of current stage
-    tStage = tStage + RKc_implicit(iStage)*dt
-    ! Compute RHS for linear solver
-    LinSolverRHS=Un
-    DO iCounter=1,iStage-1
-      LinSolverRHS = LinSolverRHS + dt*(RKA_implicit(iStage,iCounter)*Ut_implicit(:,:,:,:,:,iCounter))
-    END DO
-    ! Get predictor of u^s+1
-    CALL Predictor(tStage,iStage)
-    ! Solve to new stage
-    CALL Newton(tStage,RKA_implicit(iStage,iStage))
-    ! Store old values for use in next stages
-    !CALL DGTimeDerivative_weakForm(tStage) ! already set in last Newton iteration
-    Ut_implicit(:,:,:,:,:,iStage)=Ut
-    ! Store predictor
-    CALL PredictorStoreValues(Ut_implicit,Un,tStage,iStage)
-  END IF
-END DO
-
-! Adaptive Newton tolerance, see: Kennedy,Carpenter: Additive Runge-Kutta Schemes for Convection-Diffusion-Reaction Equations
-IF (adaptepsNewton.AND.NewtonConverged) THEN
-  delta_embedded = 0.
-  DO iStage=1,nRKStages
-    delta_embedded = delta_embedded + (RKb_implicit(iStage)-RKb_embedded(iStage)) * Ut_implicit(:,:,:,:,:,iStage)
-  END DO
-  CALL GlobalVectorDotProduct(delta_embedded,delta_embedded,nDOFVarProc,epsNewton)
-  epsNewton = (MIN(dt*SQRT(epsNewton)/safety,1E-3))
-#if DEBUG
-  SWRITE(*,*) 'epsNewton = ',epsNewton
-#endif
-END IF
-
-IF (NewtonConverged) THEN
-  ! increase timestep size until target CFLScale is reached
-  CFLScale = MIN(CFLScale_Readin,1.05*CFLScale)
-#if PARABOLIC
-  DFLScale = MIN(DFLScale_Readin,1.05*DFLScale)
-#endif
-#if FV_ENABLED
-  ! Time needs to be evaluated at the next step
-  CALL CalcIndicator(U,t+dt)
-#endif /*FV_ENABLED*/
-#if FV_ENABLED == 1
-  ! NOTE: Apply switch and update FV_Elems
-  CALL FV_Switch(U,AllowToDG=.TRUE.)
-#endif /*FV_ENABLED==1*/
-ELSE
-  ! repeat current timestep with decreased timestep size
-  U = Un
-  t = t-dt
-  CFLScale = 0.5*CFLScale
-#if PARABOLIC
-  DFLScale = 0.5*DFLScale
-#endif
-  NewtonConverged = .TRUE.
-  IF (CFLScale(0).LT.0.01*CFLScale_Readin(0)) THEN
-    CALL Abort(__STAMP__, &
-    'Newton not converged with GMRES Iterations of last Newton step and CFL reduction',nInnerGMRES,CFLScale(0)/CFLScale_Readin(0))
-  END IF
-  SWRITE(*,*) 'Attention: Timestep failed, repeating with dt/2!'
-END IF
-
-nGMRESIterdt = 0
-END SUBROUTINE TimeStepByESDIRK
+!!===================================================================================================================================
+!!> This procedure takes the current time t, the time step dt and the solution at
+!!> the current time U(t) and returns the solution at the next time level.
+!!> ESDIRK time integrator with RKA/b/c from Butcher tableau:
+!!>
+!!> Un=U
+!!> Calculation of the explicit terms for every stage i=1,...,s of the ESDIRK
+!!> RHS_(i-1) = Un + dt * sum(j=1,i-1) a_ij  Ut(t^n + c_j delta t^n, U_j)
+!!> Call Newton for searching the roots of the function
+!!> F(U) = U - RHS(i-1) - a_ii * delta t * Ut(t^n + c_i * delta t^n, U) = 0
+!!===================================================================================================================================
+!SUBROUTINE TimeStepByESDIRK(t)
+!! MODULES
+!USE MOD_Globals
+!USE MOD_PreProc
+!USE MOD_DG                ,ONLY: DGTimeDerivative_weakForm
+!USE MOD_DG_Vars           ,ONLY: U,Ut
+!USE MOD_Implicit          ,ONLY: Newton
+!USE MOD_Implicit_Vars     ,ONLY: LinSolverRHS,adaptepsNewton,epsNewton,nDOFVarProc,nGMRESIterdt,NewtonConverged,nInnerGMRES
+!USE MOD_Mathtools         ,ONLY: GlobalVectorDotProduct
+!USE MOD_Mesh_Vars         ,ONLY: nElems
+!USE MOD_Precond           ,ONLY: BuildPrecond
+!USE MOD_Precond_Vars      ,ONLY: PrecondIter
+!USE MOD_Predictor         ,ONLY: Predictor,PredictorStoreValues
+!USE MOD_TimeDisc_Vars     ,ONLY: dt,nRKStages,RKA_implicit,RKc_implicit,iter,CFLScale,CFLScale_Readin
+!USE MOD_TimeDisc_Vars     ,ONLY: RKb_implicit,RKb_embedded,safety,ESDIRK_gamma
+!#if PARABOLIC
+!USE MOD_TimeDisc_Vars     ,ONLY: DFLScale,DFLScale_Readin
+!#endif
+!#if FV_ENABLED
+!USE MOD_Indicator         ,ONLY: CalcIndicator
+!#endif /*FV_ENABLED*/
+!#if FV_ENABLED == 1
+!USE MOD_FV_Switching      ,ONLY: FV_Switch
+!#endif /*FV_ENABLED==1*/
+!IMPLICIT NONE
+!!-----------------------------------------------------------------------------------------------------------------------------------
+!! INPUT/OUTPUT VARIABLES
+!REAL,INTENT(INOUT) :: t   !< current simulation time
+!!-----------------------------------------------------------------------------------------------------------------------------------
+!! LOCAL VARIABLES
+!REAL    :: Ut_implicit(1:PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems,1:nRKStages) ! temporal variable for Ut_implicit
+!REAL    :: Un(1:PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)
+!INTEGER :: iStage,iCounter
+!REAL    :: tStage
+!REAL    :: delta_embedded(1:PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)          ! difference between solution obtained with
+!                                                                             ! full order scheme and embedded scheme
+!!===================================================================================================================================
+!!CALL DGTimeDerivative_weakForm(t)! has to be called before preconditioner to fill U_master/slave ! already called in timedisc
+!IF ((iter==0).OR.(MOD(iter,PrecondIter)==0)) CALL BuildPrecond(t,ESDIRK_gamma,dt)
+!tStage                   = t
+!Un                       = U
+!Ut_implicit(:,:,:,:,:,1) = Ut
+!DO iStage=2,nRKStages
+!  IF (NewtonConverged) THEN
+!    ! Time of current stage
+!    tStage = tStage + RKc_implicit(iStage)*dt
+!    ! Compute RHS for linear solver
+!    LinSolverRHS=Un
+!    DO iCounter=1,iStage-1
+!      LinSolverRHS = LinSolverRHS + dt*(RKA_implicit(iStage,iCounter)*Ut_implicit(:,:,:,:,:,iCounter))
+!    END DO
+!    ! Get predictor of u^s+1
+!    CALL Predictor(tStage,iStage)
+!    ! Solve to new stage
+!    CALL Newton(tStage,RKA_implicit(iStage,iStage))
+!    ! Store old values for use in next stages
+!    !CALL DGTimeDerivative_weakForm(tStage) ! already set in last Newton iteration
+!    Ut_implicit(:,:,:,:,:,iStage)=Ut
+!    ! Store predictor
+!    CALL PredictorStoreValues(Ut_implicit,Un,tStage,iStage)
+!  END IF
+!END DO
+!
+!! Adaptive Newton tolerance, see: Kennedy,Carpenter: Additive Runge-Kutta Schemes for Convection-Diffusion-Reaction Equations
+!IF (adaptepsNewton.AND.NewtonConverged) THEN
+!  delta_embedded = 0.
+!  DO iStage=1,nRKStages
+!    delta_embedded = delta_embedded + (RKb_implicit(iStage)-RKb_embedded(iStage)) * Ut_implicit(:,:,:,:,:,iStage)
+!  END DO
+!  CALL GlobalVectorDotProduct(delta_embedded,delta_embedded,nDOFVarProc,epsNewton)
+!  epsNewton = (MIN(dt*SQRT(epsNewton)/safety,1E-3))
+!#if DEBUG
+!  SWRITE(*,*) 'epsNewton = ',epsNewton
+!#endif
+!END IF
+!
+!IF (NewtonConverged) THEN
+!  ! increase timestep size until target CFLScale is reached
+!  CFLScale = MIN(CFLScale_Readin,1.05*CFLScale)
+!#if PARABOLIC
+!  DFLScale = MIN(DFLScale_Readin,1.05*DFLScale)
+!#endif
+!#if FV_ENABLED
+!  ! Time needs to be evaluated at the next step
+!  CALL CalcIndicator(U,t+dt)
+!#endif /*FV_ENABLED*/
+!#if FV_ENABLED == 1
+!  ! NOTE: Apply switch and update FV_Elems
+!  CALL FV_Switch(U,AllowToDG=.TRUE.)
+!#endif /*FV_ENABLED==1*/
+!ELSE
+!  ! repeat current timestep with decreased timestep size
+!  U = Un
+!  t = t-dt
+!  CFLScale = 0.5*CFLScale
+!#if PARABOLIC
+!  DFLScale = 0.5*DFLScale
+!#endif
+!  NewtonConverged = .TRUE.
+!  IF (CFLScale(0).LT.0.01*CFLScale_Readin(0)) THEN
+!    CALL Abort(__STAMP__, &
+!    'Newton not converged with GMRES Iterations of last Newton step and CFL reduction',nInnerGMRES,CFLScale(0)/CFLScale_Readin(0))
+!  END IF
+!  SWRITE(*,*) 'Attention: Timestep failed, repeating with dt/2!'
+!END IF
+!
+!nGMRESIterdt = 0
+!END SUBROUTINE TimeStepByESDIRK
 
 END MODULE MOD_TimeStep

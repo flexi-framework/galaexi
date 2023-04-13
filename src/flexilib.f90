@@ -59,8 +59,8 @@ USE MOD_Analyze,           ONLY:DefineParametersAnalyze,InitAnalyze
 USE MOD_RecordPoints,      ONLY:DefineParametersRecordPoints,InitRecordPoints
 USE MOD_TimeDisc,          ONLY:TimeDisc
 USE MOD_TimeDisc_Functions,ONLY:DefineParametersTimedisc,InitTimeDisc
-USE MOD_Implicit,          ONLY:DefineParametersImplicit,InitImplicit
-USE MOD_Precond,           ONLY:DefineParametersPrecond
+!USE MOD_Implicit,          ONLY:DefineParametersImplicit,InitImplicit
+!USE MOD_Precond,           ONLY:DefineParametersPrecond
 USE MOD_MPI,               ONLY:DefineParametersMPI,InitMPI
 #if USE_MPI
 USE MOD_MPI,               ONLY:InitMPIvars
@@ -135,8 +135,8 @@ CALL DefineParametersLifting ()
 #endif /*PARABOLIC*/
 CALL DefineParametersSponge()
 CALL DefineParametersTimedisc()
-CALL DefineParametersImplicit()
-CALL DefineParametersPrecond()
+!CALL DefineParametersImplicit()
+!CALL DefineParametersPrecond()
 CALL DefineParametersAnalyze()
 CALL DefineParametersRecordPoints()
 
@@ -214,7 +214,7 @@ CALL InitLifting()
 CALL InitSponge()
 CALL InitTimeDisc()
 CALL InitAnalyze()
-CALL InitImplicit()
+!CALL InitImplicit()
 CALL InitRecordpoints()
 CALL IgnoredParameters()
 CALL Restart()
@@ -247,7 +247,7 @@ USE MOD_Commandline_Arguments,ONLY:FinalizeCommandlineArguments
 USE MOD_DG,                ONLY:FinalizeDG
 USE MOD_Equation,          ONLY:FinalizeEquation
 USE MOD_Filter,            ONLY:FinalizeFilter
-USE MOD_Implicit,          ONLY:FinalizeImplicit
+!USE MOD_Implicit,          ONLY:FinalizeImplicit
 USE MOD_Interpolation,     ONLY:FinalizeInterpolation
 USE MOD_IO_HDF5,           ONLY:FinalizeIOHDF5
 USE MOD_Mesh,              ONLY:FinalizeMesh
@@ -289,7 +289,7 @@ CALL FinalizeFV()
 CALL FinalizeDG()
 CALL FinalizeEquation()
 CALL FinalizeInterpolation()
-CALL FinalizeImplicit
+!CALL FinalizeImplicit
 CALL FinalizeTimeDisc()
 CALL FinalizeRestart()
 CALL FinalizeMesh()

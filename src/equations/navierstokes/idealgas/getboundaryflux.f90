@@ -572,8 +572,9 @@ ELSE
       CALL PrimToCons(UPrim_master(:,p,q),  UCons_master(:,p,q))
       CALL PrimToCons(UPrim_boundary(:,p,q),UCons_boundary(:,p,q))
     END DO; END DO ! p,q=0,PP_N
-    CALL Riemann(Nloc,Flux,UCons_master,UCons_boundary,UPrim_master,UPrim_boundary, &
-        NormVec,TangVec1,TangVec2,doBC=.TRUE.)
+    CALL ABORT(__STAMP__,"Commented out due to inconsistent interfaces.")
+    !CALL Riemann(Nloc,Flux,UCons_master,UCons_boundary,UPrim_master,UPrim_boundary, &
+    !    NormVec,TangVec1,TangVec2,doBC=.TRUE.)
 #if PARABOLIC
     CALL ViscousFlux(Nloc,Fd_Face_loc,UPrim_master,UPrim_boundary,&
          gradUx_master,gradUy_master,gradUz_master,&

@@ -435,7 +435,7 @@ END SUBROUTINE EvalEulerFlux1D
 !==================================================================================================================================
 !> Computes 1D Euler flux using the conservative and primitive variables (for better performance)
 !==================================================================================================================================
-PPURE SUBROUTINE EvalEulerFlux1D_fast(U,F)
+ATTRIBUTES(DEVICE,HOST) SUBROUTINE EvalEulerFlux1D_fast(U,F)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------

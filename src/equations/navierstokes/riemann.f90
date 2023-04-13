@@ -55,9 +55,9 @@ INTERFACE InitRiemann
   MODULE PROCEDURE InitRiemann
 END INTERFACE
 
-INTERFACE Riemann
-  MODULE PROCEDURE Riemann
-END INTERFACE
+!INTERFACE Riemann
+!  MODULE PROCEDURE Riemann
+!END INTERFACE
 
 INTERFACE Riemann_Point
   MODULE PROCEDURE Riemann_Point
@@ -77,6 +77,7 @@ END INTERFACE
 
 PUBLIC::InitRiemann
 PUBLIC::Riemann
+PUBLIC::Riemann_CPU
 PUBLIC::Riemann_Point
 PUBLIC::FinalizeRiemann
 !==================================================================================================================================
@@ -149,8 +150,8 @@ INTEGER                 :: Riemann
 #ifndef SPLIT_DG
 Riemann = GETINTFROMSTR('Riemann')
 SELECT CASE(Riemann)
-CASE(PRM_RIEMANN_LF)
-  Riemann_pointer => Riemann_LF
+!CASE(PRM_RIEMANN_LF)
+!  Riemann_pointer => Riemann_LF
 CASE(PRM_RIEMANN_HLLC)
   Riemann_pointer => Riemann_HLLC
 CASE(PRM_RIEMANN_ROE)
@@ -174,8 +175,8 @@ Riemann = GETINTFROMSTR('RiemannBC')
 SELECT CASE(Riemann)
 CASE(PRM_RIEMANN_SAME)
   RiemannBC_pointer => Riemann_pointer
-CASE(PRM_RIEMANN_LF)
-  RiemannBC_pointer => Riemann_LF
+!CASE(PRM_RIEMANN_LF)
+!  RiemannBC_pointer => Riemann_LF
 CASE(PRM_RIEMANN_HLLC)
   RiemannBC_pointer => Riemann_HLLC
 CASE(PRM_RIEMANN_ROE)
@@ -243,7 +244,7 @@ END SUBROUTINE InitRiemann
 !> Conservative States are rotated into normal direction in this routine and are NOT backrotated: don't use it after this routine!!
 !> Attention 2: numerical flux is backrotated at the end of the routine!!
 !==================================================================================================================================
-SUBROUTINE Riemann(Nloc,FOut,U_L,U_R,UPrim_L,UPrim_R,nv,t1,t2,doBC)
+SUBROUTINE Riemann_CPU(Nloc,FOut,U_L,U_R,UPrim_L,UPrim_R,nv,t1,t2,doBC)
 ! MODULES
 USE MOD_Flux         ,ONLY:EvalEulerFlux1D_fast
 IMPLICIT NONE
@@ -265,11 +266,11 @@ REAL,DIMENSION(PP_nVar) :: F_L,F_R,F
 REAL,DIMENSION(PP_2Var) :: U_LL,U_RR
 PROCEDURE(RiemannInt),POINTER :: Riemann_loc !< pointer defining the standard inner Riemann solver
 !==================================================================================================================================
-IF (doBC) THEN
-  Riemann_loc => RiemannBC_pointer
-ELSE
-  Riemann_loc => Riemann_pointer
-END IF
+!IF (doBC) THEN
+!  Riemann_loc => RiemannBC_pointer
+!ELSE
+!  Riemann_loc => Riemann_pointer
+!END IF
 
 DO j=0,ZDIM(Nloc); DO i=0,Nloc
   ! Momentum has to be rotatet using the normal system individual for each
@@ -315,7 +316,8 @@ DO j=0,ZDIM(Nloc); DO i=0,Nloc
   CALL EvalEulerFlux1D_fast(U_RR,F_R)
 #endif /*SPLIT_DG*/
 
-  CALL Riemann_loc(F_L,F_R,U_LL,U_RR,F)
+  !CALL Riemann_loc(F_L,F_R,U_LL,U_RR,F)
+  CALL Riemann_LF(F_L,F_R,U_LL,U_RR,F)
 
   ! Back Rotate the normal flux into Cartesian direction
   Fout(DENS,i,j)=F(DENS)
@@ -328,7 +330,105 @@ DO j=0,ZDIM(Nloc); DO i=0,Nloc
 #endif
   Fout(ENER,i,j)=F(ENER)
 END DO; END DO
+END SUBROUTINE Riemann_CPU
+
+!==================================================================================================================================
+!> Computes the numerical flux for a side calling the flux calculation pointwise.
+!> Conservative States are rotated into normal direction in this routine and are NOT backrotated: don't use it after this routine!!
+!> Attention 2: numerical flux is backrotated at the end of the routine!!
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE Riemann(nDOF,FOut,U_L,U_R,UPrim_L,UPrim_R,nv,t1,t2)!,doBC)
+! MODULES
+USE MOD_Flux         ,ONLY:EvalEulerFlux1D_fast
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)              :: nDOF       !< local polynomial degree
+REAL,DIMENSION(CONS,nDOF),INTENT(IN)  :: U_L        !< conservative solution at left side of the interface
+REAL,DIMENSION(CONS,nDOF),INTENT(IN)  :: U_R        !< conservative solution at right side of the interface
+REAL,DIMENSION(PRIM,nDOF),INTENT(IN)  :: UPrim_L    !< primitive solution at left side of the interface
+REAL,DIMENSION(PRIM,nDOF),INTENT(IN)  :: UPrim_R    !< primitive solution at right side of the interface
+!> normal vector and tangential vectors at side
+REAL,DIMENSION(   3,nDOF),INTENT(IN)  :: nv,t1,t2
+!LOGICAL,INTENT(IN),VALUE                  :: doBC       !< marker whether side is a BC side
+REAL,DIMENSION(PP_nVar,nDOF),INTENT(OUT)  :: FOut       !< advective flux
+!@cuf ATTRIBUTES(DEVICE) :: U_L,U_R,UPrim_L,UPrim_R,nv,t1,t2,FOut
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                 :: i,j
+REAL,DIMENSION(PP_nVar) :: F_L,F_R,F
+REAL,DIMENSION(PP_2Var) :: U_LL,U_RR
+!PROCEDURE(RiemannInt),POINTER :: Riemann_loc !< pointer defining the standard inner Riemann solver
+!==================================================================================================================================
+!IF (doBC) THEN
+!  Riemann_loc => RiemannBC_pointer
+!ELSE
+!  Riemann_loc => Riemann_pointer
+!END IF
+
+!DO j=0,ZDIM(Nloc); DO i=0,Nloc
+i = (blockidx%x-1) * blockdim%x + threadidx%x
+IF (i.LE.nDOF) THEN
+  ! Momentum has to be rotatet using the normal system individual for each
+  ! left state: U_L
+  U_LL(EXT_DENS)=U_L(DENS,i)
+  U_LL(EXT_SRHO)=1./U_LL(EXT_DENS)
+  U_LL(EXT_ENER)=U_L(ENER,i)
+  U_LL(EXT_PRES)=UPrim_L(PRES,i)
+
+
+  ! rotate velocity in normal and tangential direction
+  U_LL(EXT_VEL1)=DOT_PRODUCT(UPrim_L(VELV,i),nv(:,i))
+  U_LL(EXT_VEL2)=DOT_PRODUCT(UPrim_L(VELV,i),t1(:,i))
+  U_LL(EXT_MOM1)=U_LL(EXT_DENS)*U_LL(EXT_VEL1)
+  U_LL(EXT_MOM2)=U_LL(EXT_DENS)*U_LL(EXT_VEL2)
+#if PP_dim==3
+  U_LL(EXT_VEL3)=DOT_PRODUCT(UPrim_L(VELV,i),t2(:,i))
+  U_LL(EXT_MOM3)=U_LL(EXT_DENS)*U_LL(EXT_VEL3)
+#else
+  U_LL(EXT_VEL3)=0.
+  U_LL(EXT_MOM3)=0.
+#endif
+  ! right state: U_R
+  U_RR(EXT_DENS)=U_R(DENS,i)
+  U_RR(EXT_SRHO)=1./U_RR(EXT_DENS)
+  U_RR(EXT_ENER)=U_R(ENER,i)
+  U_RR(EXT_PRES)=UPrim_R(PRES,i)
+  ! rotate momentum in normal and tangential direction
+  U_RR(EXT_VEL1)=DOT_PRODUCT(UPRIM_R(VELV,i),nv(:,i))
+  U_RR(EXT_VEL2)=DOT_PRODUCT(UPRIM_R(VELV,i),t1(:,i))
+  U_RR(EXT_MOM1)=U_RR(EXT_DENS)*U_RR(EXT_VEL1)
+  U_RR(EXT_MOM2)=U_RR(EXT_DENS)*U_RR(EXT_VEL2)
+#if PP_dim==3
+  U_RR(EXT_VEL3)=DOT_PRODUCT(UPRIM_R(VELV,i),t2(:,i))
+  U_RR(EXT_MOM3)=U_RR(EXT_DENS)*U_RR(EXT_VEL3)
+#else
+  U_RR(EXT_VEL3)=0.
+  U_RR(EXT_MOM3)=0.
+#endif
+
+#ifndef SPLIT_DG
+  CALL EvalEulerFlux1D_fast(U_LL,F_L)
+  CALL EvalEulerFlux1D_fast(U_RR,F_R)
+#endif /*SPLIT_DG*/
+
+  !CALL Riemann_loc(F_L,F_R,U_LL,U_RR,F)
+  CALL Riemann_LF(F_L,F_R,U_LL,U_RR,F)
+
+  ! Back Rotate the normal flux into Cartesian direction
+  Fout(DENS,i)=F(DENS)
+  Fout(MOMV,i)=nv(:,i)*F(MOM1)  &
+             + t1(:,i)*F(MOM2)  &
+#if PP_dim==3
+             + t2(:,i)*F(MOM3)
+#else
+             + 0.
+#endif
+  Fout(ENER,i)=F(ENER)
+  !Fout (:,i) = 0.
+END IF
 END SUBROUTINE Riemann
+
 
 !==================================================================================================================================
 !> Computes the numerical flux
@@ -337,7 +437,7 @@ END SUBROUTINE Riemann
 !==================================================================================================================================
 SUBROUTINE Riemann_Point(FOut,U_L,U_R,UPrim_L,UPrim_R,nv,t1,t2,doBC)
 ! MODULES
-USE MOD_Flux         ,ONLY:EvalEulerFlux1D_fast
+!USE MOD_Flux         ,ONLY:EvalEulerFlux1D_fast
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -399,8 +499,8 @@ U_RR(EXT_MOM3)=0.
 #endif
 
 # ifndef SPLIT_DG
-CALL EvalEulerFlux1D_fast(U_LL,F_L)
-CALL EvalEulerFlux1D_fast(U_RR,F_R)
+!CALL EvalEulerFlux1D_fast(U_LL,F_L)
+!CALL EvalEulerFlux1D_fast(U_RR,F_R)
 #endif /*SPLIT_DG*/
 
  CALL Riemann_loc(F_L,F_R,U_LL,U_RR,F)
@@ -416,6 +516,7 @@ CALL EvalEulerFlux1D_fast(U_RR,F_R)
 #endif
 Fout(ENER)=F(ENER)
 END SUBROUTINE Riemann_Point
+
 
 #if PARABOLIC
 !==================================================================================================================================
@@ -476,15 +577,12 @@ END SUBROUTINE ViscousFlux
 #endif /* PARABOLIC */
 
 
-
-
-
 !==================================================================================================================================
 !> Local Lax-Friedrichs (Rusanov) Riemann solver
 !==================================================================================================================================
-PPURE SUBROUTINE Riemann_LF(F_L,F_R,U_LL,U_RR,F)
+ATTRIBUTES(DEVICE,HOST) SUBROUTINE Riemann_LF(F_L,F_R,U_LL,U_RR,F)
 ! MODULES
-USE MOD_EOS_Vars      ,ONLY: Kappa
+!USE MOD_EOS_Vars      ,ONLY: Kappa
 #ifdef SPLIT_DG
 USE MOD_SplitFlux     ,ONLY: SplitDGSurface_pointer
 #endif /*SPLIT_DG*/
@@ -501,6 +599,7 @@ REAL,DIMENSION(PP_nVar),INTENT(OUT):: F         !< resulting Riemann flux
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 REAL    :: LambdaMax
+REAL,PARAMETER    :: Kappa=1.4
 !==================================================================================================================================
 ! Lax-Friedrichs
 LambdaMax = MAX( ABS(U_RR(EXT_VEL1)),ABS(U_LL(EXT_VEL1)) ) + MAX( SPEEDOFSOUND_HE(U_LL),SPEEDOFSOUND_HE(U_RR) )

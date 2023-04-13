@@ -53,11 +53,12 @@ SUBROUTINE FillFlux(t,Flux_master,Flux_slave,U_master,U_slave,UPrim_master,UPrim
 ! MODULES
 USE MOD_PreProc
 USE MOD_Globals
+USE MOD_DG_Vars,         ONLY: nDOFFace
 USE MOD_Mesh_Vars,       ONLY: NormVec, TangVec1, TangVec2, SurfElem, Face_xGP
 USE MOD_Mesh_Vars,       ONLY: firstInnerSide,lastInnerSide,firstMPISide_MINE,lastMPISide_MINE
 USE MOD_Mesh_Vars,       ONLY: nSides,firstBCSide
 USE MOD_ChangeBasisByDim,ONLY: ChangeBasisSurf
-USE MOD_Riemann,         ONLY: Riemann
+USE MOD_Riemann,         ONLY: Riemann,Riemann_CPU
 USE MOD_GetBoundaryFlux, ONLY: GetBoundaryFlux
 USE MOD_EOS,             ONLY: ConsToPrim
 USE MOD_Mesh_Vars,       ONLY: nBCSides
@@ -92,6 +93,15 @@ INTEGER :: SideID,p,q,firstSideID_wo_BC,firstSideID ,lastSideID,FVEM
 REAL    :: FluxV_loc(PP_nVar,0:PP_N, 0:PP_NZ)
 #endif
 INTEGER :: FV_Elems_Max(1:nSides) ! 0 if both sides DG, 1 else
+REAL,DEVICE  :: d_Flux_master(1:PP_nVar,0:PP_N,0:PP_NZ,1:nSides)      !< sum of advection and diffusion fluxes across the boundary
+REAL,DEVICE  :: d_Flux_slave (1:PP_nVar,0:PP_N,0:PP_NZ,1:nSides)      !< sum of advection and diffusion fluxes across the boundary
+REAL,DEVICE  :: d_U_master(    PP_nVar,0:PP_N, 0:PP_NZ,1:nSides)      !< solution on master sides
+REAL,DEVICE  :: d_U_slave(     PP_nVar,0:PP_N, 0:PP_NZ,1:nSides)      !< solution on slave sides
+REAL,DEVICE  :: d_UPrim_master(PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< primitive solution on master sides
+REAL,DEVICE  :: d_UPrim_slave( PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< primitive solution on slave sides
+REAL,DEVICE  :: d_NormVec ( 3,0:PP_N, 0:PP_NZ, 0:FV_SIZE,1:nSides) !< primitive solution on slave sides
+REAL,DEVICE  :: d_TangVec1( 3,0:PP_N, 0:PP_NZ, 0:FV_SIZE,1:nSides) !< primitive solution on slave sides
+REAL,DEVICE  :: d_TangVec2( 3,0:PP_N, 0:PP_NZ, 0:FV_SIZE,1:nSides) !< primitive solution on slave sides
 !==================================================================================================================================
 ! fill flux for sides ranging between firstSideID and lastSideID using Riemann solver for advection and viscous terms
 ! Set the side range according to MPI or no MPI
@@ -111,6 +121,15 @@ DO SideID=firstSideID,lastSideID
   FV_Elems_Max(SideID) = MAX(FV_Elems_master(SideID),FV_Elems_slave(SideID))
 END DO
 
+d_NormVec  =  NormVec
+d_TangVec1 = TangVec1
+d_TangVec2 = TangVec2
+
+d_U_master = U_master
+d_U_slave  = U_slave
+d_UPrim_master = UPrim_master
+d_UPrim_slave  = UPrim_slave
+
 ! =============================
 ! Workflow:
 !
@@ -127,13 +146,20 @@ END DO
 ! 1. compute flux for non-BC sides
 DO SideID=firstSideID_wo_BC,lastSideID
   ! 1.1) advective part of flux
-  CALL Riemann(PP_N,Flux_master(:,:,:,SideID),&
-      U_master    (:,:,:,SideID),U_slave    (:,:,:,SideID),       &
-      UPrim_master(:,:,:,SideID),UPrim_slave(:,:,:,SideID),       &
-      NormVec (:,:,:,FV_Elems_Max(SideID),SideID), &
-      TangVec1(:,:,:,FV_Elems_Max(SideID),SideID), &
-      TangVec2(:,:,:,FV_Elems_Max(SideID),SideID),doBC=.FALSE.)
+  !CALL Riemann_CPU(PP_N,Flux_master(:,:,:,SideID),&
+  !    U_master    (:,:,:,SideID),U_slave    (:,:,:,SideID),       &
+  !    UPrim_master(:,:,:,SideID),UPrim_slave(:,:,:,SideID),       &
+  !    NormVec (:,:,:,FV_Elems_Max(SideID),SideID), &
+  !    TangVec1(:,:,:,FV_Elems_Max(SideID),SideID), &
+  !    TangVec2(:,:,:,FV_Elems_Max(SideID),SideID),doBC=.FALSE.)
+  CALL Riemann<<<(nDOFFace/256+1),256>>>(nDOFFace,d_Flux_master(:,:,:,SideID),&
+      d_U_master    (:,:,:,SideID),d_U_slave    (:,:,:,SideID),       &
+      d_UPrim_master(:,:,:,SideID),d_UPrim_slave(:,:,:,SideID),       &
+      d_NormVec (:,:,:,FV_Elems_Max(SideID),SideID), &
+      d_TangVec1(:,:,:,FV_Elems_Max(SideID),SideID), &
+      d_TangVec2(:,:,:,FV_Elems_Max(SideID),SideID))!,doBC=.FALSE.)
 
+  !Flux_master(:,:,:,SideID) = d_Flux_master(:,:,:,SideID)
 #if PARABOLIC
   ! 1.2) Fill viscous flux for non-BC sides
   CALL ViscousFlux(PP_N,FluxV_loc, UPrim_master(:,:,:,SideID), UPrim_slave  (:,:,:,SideID), &
@@ -149,10 +175,12 @@ DO SideID=firstSideID_wo_BC,lastSideID
 #endif /*PARABOLIC*/
 END DO ! SideID
 
+Flux_master(:,:,:,firstSideID_wo_BC:lastSideID) = d_Flux_master(:,:,:,firstSideID_wo_BC:lastSideID)
 
 ! 2. Compute the fluxes at the boundary conditions: 1..nBCSides
 IF(.NOT.doMPISides)THEN
   DO SideID=1,nBCSides
+    CALL ABORT(__STAMP__,"No boundaries currently supported!")
     FVEM = FV_Elems_master(SideID)
     CALL GetBoundaryFlux(SideID,t,PP_N,&
        Flux_master(  :,:,:,     SideID),&
