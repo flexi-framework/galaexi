@@ -136,6 +136,9 @@ FilterType = GETINTFROMSTR('FilterType')
 NFilter = PP_N
 Filter_Pointer=>Filter
 IF(FilterType.GT.0) THEN
+  CALL CollectiveStop(__STAMP__,'Filter is not supported in reduced Flexi.')
+  RETURN
+
   ALLOCATE(FilterMat(0:PP_N,0:PP_N))
   FilterMat = 0.
   SELECT CASE (FilterType)

@@ -27,9 +27,6 @@ USE MOD_PreProc
 USE MOD_Mesh_Vars ,ONLY: SideToElem,nSides
 USE MOD_Mesh_Vars ,ONLY: firstMPISide_YOUR,lastMPISide_MINE
 USE MOD_Mesh_Vars ,ONLY: S2V2,nElems
-#if FV_ENABLED
-USE MOD_FV_Vars   ,ONLY: FV_Elems_master,FV_Elems_slave,FV_w_inv
-#endif /* FV_ENABLED */
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -74,9 +71,6 @@ DO SideID=firstSideID,lastSideID
       ! note: for master sides, the mapping S2V2 should be a unit matrix
       FluxTmp(:,S2V2(1,p,q,flip,locSideID),S2V2(2,p,q,flip,locSideID)) = Flux_master(:,p,q,SideID)
     END DO; END DO ! p,q
-#if FV_ENABLED
-    IF (FV_Elems_master(SideID).EQ.0) THEN ! DG Element
-#endif /* FV_ENABLED */
 #if (PP_NodeType==1 || (PP_NodeType==2 && defined(EXACT_MM)))
       CALL DoSurfInt(&
 #ifdef WITHnVars
@@ -90,15 +84,6 @@ DO SideID=firstSideID,lastSideID
 #endif
           Nloc,FluxTmp,L_HatMinus(0),L_HatPlus(Nloc),locSideID,Ut(:,:,:,:,ElemID))
 #endif
-#if FV_ENABLED
-    ELSE
-      CALL SurfInt_FV(&
-#ifdef WITHnVars
-          TP_nVar, &
-#endif
-      Nloc,FluxTmp,FV_w_inv,locSideID,Ut(:,:,:,:,ElemID))
-    END IF
-#endif /* FV_ENABLED */
   END IF
 
   ! slave sides
@@ -110,9 +95,6 @@ DO SideID=firstSideID,lastSideID
       ! p,q are in the master RHS system, they need to be transformed to the slave volume system using S2V2 mapping
       FluxTmp(:,S2V2(1,p,q,flip,nblocSideID),S2V2(2,p,q,flip,nblocSideID))=-Flux_slave(:,p,q,SideID)
     END DO; END DO ! p,q
-#if FV_ENABLED
-    IF (FV_Elems_slave(SideID).EQ.0) THEN ! DG Element
-#endif /* FV_ENABLED */
 #if (PP_NodeType==1 || (PP_NodeType==2 && defined(EXACT_MM)))
       CALL DoSurfInt(&
 #ifdef WITHnVars
@@ -126,15 +108,6 @@ DO SideID=firstSideID,lastSideID
 #endif
           Nloc,FluxTmp,L_HatMinus(0),L_HatPlus(Nloc),nblocSideID,Ut(:,:,:,:,nbElemID))
 #endif
-#if FV_ENABLED
-    ELSE
-      CALL SurfInt_FV(&
-#ifdef WITHnVars
-          TP_nVar, &
-#endif
-          Nloc,FluxTmp,FV_w_inv,nblocSideID,Ut(:,:,:,:,nbElemID))
-    END IF
-#endif /* FV_ENABLED */
   END IF
 END DO ! SideID=1,nSides
 END SUBROUTINE SurfInt

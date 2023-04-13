@@ -48,6 +48,7 @@ ENDIF()
 # =========================================================================
 OPTION(LIBS_USE_MPI "Compile SINGLE or MPI version" ON)
 IF(LIBS_USE_MPI)
+  MESSAGE(SEND_ERROR "Reduced FLEXI does not support MPI.")
   SET(MPI_DETERMINE_LIBRARY_VERSION TRUE)
   FIND_PACKAGE(MPI REQUIRED)
 

@@ -108,6 +108,10 @@ SWRITE(UNIT_stdOut,'(A)') ' INIT OVERINTEGRATION...'
 NUnder=PP_N
 
 OverintegrationType = GETINTFROMSTR('OverintegrationType')
+IF(OverintegrationType .NE. 0)THEN
+  CALL CollectiveStop(__STAMP__,&
+    'Overintegration not supported in reduced FLEXI.')
+END IF
 SELECT CASE(OverintegrationType)
 CASE (OVERINTEGRATIONTYPE_NONE) ! no overintegration, collocation DGSEM
   OverintegrationType = 0

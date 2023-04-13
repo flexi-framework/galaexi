@@ -137,6 +137,10 @@ IF((.NOT.InterpolationInitIsDone).OR.MeshInitIsDone) THEN
   CALL CollectiveStop(__STAMP__,&
     'InitMesh not ready to be called or already called.')
 END IF
+IF(isMortarMesh) THEN
+  CALL CollectiveStop(__STAMP__,&
+    'Reduced Flexi does not support Mortars.')
+END IF
 
 SWRITE(UNIT_stdOut,'(132("-"))')
 SWRITE(UNIT_stdOut,'(A,I1,A)') ' INIT MESH IN MODE ',meshMode,'...'

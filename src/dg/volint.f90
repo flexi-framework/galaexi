@@ -120,13 +120,6 @@ USE MOD_PreProc
 USE MOD_DG_Vars      ,ONLY: D_hat_T,nDOFElem,UPrim,U
 USE MOD_Mesh_Vars    ,ONLY: Metrics_fTilde,Metrics_gTilde,Metrics_hTilde,nElems
 USE MOD_Flux         ,ONLY: EvalFlux3D      ! computes volume fluxes in local coordinates
-#if VOLINT_VISC
-USE MOD_Flux         ,ONLY: EvalDiffFlux3D  ! computes volume fluxes in local coordinates
-USE MOD_Lifting_Vars ,ONLY: gradUx,gradUy,gradUz
-#endif
-#if FV_ENABLED
-USE MOD_FV_Vars      ,ONLY: FV_Elems
-#endif
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -135,31 +128,12 @@ REAL,INTENT(OUT)   :: Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivat
 ! LOCAL VARIABLES
 INTEGER            :: i,j,k,l,iElem
 REAL,DIMENSION(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ) :: f,g,h     !< Volume advective fluxes at GP
-#if VOLINT_VISC
-REAL,DIMENSION(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ) :: fv,gv,hv  !< Volume viscous fluxes at GP
-#endif
 !==================================================================================================================================
 ! Diffusive part
 DO iElem=1,nElems
-#if FV_ENABLED
-  IF (FV_Elems(iElem).EQ.1) CYCLE ! FV Elem
-#endif
   ! Cut out the local DG solution for a grid cell iElem and all Gauss points from the global field
   ! Compute for all Gauss point values the Cartesian flux components
   CALL EvalFlux3D(PP_N,U(:,:,:,:,iElem),UPrim(:,:,:,:,iElem),f,g,h)
-#if VOLINT_VISC
-  CALL EvalDiffFlux3D( UPrim(:,:,:,:,iElem),&
-                      gradUx(:,:,:,:,iElem),&
-                      gradUy(:,:,:,:,iElem),&
-                      gradUz(:,:,:,:,iElem),&
-                      fv,gv,hv,iElem)
-
-  f=f+fv
-  g=g+gv
-#if PP_dim==3
-  h=h+hv
-#endif
-#endif
 
   CALL VolInt_Metrics(nDOFElem,f,g,h,Metrics_fTilde(:,:,:,:,iElem,0),&
                                      Metrics_gTilde(:,:,:,:,iElem,0),&
@@ -214,14 +188,6 @@ USE MOD_Mesh_Vars    ,ONLY: Metrics_fTilde,Metrics_gTilde,nElems
 #if PP_dim==3 || VOLINT_VISC
 USE MOD_Mesh_Vars    ,ONLY: Metrics_hTilde
 #endif
-#if VOLINT_VISC
-USE MOD_DG_Vars      ,ONLY: D_Hat_T,nDOFElem
-USE MOD_Flux         ,ONLY: EvalDiffFlux3D  ! computes volume fluxes in local coordinates
-USE MOD_Lifting_Vars ,ONLY: gradUx,gradUy,gradUz
-#endif
-#if FV_ENABLED
-USE MOD_FV_Vars      ,ONLY: FV_Elems
-#endif
 USE MOD_SplitFlux    ,ONLY:SplitDGVolume_pointer ! computes volume fluxes in split formulation
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -231,45 +197,16 @@ REAL,INTENT(OUT)   :: Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivat
 ! LOCAL VARIABLES
 INTEGER            :: i,j,k,l,iElem
 REAL,DIMENSION(PP_nVar                     )  :: Flux         !< temp variable for split flux
-#if VOLINT_VISC
-REAL,DIMENSION(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ) :: fv,gv,hv     !< Parabolic fluxes at GP
-#endif /*VOLINT_VISC*/
 !==================================================================================================================================
 DO iElem=1,nElems
 #if FV_ENABLED
   IF (FV_Elems(iElem).EQ.1) CYCLE ! FV Elem
 #endif
-#if VOLINT_VISC
-  ! Diffusive fluxes, those will be treated just as in the non-split case
-  CALL EvalDiffFlux3D( UPrim(:,:,:,:,iElem),&
-                      gradUx(:,:,:,:,iElem),&
-                      gradUy(:,:,:,:,iElem),&
-                      gradUz(:,:,:,:,iElem),&
-                      fv,gv,hv,iElem)
-
-  CALL VolInt_Metrics(nDOFElem,fv,gv,hv,Metrics_fTilde(:,:,:,:,iElem,0),&
-                                        Metrics_gTilde(:,:,:,:,iElem,0),&
-                                        Metrics_hTilde(:,:,:,:,iElem,0))
-#endif
 
 ! For split DG, the matrix DVolSurf will always be equal to 0 on the main diagonal. Thus, the (consistent) fluxes will always be
 ! multiplied by zero and we don't have to take them into account at all.
-#if VOLINT_VISC
-  DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-    ! Add the parabolic fluxes.
-    ! Use those fluxes to avoid nullification of Ut.
-    Ut(:,i,j,k,iElem) = D_Hat_T(i,i)*fv(:,i,j,k)   + &
-                        D_Hat_T(j,j)*gv(:,i,j,k)   + &
-#if PP_dim==3
-                        D_Hat_T(k,k)*hv(:,i,j,k)
-#else
-                        0.
-#endif /*PP_dim==3*/
-  END DO; END DO; END DO !i,j,k
-#else /*VOLINT_VISC*/
   ! We need to nullify the Ut array
   Ut(:,:,:,:,iElem) = 0.
-#endif /*VOLINT_VISC*/
 
 
   DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
@@ -278,17 +215,10 @@ DO iElem=1,nElems
        CALL SplitDGVolume_pointer(U(:,i,j,k,iElem),UPrim(:,i,j,k,iElem), &
                                   U(:,l,j,k,iElem),UPrim(:,l,j,k,iElem), &
                                   Metrics_fTilde(:,i,j,k,iElem,0),Metrics_fTilde(:,l,j,k,iElem,0),Flux)
-#if VOLINT_VISC
-       ! add up time derivative
-       Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) + DVolSurf(l,i)*Flux(:) + D_Hat_T(l,i)*fv(:,l,j,k)
-       !symmetry
-       Ut(:,l,j,k,iElem) = Ut(:,l,j,k,iElem) + DVolSurf(i,l)*Flux(:) + D_Hat_T(i,l)*fv(:,i,j,k)
-#else
        ! add up time derivative
        Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) + DVolSurf(l,i)*Flux(:)
        !symmetry
        Ut(:,l,j,k,iElem) = Ut(:,l,j,k,iElem) + DVolSurf(i,l)*Flux(:)
-#endif /*VOLINT_VISC*/
     END DO ! l
 
     DO l=j+1,PP_N
@@ -296,17 +226,10 @@ DO iElem=1,nElems
        CALL SplitDGVolume_pointer(U(:,i,j,k,iElem),UPrim(:,i,j,k,iElem), &
                                   U(:,i,l,k,iElem),UPrim(:,i,l,k,iElem), &
                                   Metrics_gTilde(:,i,j,k,iElem,0),Metrics_gTilde(:,i,l,k,iElem,0),Flux)
-#if VOLINT_VISC
-       ! add up time derivative
-       Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) + DVolSurf(l,j)*Flux(:) + D_Hat_T(l,j)*gv(:,i,l,k)
-       !symmetry
-       Ut(:,i,l,k,iElem) = Ut(:,i,l,k,iElem) + DVolSurf(j,l)*Flux(:) + D_Hat_T(j,l)*gv(:,i,j,k)
-#else
        ! add up time derivative
        Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) + DVolSurf(l,j)*Flux(:)
        !symmetry
        Ut(:,i,l,k,iElem) = Ut(:,i,l,k,iElem) + DVolSurf(j,l)*Flux(:)
-#endif /*VOLINT_VISC*/
     END DO ! l
 
 #if PP_dim==3
@@ -315,17 +238,10 @@ DO iElem=1,nElems
        CALL SplitDGVolume_pointer(U(:,i,j,k,iElem),UPrim(:,i,j,k,iElem), &
                                   U(:,i,j,l,iElem),UPrim(:,i,j,l,iElem), &
                                   Metrics_hTilde(:,i,j,k,iElem,0),Metrics_hTilde(:,i,j,l,iElem,0),Flux)
-#if VOLINT_VISC
-       ! add up time derivative
-       Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) + DVolSurf(l,k)*Flux(:) + D_Hat_T(l,k)*hv(:,i,j,l)
-       !symmetry
-       Ut(:,i,j,l,iElem) = Ut(:,i,j,l,iElem) + DVolSurf(k,l)*Flux(:) + D_Hat_T(k,l)*hv(:,i,j,k)
-#else
        ! add up time derivative
        Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) + DVolSurf(l,k)*Flux(:)
        !symmetry
        Ut(:,i,j,l,iElem) = Ut(:,i,j,l,iElem) + DVolSurf(k,l)*Flux(:)
-#endif /*VOLINT_VISC*/
     END DO ! l
 #endif /*PP_dim==3*/
 

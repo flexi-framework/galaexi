@@ -106,6 +106,7 @@ ADD_DEFINITIONS(-DPP_N=${FLEXI_POLYNOMIAL_DEGREE})
 # =========================================================================
 OPTION(FLEXI_PARABOLIC "Enable parabolic terms of equation-system" ON)
 IF (FLEXI_PARABOLIC)
+  MESSAGE(SEND_ERROR "Reduced FLEXI does not support parabolic terms.")
   ADD_DEFINITIONS(-DPARABOLIC=1)
 
   # Set the lifting
@@ -136,6 +137,7 @@ IF (FLEXI_PARABOLIC)
       MESSAGE(SEND_ERROR "No such VISCOSITY known.")
     ENDIF()
     IF (FLEXI_EDDYVISCOSITY)
+      MESSAGE(SEND_ERROR " FLEXI_EDDYVISCOSITY is not supported in reduced FLEXI")
       IF(FLEXI_2D)
         MESSAGE(SEND_ERROR " FLEXI_EDDYVISCOSITY is enabled, please disable FLEXI_2D")
       ENDIF()
@@ -176,6 +178,7 @@ CMAKE_DEPENDENT_OPTION(FLEXI_FV_RECONSTRUCTION "Enable 2nd order reconstruction 
 	                                             "FLEXI_FV" ON) # Everyhting except "OFF" is logically "ON"
 
 IF(NOT (FLEXI_FV STREQUAL "OFF"))
+  MESSAGE(SEND_ERROR "Reduced FLEXI does not support FV.")
   IF(    FLEXI_FV STREQUAL "SWITCH")
     ADD_DEFINITIONS(-DFV_ENABLED=1)
   ELSEIF(FLEXI_FV STREQUAL "BLEND")

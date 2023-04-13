@@ -61,17 +61,6 @@ USE MOD_Riemann,         ONLY: Riemann
 USE MOD_GetBoundaryFlux, ONLY: GetBoundaryFlux
 USE MOD_EOS,             ONLY: ConsToPrim
 USE MOD_Mesh_Vars,       ONLY: nBCSides
-#if PARABOLIC
-USE MOD_Riemann,         ONLY: ViscousFlux
-USE MOD_Lifting_Vars,    ONLY: gradUx_master ,gradUy_master ,gradUz_master ,gradUx_slave,gradUy_slave,gradUz_slave
-#endif /*PARABOLIC*/
-#if EDDYVISCOSITY
-USE MOD_EddyVisc_Vars,   ONLY: muSGS_master,muSGS_slave
-#endif
-#if FV_ENABLED
-USE MOD_FV
-USE MOD_FV_Vars
-#endif
 USE MOD_EOS,             ONLY: PrimToCons
 ! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
@@ -88,9 +77,6 @@ REAL,INTENT(IN)    :: UPrim_slave( PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< pri
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER :: SideID,p,q,firstSideID_wo_BC,firstSideID ,lastSideID,FVEM
-#if PARABOLIC
-REAL    :: FluxV_loc(PP_nVar,0:PP_N, 0:PP_NZ)
-#endif
 INTEGER :: FV_Elems_Max(1:nSides) ! 0 if both sides DG, 1 else
 !==================================================================================================================================
 ! fill flux for sides ranging between firstSideID and lastSideID using Riemann solver for advection and viscous terms
@@ -134,19 +120,6 @@ DO SideID=firstSideID_wo_BC,lastSideID
       TangVec1(:,:,:,FV_Elems_Max(SideID),SideID), &
       TangVec2(:,:,:,FV_Elems_Max(SideID),SideID),doBC=.FALSE.)
 
-#if PARABOLIC
-  ! 1.2) Fill viscous flux for non-BC sides
-  CALL ViscousFlux(PP_N,FluxV_loc, UPrim_master(:,:,:,SideID), UPrim_slave  (:,:,:,SideID), &
-      gradUx_master(:,:,:,SideID),gradUy_master(:,:,:,SideID), gradUz_master(:,:,:,SideID),&
-      gradUx_slave (:,:,:,SideID),gradUy_slave (:,:,:,SideID), gradUz_slave (:,:,:,SideID),&
-      NormVec(:,:,:,FV_Elems_Max(SideID),SideID)&
-#if EDDYVISCOSITY
-      ,muSGS_master(:,:,:,SideID),muSGS_slave(:,:,:,SideID)&
-#endif
-  )
-  ! 1.3) add up viscous flux
-  Flux_master(:,:,:,SideID) = Flux_master(:,:,:,SideID) + FluxV_loc
-#endif /*PARABOLIC*/
 END DO ! SideID
 
 
@@ -157,11 +130,6 @@ IF(.NOT.doMPISides)THEN
     CALL GetBoundaryFlux(SideID,t,PP_N,&
        Flux_master(  :,:,:,     SideID),&
        UPrim_master( :,:,:,     SideID),&
-#if PARABOLIC
-       gradUx_master(:,:,:,     SideID),&
-       gradUy_master(:,:,:,     SideID),&
-       gradUz_master(:,:,:,     SideID),&
-#endif
        NormVec(      :,:,:,FVEM,SideID),&
        TangVec1(     :,:,:,FVEM,SideID),&
        TangVec2(     :,:,:,FVEM,SideID),&
@@ -181,17 +149,6 @@ END DO ! SideID
 ! 4. copy flux from master side to slave side
 Flux_slave(:,:,:,firstSideID:lastSideID) = Flux_master(:,:,:,firstSideID:lastSideID)
 
-#if FV_ENABLED
-! 5. convert flux on FV points to DG points for all DG faces at mixed interfaces
-! only inner sides can be mixed (BC do not require a change basis)
-DO SideID=firstSideID_wo_BC,lastSideID
-  IF (FV_Elems_Sum(SideID).EQ.2) THEN
-    CALL ChangeBasisSurf(PP_nVar,PP_N,PP_N,FV_sVdm,Flux_master(:,:,:,SideID))
-  ELSE IF (FV_Elems_Sum(SideID).EQ.1) THEN
-    CALL ChangeBasisSurf(PP_nVar,PP_N,PP_N,FV_sVdm,Flux_slave (:,:,:,SideID))
-  END IF
-END DO
-#endif
 
 END SUBROUTINE FillFlux
 
