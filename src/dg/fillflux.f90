@@ -88,6 +88,8 @@ REAL,INTENT(IN)    :: UPrim_master(PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< pri
 REAL,INTENT(IN)    :: UPrim_slave( PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< primitive solution on slave sides
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
+INTEGER,PARAMETER  :: nBlockSides=128
+INTEGER            :: firstBlockSide,lastBlockSide,nMyBlockSides
 INTEGER :: SideID,p,q,firstSideID_wo_BC,firstSideID ,lastSideID,FVEM
 #if PARABOLIC
 REAL    :: FluxV_loc(PP_nVar,0:PP_N, 0:PP_NZ)
@@ -144,7 +146,9 @@ d_UPrim_slave  = UPrim_slave
 !==============================
 
 ! 1. compute flux for non-BC sides
-DO SideID=firstSideID_wo_BC,lastSideID
+DO firstBlockSide=firstSideID_wo_BC,lastSideID,nBlockSides
+  lastBlockSide = MIN(lastSideID,firstBlockSide+nBlockSides-1)
+  nMyBlockSides = lastBlockSide-firstBlockSide+1
   ! 1.1) advective part of flux
   !CALL Riemann_CPU(PP_N,Flux_master(:,:,:,SideID),&
   !    U_master    (:,:,:,SideID),U_slave    (:,:,:,SideID),       &
@@ -152,14 +156,17 @@ DO SideID=firstSideID_wo_BC,lastSideID
   !    NormVec (:,:,:,FV_Elems_Max(SideID),SideID), &
   !    TangVec1(:,:,:,FV_Elems_Max(SideID),SideID), &
   !    TangVec2(:,:,:,FV_Elems_Max(SideID),SideID),doBC=.FALSE.)
-  CALL Riemann<<<(nDOFFace/256+1),256>>>(nDOFFace,d_Flux_master(:,:,:,SideID),&
-      d_U_master    (:,:,:,SideID),d_U_slave    (:,:,:,SideID),       &
-      d_UPrim_master(:,:,:,SideID),d_UPrim_slave(:,:,:,SideID),       &
-      d_NormVec (:,:,:,FV_Elems_Max(SideID),SideID), &
-      d_TangVec1(:,:,:,FV_Elems_Max(SideID),SideID), &
-      d_TangVec2(:,:,:,FV_Elems_Max(SideID),SideID))!,doBC=.FALSE.)
+  CALL Riemann<<<(nDOFFace*nMyBlockSides/256+1),256>>>(   &
+      (nDOFFace*nMyBlockSides),                           &
+      d_Flux_master( :,:,:,firstBlockSide:lastBlockSide), &
+      d_U_master(    :,:,:,firstBlockSide:lastBlockSide), &
+      d_U_slave(     :,:,:,firstBlockSide:lastBlockSide), &
+      d_UPrim_master(:,:,:,firstBlockSide:lastBlockSide), &
+      d_UPrim_slave( :,:,:,firstBlockSide:lastBlockSide), &
+      d_NormVec (  :,:,:,:,firstBlockSide:lastBlockSide), &
+      d_TangVec1(  :,:,:,:,firstBlockSide:lastBlockSide), &
+      d_TangVec2(  :,:,:,:,firstBlockSide:lastBlockSide))!,doBC=.FALSE.)
 
-  !Flux_master(:,:,:,SideID) = d_Flux_master(:,:,:,SideID)
 #if PARABOLIC
   ! 1.2) Fill viscous flux for non-BC sides
   CALL ViscousFlux(PP_N,FluxV_loc, UPrim_master(:,:,:,SideID), UPrim_slave  (:,:,:,SideID), &
