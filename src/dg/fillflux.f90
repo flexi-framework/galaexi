@@ -54,7 +54,7 @@ SUBROUTINE FillFlux(t,Flux_master,Flux_slave,U_master,U_slave,UPrim_master,UPrim
 USE MOD_PreProc
 USE MOD_Globals
 USE MOD_DG_Vars,         ONLY: nDOFFace
-USE MOD_Mesh_Vars,       ONLY: NormVec, TangVec1, TangVec2, SurfElem, Face_xGP
+USE MOD_Mesh_Vars,       ONLY: d_NormVec, d_TangVec1, d_TangVec2, SurfElem, Face_xGP
 USE MOD_Mesh_Vars,       ONLY: firstInnerSide,lastInnerSide,firstMPISide_MINE,lastMPISide_MINE
 USE MOD_Mesh_Vars,       ONLY: nSides,firstBCSide
 USE MOD_ChangeBasisByDim,ONLY: ChangeBasisSurf
@@ -101,9 +101,6 @@ REAL,DEVICE  :: d_U_master(    PP_nVar,0:PP_N, 0:PP_NZ,1:nSides)      !< solutio
 REAL,DEVICE  :: d_U_slave(     PP_nVar,0:PP_N, 0:PP_NZ,1:nSides)      !< solution on slave sides
 REAL,DEVICE  :: d_UPrim_master(PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< primitive solution on master sides
 REAL,DEVICE  :: d_UPrim_slave( PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< primitive solution on slave sides
-REAL,DEVICE  :: d_NormVec ( 3,0:PP_N, 0:PP_NZ, 0:FV_SIZE,1:nSides) !< primitive solution on slave sides
-REAL,DEVICE  :: d_TangVec1( 3,0:PP_N, 0:PP_NZ, 0:FV_SIZE,1:nSides) !< primitive solution on slave sides
-REAL,DEVICE  :: d_TangVec2( 3,0:PP_N, 0:PP_NZ, 0:FV_SIZE,1:nSides) !< primitive solution on slave sides
 !==================================================================================================================================
 ! fill flux for sides ranging between firstSideID and lastSideID using Riemann solver for advection and viscous terms
 ! Set the side range according to MPI or no MPI
@@ -122,10 +119,6 @@ END IF
 DO SideID=firstSideID,lastSideID
   FV_Elems_Max(SideID) = MAX(FV_Elems_master(SideID),FV_Elems_slave(SideID))
 END DO
-
-d_NormVec  =  NormVec
-d_TangVec1 = TangVec1
-d_TangVec2 = TangVec2
 
 d_U_master = U_master
 d_U_slave  = U_slave
@@ -188,19 +181,19 @@ Flux_master(:,:,:,firstSideID_wo_BC:lastSideID) = d_Flux_master(:,:,:,firstSideI
 IF(.NOT.doMPISides)THEN
   DO SideID=1,nBCSides
     CALL ABORT(__STAMP__,"No boundaries currently supported!")
-    FVEM = FV_Elems_master(SideID)
-    CALL GetBoundaryFlux(SideID,t,PP_N,&
-       Flux_master(  :,:,:,     SideID),&
-       UPrim_master( :,:,:,     SideID),&
-#if PARABOLIC
-       gradUx_master(:,:,:,     SideID),&
-       gradUy_master(:,:,:,     SideID),&
-       gradUz_master(:,:,:,     SideID),&
-#endif
-       NormVec(      :,:,:,FVEM,SideID),&
-       TangVec1(     :,:,:,FVEM,SideID),&
-       TangVec2(     :,:,:,FVEM,SideID),&
-       Face_xGP(     :,:,:,FVEM,SideID))
+!    FVEM = FV_Elems_master(SideID)
+!    CALL GetBoundaryFlux(SideID,t,PP_N,&
+!       Flux_master(  :,:,:,     SideID),&
+!       UPrim_master( :,:,:,     SideID),&
+!#if PARABOLIC
+!       gradUx_master(:,:,:,     SideID),&
+!       gradUy_master(:,:,:,     SideID),&
+!       gradUz_master(:,:,:,     SideID),&
+!#endif
+!       NormVec(      :,:,:,FVEM,SideID),&
+!       TangVec1(     :,:,:,FVEM,SideID),&
+!       TangVec2(     :,:,:,FVEM,SideID),&
+!       Face_xGP(     :,:,:,FVEM,SideID))
   END DO
 END IF ! .NOT. MPISIDES
 

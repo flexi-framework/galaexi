@@ -73,8 +73,11 @@ REAL,ALLOCATABLE :: sJ_slave(:,:,:,:,:)          !< Jacobian on faces slave
 ! surface vectors
 !----------------------------------------------------------------------------------------------------------------------------------
 REAL,ALLOCATABLE :: NormVec(:,:,:,:,:)           !< normal vector for each side       (1:3,0:N,0:N,nSides)
+!@cuf REAL,ALLOCATABLE,DEVICE :: d_NormVec(:,:,:,:,:) 
 REAL,ALLOCATABLE :: TangVec1(:,:,:,:,:)          !< tangential vector 1 for each side (1:3,0:N,0:N,nSides)
+!@cuf REAL,ALLOCATABLE,DEVICE :: d_TangVec1(:,:,:,:,:) 
 REAL,ALLOCATABLE :: TangVec2(:,:,:,:,:)          !< tangential vector 3 for each side (1:3,0:N,0:N,nSides)
+!@cuf REAL,ALLOCATABLE,DEVICE :: d_TangVec2(:,:,:,:,:) 
 REAL,ALLOCATABLE :: SurfElem(:,:,:,:)            !< surface area for each side        (    0:N,0:N,nSides)
 REAL,ALLOCATABLE :: Ja_Face(:,:,:,:,:)           !< surface  metrics for each side
 !----------------------------------------------------------------------------------------------------------------------------------
