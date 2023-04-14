@@ -106,6 +106,8 @@ Ut=0.
 ! and one for the sides which belong to another proc (slaves): side-based
 ALLOCATE(U_master(PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
 ALLOCATE(U_slave( PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_U_master(PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_U_slave( PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
 U_master=0.
 U_slave=0.
 
@@ -114,6 +116,8 @@ ALLOCATE(UPrim(       PP_nVarPrim,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 !@cuf ALLOCATE(d_UPrim(PP_nVarPrim,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 ALLOCATE(UPrim_master(PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
 ALLOCATE(UPrim_slave( PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_UPrim_master(PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_UPrim_slave( PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
 UPrim=0.
 UPrim_master=0.
 UPrim_slave=0.
@@ -124,6 +128,8 @@ ALLOCATE(UPrim_boundary(PP_nVarPrim,0:PP_N,0:PP_NZ))
 ! Allocate two fluxes per side (necessary for coupling of FV and DG)
 ALLOCATE(Flux_master(PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
 ALLOCATE(Flux_slave (PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_Flux_master(PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_Flux_slave( PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
 Flux_master=0.
 Flux_slave=0.
 
@@ -227,8 +233,8 @@ USE MOD_Preproc
 USE MOD_Vector
 USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave,L_HatPlus,L_HatMinus
 !@cuf USE MOD_DG_Vars          ,ONLY: d_U,d_UPrim,d_Ut
-USE MOD_DG_Vars             ,ONLY: UPrim,UPrim_master,UPrim_slave,nDOFElem
-!USE MOD_DG_Vars,             ONLY: nTotalU
+USE MOD_DG_Vars             ,ONLY: UPrim,UPrim_master,UPrim_slave,nDOFElem,nDOFFace
+!@cuf USE MOD_DG_Vars          ,ONLY: d_U_master,d_U_slave,d_UPrim_master,d_UPrim_Slave
 USE MOD_VolInt
 USE MOD_SurfIntCons         ,ONLY: SurfIntCons
 USE MOD_ProlongToFaceCons   ,ONLY: ProlongToFaceCons
@@ -242,7 +248,7 @@ USE MOD_TestCase            ,ONLY: TestcaseSource
 USE MOD_TestCase_Vars       ,ONLY: doTCSource
 USE MOD_Equation            ,ONLY: GetPrimitiveStateSurface,GetConservativeStateSurface
 USE MOD_EOS                 ,ONLY: ConsToPrim
-USE MOD_EOS                 ,ONLY: ConsToPrim_Volume_GPU
+USE MOD_EOS                 ,ONLY: ConsToPrim_GPU
 USE MOD_Exactfunc           ,ONLY: CalcSource
 USE MOD_Equation_Vars       ,ONLY: doCalcSource
 USE MOD_Sponge              ,ONLY: Sponge
@@ -260,7 +266,7 @@ USE MOD_MPI_Vars
 USE MOD_MPI                 ,ONLY: StartReceiveMPIData,StartSendMPIData,FinishExchangeMPIData
 USE MOD_Mesh_Vars,           ONLY: nSides
 #endif /*USE_MPI*/
-USE MOD_Mesh_Vars,           ONLY: nElems
+USE MOD_Mesh_Vars,           ONLY: nElems,nSides
 #if FV_ENABLED
 USE MOD_FV_Vars             ,ONLY: FV_Elems_master,FV_Elems_slave,FV_Elems_Sum
 USE MOD_FV_Mortar           ,ONLY: FV_Elems_Mortar
@@ -322,7 +328,7 @@ IF(FilterType.GT.0) CALL Filter_Pointer(U,FilterMat)
 
 ! 2. Convert Volume solution to primitive
 d_U     = U
-CALL ConsToPrim_Volume_GPU<<<nElems*nDOFElem/256+1,256>>>(nElems*nDOFElem,d_UPrim,d_U)
+CALL ConsToPrim_GPU<<<nElems*nDOFElem/256+1,256>>>(nElems*nDOFElem,d_UPrim,d_U)
 
 ! 3. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
 ! -----------------------------------------------------------------------------------------------------------
@@ -394,7 +400,11 @@ CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_FV_gradU) ! FV_multi_slave: sla
 ! 4. Convert face data from conservative to primitive variables
 !    Attention: For FV with 2nd order reconstruction U_master/slave and therewith UPrim_master/slave are still only 1st order
 ! TODO: Linadv?
-CALL GetPrimitiveStateSurface(U_master,U_slave,UPrim_master,UPrim_slave)
+!CALL GetPrimitiveStateSurface(U_master,U_slave,UPrim_master,UPrim_slave)
+d_U_master = U_master
+d_U_slave  = U_slave
+CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_master,d_U_master)
+CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_slave ,d_U_slave )
 #if FV_ENABLED
 ! Build four-states-array for the 4 different combinations DG/DG(0), FV/DG(1), DG/FV(2) and FV/FV(3) a face can be.
 FV_Elems_Sum = FV_Elems_master + 2*FV_Elems_slave
@@ -544,7 +554,8 @@ CALL StartSendMPIData(   Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,R
 #endif /*USE_MPI*/
 
 ! 11.3)
-CALL FillFlux(t,Flux_master,Flux_slave,U_master,U_slave,UPrim_master,UPrim_slave,doMPISides=.FALSE.)
+!CALL FillFlux(t,Flux_master,Flux_slave,U_master,U_slave,UPrim_master,UPrim_slave,doMPISides=.FALSE.)
+CALL FillFlux(t,Flux_master,Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.)
 ! 11.4)
 CALL Flux_MortarCons(Flux_master,Flux_slave,doMPISides=.FALSE.,weak=.TRUE.)
 ! 11.5)

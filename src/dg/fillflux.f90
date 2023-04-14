@@ -48,7 +48,7 @@ CONTAINS
 !> The flux computation is performed separately for advection and diffusion fluxes in case
 !> parabolic terms are considered.
 !==================================================================================================================================
-SUBROUTINE FillFlux(t,Flux_master,Flux_slave,U_master,U_slave,UPrim_master,UPrim_slave,doMPISides)
+SUBROUTINE FillFlux(t,Flux_master,Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
 USE MOD_PreProc
@@ -82,10 +82,11 @@ LOGICAL,INTENT(IN) :: doMPISides  !< = .TRUE. only MINE (where the proc is maste
 REAL,INTENT(IN)    :: t           !< physical time required for BC state evaluation in case of time dependent BCs
 REAL,INTENT(OUT)   :: Flux_master(1:PP_nVar,0:PP_N,0:PP_NZ,1:nSides)      !< sum of advection and diffusion fluxes across the boundary
 REAL,INTENT(OUT)   :: Flux_slave (1:PP_nVar,0:PP_N,0:PP_NZ,1:nSides)      !< sum of advection and diffusion fluxes across the boundary
-REAL,INTENT(INOUT) :: U_master(    PP_nVar,0:PP_N, 0:PP_NZ,1:nSides)      !< solution on master sides
-REAL,INTENT(INOUT) :: U_slave(     PP_nVar,0:PP_N, 0:PP_NZ,1:nSides)      !< solution on slave sides
-REAL,INTENT(IN)    :: UPrim_master(PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< primitive solution on master sides
-REAL,INTENT(IN)    :: UPrim_slave( PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< primitive solution on slave sides
+REAL,INTENT(INOUT) :: d_U_master(    PP_nVar,0:PP_N, 0:PP_NZ,1:nSides)      !< solution on master sides
+REAL,INTENT(INOUT) :: d_U_slave(     PP_nVar,0:PP_N, 0:PP_NZ,1:nSides)      !< solution on slave sides
+REAL,INTENT(IN)    :: d_UPrim_master(PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< primitive solution on master sides
+REAL,INTENT(IN)    :: d_UPrim_slave( PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< primitive solution on slave sides
+!@cuf ATTRIBUTES(DEVICE) :: d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER,PARAMETER  :: nBlockSides=128
@@ -97,10 +98,6 @@ REAL    :: FluxV_loc(PP_nVar,0:PP_N, 0:PP_NZ)
 INTEGER :: FV_Elems_Max(1:nSides) ! 0 if both sides DG, 1 else
 REAL,DEVICE  :: d_Flux_master(1:PP_nVar,0:PP_N,0:PP_NZ,1:nSides)      !< sum of advection and diffusion fluxes across the boundary
 REAL,DEVICE  :: d_Flux_slave (1:PP_nVar,0:PP_N,0:PP_NZ,1:nSides)      !< sum of advection and diffusion fluxes across the boundary
-REAL,DEVICE  :: d_U_master(    PP_nVar,0:PP_N, 0:PP_NZ,1:nSides)      !< solution on master sides
-REAL,DEVICE  :: d_U_slave(     PP_nVar,0:PP_N, 0:PP_NZ,1:nSides)      !< solution on slave sides
-REAL,DEVICE  :: d_UPrim_master(PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< primitive solution on master sides
-REAL,DEVICE  :: d_UPrim_slave( PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< primitive solution on slave sides
 !==================================================================================================================================
 ! fill flux for sides ranging between firstSideID and lastSideID using Riemann solver for advection and viscous terms
 ! Set the side range according to MPI or no MPI
@@ -119,11 +116,6 @@ END IF
 DO SideID=firstSideID,lastSideID
   FV_Elems_Max(SideID) = MAX(FV_Elems_master(SideID),FV_Elems_slave(SideID))
 END DO
-
-d_U_master = U_master
-d_U_slave  = U_slave
-d_UPrim_master = UPrim_master
-d_UPrim_slave  = UPrim_slave
 
 ! =============================
 ! Workflow:

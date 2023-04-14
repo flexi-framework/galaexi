@@ -49,7 +49,7 @@ END INTERFACE
 
 PUBLIC::InitEos
 PUBLIC::ConsToPrim
-PUBLIC::ConsToPrim_Volume_GPU
+PUBLIC::ConsToPrim_GPU
 PUBLIC::PrimToCons
 PUBLIC::PRESSURE_RIEMANN
 PUBLIC::DefineParametersEos
@@ -301,7 +301,7 @@ END SUBROUTINE ConsToPrim_Volume
 !==================================================================================================================================
 !> Transformation from conservative variables to primitive variables in the whole volume
 !==================================================================================================================================
-ATTRIBUTES(GLOBAL) SUBROUTINE ConsToPrim_Volume_GPU(nDof,prim,cons)
+ATTRIBUTES(GLOBAL) SUBROUTINE ConsToPrim_GPU(nDof,prim,cons)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -316,7 +316,7 @@ INTEGER            :: i
 !==================================================================================================================================
 i = (blockidx%x-1) * blockdim%x + threadidx%x
 IF(i.LE.nDOF) CALL ConsToPrim_Compute(prim(:,i),cons(:,i))
-END SUBROUTINE ConsToPrim_Volume_GPU
+END SUBROUTINE ConsToPrim_GPU
 
 !==================================================================================================================================
 !> Transformation from primitive to conservative variables for a single state
