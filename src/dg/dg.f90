@@ -106,8 +106,8 @@ Ut=0.
 ! and one for the sides which belong to another proc (slaves): side-based
 ALLOCATE(U_master(PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
 ALLOCATE(U_slave( PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
-!@cuf ALLOCATE(d_U_master(PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
-!@cuf ALLOCATE(d_U_slave( PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_U_master(PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_U_slave( PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
 U_master=0.
 U_slave=0.
 
@@ -128,8 +128,8 @@ ALLOCATE(UPrim_boundary(PP_nVarPrim,0:PP_N,0:PP_NZ))
 ! Allocate two fluxes per side (necessary for coupling of FV and DG)
 ALLOCATE(Flux_master(PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
 ALLOCATE(Flux_slave (PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
-!@cuf ALLOCATE(d_Flux_master(PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
-!@cuf ALLOCATE(d_Flux_slave( PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_Flux_master(PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_Flux_slave( PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
 Flux_master=0.
 Flux_slave=0.
 
@@ -237,7 +237,7 @@ USE MOD_DG_Vars             ,ONLY: UPrim,UPrim_master,UPrim_slave,nDOFElem,nDOFF
 !@cuf USE MOD_DG_Vars          ,ONLY: d_U_master,d_U_slave,d_UPrim_master,d_UPrim_Slave
 USE MOD_VolInt
 USE MOD_SurfIntCons         ,ONLY: SurfIntCons
-USE MOD_ProlongToFaceCons   ,ONLY: ProlongToFaceCons
+USE MOD_ProlongToFaceCons   ,ONLY: ProlongToFaceCons,ProlongToFaceCons_GPU
 USE MOD_FillFlux            ,ONLY: FillFlux
 USE MOD_ApplyJacobianCons   ,ONLY: ApplyJacobianCons
 USE MOD_Interpolation_Vars  ,ONLY: L_Minus,L_Plus
@@ -374,7 +374,10 @@ CALL StartSendMPIData(   FV_multi_slave,DataSizeSidePrim,1,nSides,MPIRequest_FV_
 
 ! Step 3 for all remaining sides
 ! 3.1)
+!CALL ProlongToFaceCons_GPU(PP_N,d_U,d_U_master,d_U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
 CALL ProlongToFaceCons(PP_N,U,U_master,U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
+d_U_master = U_master
+d_U_slave  = U_slave
 CALL U_MortarCons(U_master,U_slave,doMPISides=.FALSE.)
 #if FV_ENABLED
 ! 3.2)
@@ -401,10 +404,9 @@ CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_FV_gradU) ! FV_multi_slave: sla
 !    Attention: For FV with 2nd order reconstruction U_master/slave and therewith UPrim_master/slave are still only 1st order
 ! TODO: Linadv?
 !CALL GetPrimitiveStateSurface(U_master,U_slave,UPrim_master,UPrim_slave)
-d_U_master = U_master
-d_U_slave  = U_slave
 CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_master,d_U_master)
 CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_slave ,d_U_slave )
+
 #if FV_ENABLED
 ! Build four-states-array for the 4 different combinations DG/DG(0), FV/DG(1), DG/FV(2) and FV/FV(3) a face can be.
 FV_Elems_Sum = FV_Elems_master + 2*FV_Elems_slave

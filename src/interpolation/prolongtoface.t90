@@ -139,6 +139,65 @@ END DO
 
 END SUBROUTINE ProlongToFace
 
+!==================================================================================================================================
+!> Interpolates the element volume data stored at Gauss points
+!==================================================================================================================================
+ATTRIBUTES(DEVICE) SUBROUTINE EvalElemFaceG_GPU(&
+#ifdef WITHnVar
+    TP_nVar,&
+#endif
+    Nloc,Uvol,Uface,L_Minus,L_Plus,locSide)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+#ifdef WITHnVar
+INTEGER,VALUE,INTENT(IN)              :: TP_nVar
+#endif
+INTEGER,VALUE,INTENT(IN)              :: Nloc
+INTEGER,VALUE,INTENT(IN)              :: locSide
+REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
+REAL,INTENT(IN)                 :: Uvol( TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc))
+REAL,INTENT(OUT)                :: Uface(TP_nVar,0:Nloc,0:ZDIM(Nloc))
+!@cuf ATTRIBUTES(DEVICE) :: L_Minus,L_Plus,UVol,Uface
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                         :: l
+!==================================================================================================================================
+SELECT CASE(locSide)
+CASE(XI_MINUS)
+  Uface=Uvol(:,0,:,:)*L_Minus(0)
+  DO l=1,Nloc
+    Uface=Uface+Uvol(:,l,:,:)*L_Minus(l)
+  END DO ! l
+CASE(ETA_MINUS)
+  Uface=Uvol(:,:,0,:)*L_Minus(0)
+  DO l=1,Nloc
+    Uface=Uface+Uvol(:,:,l,:)*L_Minus(l)
+  END DO ! l
+CASE(ZETA_MINUS)
+  Uface=Uvol(:,:,:,0)*L_Minus(0)
+  DO l=1,Nloc
+    Uface=Uface+Uvol(:,:,:,l)*L_Minus(l)
+  END DO ! l
+CASE(XI_PLUS)
+  Uface=Uvol(:,0,:,:)*L_Plus(0)
+  DO l=1,Nloc
+    Uface=Uface+Uvol(:,l,:,:)*L_Plus(l)
+  END DO ! l
+CASE(ETA_PLUS)
+  Uface=Uvol(:,:,0,:)*L_Plus(0)
+  DO l=1,Nloc
+    Uface=Uface+Uvol(:,:,l,:)*L_Plus(l)
+  END DO ! l
+CASE(ZETA_PLUS)
+  Uface=Uvol(:,:,:,0)*L_Plus(0)
+  DO l=1,Nloc
+    Uface=Uface+Uvol(:,:,:,l)*L_Plus(l)
+  END DO ! l
+END SELECT
+END SUBROUTINE EvalElemFaceG_GPU
+
 
 !==================================================================================================================================
 !> Interpolates the element volume data stored at Gauss points

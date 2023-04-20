@@ -425,7 +425,6 @@ IF (i.LE.nDOF) THEN
              + 0.
 #endif
   Fout(ENER,i)=F(ENER)
-  !Fout (:,i) = 0.
 END IF
 END SUBROUTINE Riemann
 

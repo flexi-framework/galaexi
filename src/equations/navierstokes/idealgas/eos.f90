@@ -309,7 +309,6 @@ IMPLICIT NONE
 INTEGER,VALUE,INTENT(IN) :: nDOF                     !< local polynomial degree of solution representation
 REAL,INTENT(IN)    :: cons(PP_nVar    ,1:nDOF) !< vector of conservative variables
 REAL,INTENT(OUT)   :: prim(PP_nVarPrim,1:nDOF) !< vector of primitive variables
-!@cuf ATTRIBUTES(DEVICE) :: cons,prim
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER            :: i
