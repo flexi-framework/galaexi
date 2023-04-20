@@ -93,28 +93,20 @@ LOGICAL,INTENT(IN),OPTIONAL     :: pureDG      != .TRUE. prolongates all element
 #endif
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-#if FV_ENABLED
-INTEGER                         :: isFV(nElems)
-#endif
-INTEGER                         :: p,q,firstSideID,lastSideID
-INTEGER                         :: ElemID,nbElemID,locSide,nblocSide,SideID,flip
-REAL,DEVICE                     :: d_Uface(TP_nVar,0:Nloc,0:ZDIM(Nloc))
 REAL,DEVICE                     :: d_L_Minus(0:Nloc),d_L_Plus(0:Nloc)
-REAL,DEVICE                     :: d_SideToElem(5,nSides)
-REAL,DEVICE                     :: d_S2V2(2,0:PP_N,0:PP_N,0:0,6)
+INTEGER,DEVICE                  :: d_SideToElem(5,nSides)
+INTEGER,DEVICE                  :: d_S2V2(2,0:PP_N,0:PP_N,0:4,6)
 !==================================================================================================================================
 d_L_Minus      = L_Minus
 d_L_Plus       = L_Plus
 d_SideToElem   = SideToElem
 d_S2V2         = S2V2
 
-CALL ProlongToFace_Kernel<<< nSides/32+1, 32 >>>(&
-#ifdef WITHnVar
-    TP_nVar,&
-#endif
-    Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,d_L_Minus,d_L_Plus,d_SideToElem,d_S2V2)
-
+CALL ProlongToFace_Kernel<<<nSides/32+1,32>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,d_L_Minus,d_L_Plus,d_SideToElem,d_S2V2)
 END SUBROUTINE ProlongToFace_GPU
+
+
+
 !==================================================================================================================================
 !> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
 !> integration points, using fast 1D Interpolation and store in global side structure
@@ -139,9 +131,8 @@ REAL,INTENT(IN)                 :: Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nEl
 REAL,INTENT(INOUT)              :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
 REAL,INTENT(INOUT)              :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
 REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
-REAL,INTENT(IN)                 :: SideToElem(5,nSides)
-REAL,INTENT(IN)                 :: S2V2(2,0:PP_N,0:PP_N,0:0,6)
-!@cuf ATTRIBUTES(DEVICE) :: Uvol,Uface_master,Uface_slave,L_Plus,L_Minus,SideToElem,S2V2
+INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
+INTEGER,INTENT(IN)              :: S2V2(2,0:PP_N,0:PP_N,0:4,6)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER                         :: p,q,firstSideID,lastSideID

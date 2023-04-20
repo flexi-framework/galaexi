@@ -139,6 +139,10 @@ END IF
 ! Compute Nodes and weights for Gauss or GaussLobatto-Nodes
 SWRITE(UNIT_stdOut,'(A,A)') ' NodeType: ',TRIM(NodeType)
 CALL InitInterpolationBasis(PP_N, xGP ,wGP ,wBary ,L_Minus ,L_Plus ,Vdm_Leg ,sVdm_Leg)
+!@cuf ALLOCATE(d_L_Minus(0:PP_N))
+!@cuf d_L_Minus = L_Minus
+!@cuf ALLOCATE(d_L_Plus(0:PP_N))
+!@cuf d_L_Plus = L_Plus
 
 InterpolationInitIsDone = .TRUE.
 SWRITE(UNIT_stdOut,'(A)')' INIT INTERPOLATION DONE!'
