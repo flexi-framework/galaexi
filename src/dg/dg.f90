@@ -375,10 +375,10 @@ CALL StartSendMPIData(   FV_multi_slave,DataSizeSidePrim,1,nSides,MPIRequest_FV_
 
 ! Step 3 for all remaining sides
 ! 3.1)
-!CALL ProlongToFaceCons_GPU(PP_N,d_U,d_U_master,d_U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
-CALL ProlongToFaceCons(PP_N,U,U_master,U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
-d_U_master = U_master
-d_U_slave  = U_slave
+CALL ProlongToFaceCons_GPU(PP_N,d_U,d_U_master,d_U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
+!CALL ProlongToFaceCons(PP_N,U,U_master,U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
+!d_U_master = U_master
+!d_U_slave  = U_slave
 CALL U_MortarCons(U_master,U_slave,doMPISides=.FALSE.)
 #if FV_ENABLED
 ! 3.2)

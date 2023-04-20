@@ -111,12 +111,7 @@ END SUBROUTINE ProlongToFace_GPU
 !> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
 !> integration points, using fast 1D Interpolation and store in global side structure
 !==================================================================================================================================
-ATTRIBUTES(GLOBAL) SUBROUTINE ProlongToFace_Kernel(&
-#ifdef WITHnVar
-    TP_nVar,&
-#endif
-    Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus, &
-    SideToElem,S2V2)
+ATTRIBUTES(GLOBAL) SUBROUTINE ProlongToFace_Kernel(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,SideToElem,S2V2)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -135,7 +130,7 @@ INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
 INTEGER,INTENT(IN)              :: S2V2(2,0:PP_N,0:PP_N,0:4,6)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER                         :: p,q,firstSideID,lastSideID
+INTEGER                         :: p,q
 INTEGER                         :: ElemID,nbElemID,locSide,nblocSide,SideID,flip
 REAL                            :: Uface(TP_nVar,0:Nloc,0:ZDIM(Nloc))
 !==================================================================================================================================
@@ -144,32 +139,24 @@ IF (SideID.LE.nSides) THEN
   ElemID    = SideToElem(S2E_ELEM_ID,SideID)
   nbElemID  = SideToElem(S2E_NB_ELEM_ID,SideID)
 
- !master sides
+  !master sides
   IF(ElemID.GT.0)THEN
     locSide = SideToElem(S2E_LOC_SIDE_ID,SideID)
     flip    = 0
 
-    CALL EvalElemFaceG_GPU(&
-#if WITHnVar
-        TP_nVar,&
-#endif
-        Nloc,UVol(:,:,:,:,ElemID),Uface,L_Minus,L_Plus,locSide)
+    CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface,L_Minus,L_Plus,locSide)
 
     DO q=0,ZDIM(Nloc); DO p=0,Nloc
       Uface_master(:,p,q,SideID)=Uface(:,S2V2(1,p,q,0,locSide),S2V2(2,p,q,0,locSide))
     END DO; END DO
   END IF
 
- !slave side (ElemID,locSide and flip =-1 if not existing)
+  !slave side (ElemID,locSide and flip =-1 if not existing)
   IF(nbElemID.GT.0)THEN
    nblocSide = SideToElem(S2E_NB_LOC_SIDE_ID,SideID)
    flip      = SideToElem(S2E_FLIP,SideID)
 
-    CALL EvalElemFaceG_GPU(&
-#if WITHnVar
-        TP_nVar,&
-#endif
-        Nloc,UVol(:,:,:,:,ElemID),Uface,L_Minus,L_Plus,nblocSide)
+    CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,nbElemID),Uface,L_Minus,L_Plus,nblocSide)
 
     DO q=0,ZDIM(Nloc); DO p=0,Nloc
       Uface_slave( :,p,q,SideID)=Uface(:,S2V2(1,p,q,flip,nblocSide),S2V2(2,p,q,flip,nblocSide))
