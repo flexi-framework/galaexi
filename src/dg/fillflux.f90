@@ -48,7 +48,7 @@ CONTAINS
 !> The flux computation is performed separately for advection and diffusion fluxes in case
 !> parabolic terms are considered.
 !==================================================================================================================================
-SUBROUTINE FillFlux(t,Flux_master,Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides)
+SUBROUTINE FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
 USE MOD_PreProc
@@ -80,13 +80,13 @@ IMPLICIT NONE
 ! INPUT / OUTPUT VARIABLES
 LOGICAL,INTENT(IN) :: doMPISides  !< = .TRUE. only MINE (where the proc is master)  MPISides are filled, =.FALSE. InnerSides
 REAL,INTENT(IN)    :: t           !< physical time required for BC state evaluation in case of time dependent BCs
-REAL,INTENT(OUT)   :: Flux_master(1:PP_nVar,0:PP_N,0:PP_NZ,1:nSides)      !< sum of advection and diffusion fluxes across the boundary
-REAL,INTENT(OUT)   :: Flux_slave (1:PP_nVar,0:PP_N,0:PP_NZ,1:nSides)      !< sum of advection and diffusion fluxes across the boundary
+REAL,INTENT(OUT)   :: d_Flux_master(1:PP_nVar,0:PP_N,0:PP_NZ,1:nSides)      !< sum of advection and diffusion fluxes across the boundary
+REAL,INTENT(OUT)   :: d_Flux_slave (1:PP_nVar,0:PP_N,0:PP_NZ,1:nSides)      !< sum of advection and diffusion fluxes across the boundary
 REAL,INTENT(INOUT) :: d_U_master(    PP_nVar,0:PP_N, 0:PP_NZ,1:nSides)      !< solution on master sides
 REAL,INTENT(INOUT) :: d_U_slave(     PP_nVar,0:PP_N, 0:PP_NZ,1:nSides)      !< solution on slave sides
 REAL,INTENT(IN)    :: d_UPrim_master(PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< primitive solution on master sides
 REAL,INTENT(IN)    :: d_UPrim_slave( PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< primitive solution on slave sides
-!@cuf ATTRIBUTES(DEVICE) :: d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave
+!@cuf ATTRIBUTES(DEVICE) :: d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,d_Flux_master,d_Flux_slave
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER,PARAMETER  :: nBlockSides=128
@@ -96,8 +96,7 @@ INTEGER :: SideID,p,q,firstSideID_wo_BC,firstSideID ,lastSideID,FVEM
 REAL    :: FluxV_loc(PP_nVar,0:PP_N, 0:PP_NZ)
 #endif
 INTEGER :: FV_Elems_Max(1:nSides) ! 0 if both sides DG, 1 else
-REAL,DEVICE  :: d_Flux_master(1:PP_nVar,0:PP_N,0:PP_NZ,1:nSides)      !< sum of advection and diffusion fluxes across the boundary
-REAL,DEVICE  :: d_Flux_slave (1:PP_nVar,0:PP_N,0:PP_NZ,1:nSides)      !< sum of advection and diffusion fluxes across the boundary
+REAL,DEVICE  :: d_SurfElem (0:PP_N,0:PP_NZ,0:FV_ENABLED,1:nSides)      !< sum of advection and diffusion fluxes across the boundary
 !==================================================================================================================================
 ! fill flux for sides ranging between firstSideID and lastSideID using Riemann solver for advection and viscous terms
 ! Set the side range according to MPI or no MPI
@@ -116,6 +115,8 @@ END IF
 DO SideID=firstSideID,lastSideID
   FV_Elems_Max(SideID) = MAX(FV_Elems_master(SideID),FV_Elems_slave(SideID))
 END DO
+
+d_SurfElem = SurfElem
 
 ! =============================
 ! Workflow:
@@ -151,23 +152,9 @@ DO firstBlockSide=firstSideID_wo_BC,lastSideID,nBlockSides
       d_NormVec (  :,:,:,:,firstBlockSide:lastBlockSide), &
       d_TangVec1(  :,:,:,:,firstBlockSide:lastBlockSide), &
       d_TangVec2(  :,:,:,:,firstBlockSide:lastBlockSide))!,doBC=.FALSE.)
-
-#if PARABOLIC
-  ! 1.2) Fill viscous flux for non-BC sides
-  CALL ViscousFlux(PP_N,FluxV_loc, UPrim_master(:,:,:,SideID), UPrim_slave  (:,:,:,SideID), &
-      gradUx_master(:,:,:,SideID),gradUy_master(:,:,:,SideID), gradUz_master(:,:,:,SideID),&
-      gradUx_slave (:,:,:,SideID),gradUy_slave (:,:,:,SideID), gradUz_slave (:,:,:,SideID),&
-      NormVec(:,:,:,FV_Elems_Max(SideID),SideID)&
-#if EDDYVISCOSITY
-      ,muSGS_master(:,:,:,SideID),muSGS_slave(:,:,:,SideID)&
-#endif
-  )
-  ! 1.3) add up viscous flux
-  Flux_master(:,:,:,SideID) = Flux_master(:,:,:,SideID) + FluxV_loc
-#endif /*PARABOLIC*/
 END DO ! SideID
 
-Flux_master(:,:,:,firstSideID_wo_BC:lastSideID) = d_Flux_master(:,:,:,firstSideID_wo_BC:lastSideID)
+!Flux_master(:,:,:,firstSideID_wo_BC:lastSideID) = d_Flux_master(:,:,:,firstSideID_wo_BC:lastSideID)
 
 ! 2. Compute the fluxes at the boundary conditions: 1..nBCSides
 IF(.NOT.doMPISides)THEN
@@ -191,15 +178,17 @@ END IF ! .NOT. MPISIDES
 
 
 ! 3. multiply by SurfElem
+!$cuf kernel do(3) <<< *, 256 >>>
 DO SideID=firstSideID,lastSideID
   ! multiply with SurfElem
   DO q=0,PP_NZ; DO p=0,PP_N
-    Flux_master(:,p,q,SideID) = Flux_master(:,p,q,SideID) * SurfElem(p,q,FV_Elems_Max(SideID),SideID)
+    d_Flux_master(:,p,q,SideID) = d_Flux_master(:,p,q,SideID) * d_SurfElem(p,q,0,SideID)
+    d_Flux_slave( :,p,q,SideID) = d_Flux_master(:,p,q,SideID)
   END DO; END DO
 END DO ! SideID
 
-! 4. copy flux from master side to slave side
-Flux_slave(:,:,:,firstSideID:lastSideID) = Flux_master(:,:,:,firstSideID:lastSideID)
+!! 4. copy flux from master side to slave side
+!d_Flux_slave(:,:,:,firstSideID:lastSideID) = d_Flux_master(:,:,:,firstSideID:lastSideID)
 
 #if FV_ENABLED
 ! 5. convert flux on FV points to DG points for all DG faces at mixed interfaces

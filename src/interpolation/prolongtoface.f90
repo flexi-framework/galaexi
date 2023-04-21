@@ -72,10 +72,8 @@ SUBROUTINE ProlongToFace_GPU(&
     Nloc,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,doMPISides &
 )
 ! MODULES
-USE MOD_Mesh_Vars,          ONLY: nElems
-USE MOD_Mesh_Vars,          ONLY: SideToElem
-USE MOD_Mesh_Vars,          ONLY: firstMPISide_YOUR, lastMPISide_MINE, nSides
-USE MOD_Mesh_Vars,          ONLY: S2V2
+USE MOD_Mesh_Vars,          ONLY: nElems,nSides
+USE MOD_Mesh_Vars,          ONLY: SideToElem,S2V2
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -95,7 +93,7 @@ LOGICAL,INTENT(IN),OPTIONAL     :: pureDG      != .TRUE. prolongates all element
 ! LOCAL VARIABLES
 REAL,DEVICE                     :: d_L_Minus(0:Nloc),d_L_Plus(0:Nloc)
 INTEGER,DEVICE                  :: d_SideToElem(5,nSides)
-INTEGER,DEVICE                  :: d_S2V2(2,0:PP_N,0:PP_N,0:4,6)
+INTEGER,DEVICE                  :: d_S2V2(2,0:Nloc,0:Nloc,0:4,6)
 !==================================================================================================================================
 d_L_Minus      = L_Minus
 d_L_Plus       = L_Plus
@@ -127,7 +125,7 @@ REAL,INTENT(INOUT)              :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nS
 REAL,INTENT(INOUT)              :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
 REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
 INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
-INTEGER,INTENT(IN)              :: S2V2(2,0:PP_N,0:PP_N,0:4,6)
+INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER                         :: p,q

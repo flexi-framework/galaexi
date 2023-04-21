@@ -54,14 +54,120 @@ INTERFACE SurfIntCons
   MODULE PROCEDURE SurfInt
 END INTERFACE
 
+INTERFACE SurfIntCons_GPU
+  MODULE PROCEDURE SurfIntCons_GPU
+END INTERFACE
+
 INTERFACE DoSurfIntCons
   MODULE PROCEDURE DoSurfInt
 END INTERFACE
 
-PUBLIC::SurfIntCons,DoSurfIntCons
+PUBLIC::SurfIntCons,DoSurfIntCons,SurfIntCons_GPU
 
 CONTAINS
 #include "surfint.t90"
+
+!==================================================================================================================================
+!> In this routine, the surface integral will be computed
+!==================================================================================================================================
+SUBROUTINE SurfIntCons_GPU(Nloc,Flux_master,Flux_slave,Ut,doMPISides,L_HatMinus,L_HatPlus)
+! MODULES
+USE MOD_Mesh_Vars ,ONLY: SideToElem,nSides
+USE MOD_Mesh_Vars ,ONLY: S2V2,nElems
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,INTENT(IN) :: Nloc        !< (IN) Polynomial degree
+LOGICAL,INTENT(IN) :: doMPISides  !<= .TRUE. only MPISides_YOUR+MPIMortar are filled
+                                  !<=.FALSE. BCSides+(Mortar-)InnerSides+MPISides_MINE
+REAL,DEVICE,INTENT(IN)    :: Flux_master(1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides) !< (IN) Flux on master side
+REAL,DEVICE,INTENT(IN)    :: Flux_slave (1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides) !< (IN) Flux on slave side
+!> (IN) Lagrange polynomials evaluated at \f$\xi=+1\f$ and \f$\xi=-1\f$ and premultiplied by mass matrix
+REAL,INTENT(IN)    :: L_HatPlus(0:Nloc),L_HatMinus(0:Nloc)
+REAL,DEVICE,INTENT(INOUT) :: Ut(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)   !< (INOUT) Time derivative of the solution
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+REAL,DEVICE                     :: d_L_HatMinus(0:Nloc),d_L_HatPlus(0:Nloc)
+INTEGER,DEVICE                  :: d_SideToElem(5,nSides)
+INTEGER,DEVICE                  :: d_S2V2(2,0:Nloc,0:Nloc,0:4,6)
+REAL,DEVICE :: d_Ut_surf(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)   !< (INOUT) Time derivative of the solution
+REAL        :: Ut_surf(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)   !< (INOUT) Time derivative of the solution
+INTEGER     :: iElem,i,j,k
+!==================================================================================================================================
+d_L_HatMinus   = L_HatMinus
+d_L_HatPlus    = L_HatPlus
+d_SideToElem   = SideToElem
+d_S2V2         = S2V2
+Ut_surf = 0.
+d_Ut_surf = Ut_surf
+d_Ut_surf = 0.
+
+!CALL SurfIntCons_Kernel<<<nSides/32+1,32>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,d_Ut_Surf,d_L_HatMinus,d_L_HatPlus,d_SideToElem,d_S2V2)
+CALL SurfIntCons_Kernel<<<nSides,1>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,d_Ut_Surf,d_L_HatMinus,d_L_HatPlus,d_SideToElem,d_S2V2)
+!$cuf kernel do(4) <<< *, 256 >>>
+DO iElem=1,nElems
+  DO k=0,ZDIM(Nloc); DO j=0,Nloc; DO i=0,Nloc
+    Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem)+d_Ut_surf(:,i,j,k,iElem)
+  END DO; END DO; END DO
+END DO
+!CALL SurfIntCons_Kernel<<<nSides/32+1,32>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,d_L_HatMinus,d_L_HatPlus,d_SideToElem,d_S2V2)
+END SUBROUTINE SurfIntCons_GPU
+
+!==================================================================================================================================
+!> In this routine, the surface integral will be computed
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE SurfIntCons_Kernel(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,L_HatMinus,L_HatPlus,SideToElem,S2V2)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN) :: Nloc  !< (IN) Polynomial degree
+INTEGER,VALUE,INTENT(IN) :: nSides
+INTEGER,VALUE,INTENT(IN) :: nElems
+REAL,INTENT(IN)    :: Flux_master(1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides) !< (IN) Flux on master side
+REAL,INTENT(IN)    :: Flux_slave (1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides) !< (IN) Flux on slave side
+REAL,INTENT(IN)    :: L_HatPlus(0:Nloc),L_HatMinus(0:Nloc)
+REAL,INTENT(INOUT) :: Ut(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)   !< (INOUT) Time derivative of the solution
+INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
+INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER            :: ElemID,nbElemID,locSideID,nblocSideID,SideID,p,q,flip
+INTEGER            :: firstSideID,lastSideID
+REAL               :: FluxTmp(1:TP_nVar,0:Nloc,0:ZDIM(Nloc))
+!==================================================================================================================================
+SideID = (blockidx%x-1) * blockdim%x + threadidx%x
+IF (SideID.LE.nSides) THEN
+  ElemID      = SideToElem(S2E_ELEM_ID,   SideID)
+  nbElemID    = SideToElem(S2E_NB_ELEM_ID,SideID)
+
+  ! master sides
+  IF(ElemID.GT.0)THEN
+    locSideID = SideToElem(S2E_LOC_SIDE_ID,SideID)
+    flip      = 0
+    ! orient flux to fit flip and locSide to element local system
+    DO q=0,ZDIM(Nloc); DO p=0,Nloc
+      ! note: for master sides, the mapping S2V2 should be a unit matrix
+      FluxTmp(:,S2V2(1,p,q,flip,locSideID),S2V2(2,p,q,flip,locSideID)) = Flux_master(:,p,q,SideID)
+    END DO; END DO ! p,q
+    CALL DoSurfInt_GPU( Nloc,FluxTmp,L_HatMinus, L_HatPlus,locSideID,Ut(:,:,:,:,ElemID))
+  END IF
+
+  ! slave sides
+  IF(nbElemID.GT.0)THEN
+    nblocSideID = SideToElem(S2E_NB_LOC_SIDE_ID,SideID)
+    flip        = SideToElem(S2E_FLIP,SideID)
+    ! orient flux to fit flip and locSide to element local system
+    DO q=0,ZDIM(Nloc); DO p=0,Nloc
+      ! p,q are in the master RHS system, they need to be transformed to the slave volume system using S2V2 mapping
+      FluxTmp(:,S2V2(1,p,q,flip,nblocSideID),S2V2(2,p,q,flip,nblocSideID))=-Flux_slave(:,p,q,SideID)
+    END DO; END DO ! p,q
+    CALL DoSurfInt_GPU(Nloc,FluxTmp,L_HatMinus,L_HatPlus,nblocSideID,Ut(:,:,:,:,nbElemID))
+  END IF
+END IF
+END SUBROUTINE SurfIntCons_Kernel
+
+
 END MODULE MOD_SurfIntCons
 
 !==================================================================================================================================

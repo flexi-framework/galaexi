@@ -232,11 +232,12 @@ USE MOD_Globals
 USE MOD_Preproc
 USE MOD_Vector
 USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave,L_HatPlus,L_HatMinus
-!@cuf USE MOD_DG_Vars          ,ONLY: d_U,d_UPrim,d_Ut
 USE MOD_DG_Vars             ,ONLY: UPrim,UPrim_master,UPrim_slave,nDOFElem,nDOFFace
+!@cuf USE MOD_DG_Vars          ,ONLY: d_U,d_UPrim,d_Ut
 !@cuf USE MOD_DG_Vars          ,ONLY: d_U_master,d_U_slave,d_UPrim_master,d_UPrim_Slave
+!@cuf USE MOD_DG_Vars          ,ONLY: d_Flux_master,d_Flux_slave,d_UPrim_master,d_UPrim_Slave
 USE MOD_VolInt
-USE MOD_SurfIntCons         ,ONLY: SurfIntCons
+USE MOD_SurfIntCons         ,ONLY: SurfIntCons,SurfIntCons_GPU
 USE MOD_ProlongToFaceCons   ,ONLY: ProlongToFaceCons,ProlongToFaceCons_GPU
 USE MOD_FillFlux            ,ONLY: FillFlux
 USE MOD_ApplyJacobianCons   ,ONLY: ApplyJacobianCons
@@ -493,7 +494,6 @@ END IF
 
 ! 8. Compute volume integral contribution and add to Ut
 CALL VolInt(d_Ut)
-Ut = d_Ut
 
 #if FV_ENABLED
 ! [ 9. Volume integral (advective and viscous) for all FV elements ]
@@ -558,10 +558,14 @@ CALL StartSendMPIData(   Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,R
 
 ! 11.3)
 !CALL FillFlux(t,Flux_master,Flux_slave,U_master,U_slave,UPrim_master,UPrim_slave,doMPISides=.FALSE.)
-CALL FillFlux(t,Flux_master,Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.)
+CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.)
 ! 11.4)
 CALL Flux_MortarCons(Flux_master,Flux_slave,doMPISides=.FALSE.,weak=.TRUE.)
 ! 11.5)
+!CALL SurfIntCons_GPU(PP_N,d_Flux_master,d_Flux_slave,d_Ut,.FALSE.,L_HatMinus,L_hatPlus)
+Ut = d_Ut
+Flux_master = d_Flux_master
+Flux_slave  = d_Flux_slave
 CALL SurfIntCons(PP_N,Flux_master,Flux_slave,Ut,.FALSE.,L_HatMinus,L_hatPlus)
 
 #if USE_MPI
