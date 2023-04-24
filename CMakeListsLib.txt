@@ -441,3 +441,23 @@ IF(LIBS_USE_OPENMP)
 ELSE()
   ADD_DEFINITIONS(-DUSE_OPENMP=0)
 ENDIF()
+
+
+# =========================================================================
+# OPENACC library
+# =========================================================================
+OPTION(LIBS_USE_OPENACC "Enable OpenACC" OFF)
+IF(LIBS_USE_OPENACC)
+  IF ("${CMAKE_VERSION}" VERSION_LESS 3.10)
+    MESSAGE(WARNING "For finding OpenMP Fortran flags at least CMake version 3.10 is required. Please specify flags manually or use newer CMake version.")
+  ENDIF()
+  FIND_PACKAGE(OpenACC REQUIRED)
+  SET (CMAKE_Fortran_FLAGS_DEBUG   "${CMAKE_Fortran_FLAGS_DEBUG}   ${OpenACC_Fortran_FLAGS}")
+  SET (CMAKE_Fortran_FLAGS_RELEASE "${CMAKE_Fortran_FLAGS_RELEASE} ${OpenACC_Fortran_FLAGS}")
+  SET (CMAKE_CXX_FLAGS_DEBUG       "${CMAKE_CXX_FLAGS_DEBUG}       ${OpenACC_CXX_FLAGS}")
+  SET (CMAKE_CXX_FLAGS_RELEASE     "${CMAKE_CXX_FLAGS_RELEASE}     ${OpenACC_CXX_FLAGS}")
+  SET (CMAKE_EXE_LINKER_FLAGS      "${CMAKE_EXE_LINKER_FLAGS}      ${OpenACC_EXE_LINKER_FLAGS}")
+  ADD_DEFINITIONS(-DUSE_OPENACC=1)
+ELSE()
+  ADD_DEFINITIONS(-DUSE_OPENACC=0)
+ENDIF()

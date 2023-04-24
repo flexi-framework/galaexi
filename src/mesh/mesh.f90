@@ -344,6 +344,9 @@ IF (meshMode.GT.1) THEN
   ALLOCATE(Metrics_fTilde(3,0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
   ALLOCATE(Metrics_gTilde(3,0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
   ALLOCATE(Metrics_hTilde(3,0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
+  !@cuf ALLOCATE(d_Metrics_fTilde(3,0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
+  !@cuf ALLOCATE(d_Metrics_gTilde(3,0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
+  !@cuf ALLOCATE(d_Metrics_hTilde(3,0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
   ALLOCATE(            sJ(  0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
   ALLOCATE(     scaledJac(  0:PP_N,0:PP_N,0:PP_NZ,nElems))
   NGeoRef=3*NGeo ! build jacobian at higher degree
@@ -352,8 +355,11 @@ IF (meshMode.GT.1) THEN
   ! surface data
   ALLOCATE(      Face_xGP(3,0:PP_N,0:PP_NZ,0:FV_SIZE,1:nSides))
   ALLOCATE(       NormVec(3,0:PP_N,0:PP_NZ,0:FV_SIZE,1:nSides))
+!@cuf ALLOCATE( d_NormVec(3,0:PP_N,0:PP_NZ,0:FV_SIZE,1:nSides))
   ALLOCATE(      TangVec1(3,0:PP_N,0:PP_NZ,0:FV_SIZE,1:nSides))
+!@cuf ALLOCATE(d_TangVec1(3,0:PP_N,0:PP_NZ,0:FV_SIZE,1:nSides))
   ALLOCATE(      TangVec2(3,0:PP_N,0:PP_NZ,0:FV_SIZE,1:nSides))
+!@cuf ALLOCATE(d_TangVec2(3,0:PP_N,0:PP_NZ,0:FV_SIZE,1:nSides))
   ALLOCATE(      SurfElem(  0:PP_N,0:PP_NZ,0:FV_SIZE,1:nSides))
   ALLOCATE(     Ja_Face(3,3,0:PP_N,0:PP_NZ,          1:nSides)) ! temp
 
@@ -375,6 +381,9 @@ IF (meshMode.GT.1) THEN
 #endif
   SWRITE(UNIT_stdOut,'(A)') "NOW CALLING calcMetrics..."
   CALL CalcMetrics()     ! DG metrics
+  !@cuf d_Metrics_fTilde = Metrics_fTilde
+  !@cuf d_Metrics_gTilde = Metrics_gTilde
+  !@cuf d_Metrics_hTilde = Metrics_hTilde
 #if FV_ENABLED
   CALL InitFV_Metrics()  ! FV metrics
 #endif
@@ -405,6 +414,10 @@ SDEALLOCATE(ElemToTree)
 IF ((.NOT.postiMode).AND.(ALLOCATED(scaledJac))) DEALLOCATE(scaledJac)
 
 CALL AddToElemData(ElementOut,'myRank',IntScalar=myRank)
+
+!@cuf d_NormVec  = NormVec
+!@cuf d_TangVec1 = TangVec1
+!@cuf d_TangVec2 = TangVec2
 
 MeshInitIsDone=.TRUE.
 SWRITE(UNIT_stdOut,'(A)')' INIT MESH DONE!'

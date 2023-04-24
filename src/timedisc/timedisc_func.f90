@@ -99,7 +99,7 @@ USE MOD_Filter_Vars         ,ONLY: NFilter,FilterType
 USE MOD_IO_HDF5             ,ONLY: AddToElemData,ElementOut
 USE MOD_Mesh_Vars           ,ONLY: nElems
 USE MOD_Overintegration_Vars,ONLY: NUnder
-USE MOD_Predictor           ,ONLY: InitPredictor
+!USE MOD_Predictor           ,ONLY: InitPredictor
 USE MOD_ReadInTools         ,ONLY: GETREAL,GETINT,GETSTR
 USE MOD_StringTools         ,ONLY: LowCase,StripSpaces
 USE MOD_TimeDisc_Vars       ,ONLY: CFLScale
@@ -107,7 +107,7 @@ USE MOD_TimeDisc_Vars       ,ONLY: dtElem,dt,tend,tStart,dt_dynmin,dt_kill
 USE MOD_TimeDisc_Vars       ,ONLY: Ut_tmp,UPrev,S2
 USE MOD_TimeDisc_Vars       ,ONLY: maxIter,nCalcTimeStepMax
 USE MOD_TimeDisc_Vars       ,ONLY: SetTimeDiscCoefs,TimeStep,TimeDiscName,TimeDiscType,TimeDiscInitIsDone
-USE MOD_TimeStep            ,ONLY: TimeStepByLSERKW2,TimeStepByLSERKK3,TimeStepByESDIRK
+USE MOD_TimeStep            ,ONLY: TimeStepByLSERKW2,TimeStepByLSERKK3!,TimeStepByESDIRK
 #if PARABOLIC
 USE MOD_TimeDisc_Vars       ,ONLY: DFLScale
 #endif /*PARABOLIC*/
@@ -148,11 +148,11 @@ SELECT CASE(TimeDiscType)
     TimeStep=>TimeStepByLSERKK3
     ALLOCATE(S2   (1:PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) &
             ,UPrev(1:PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems))
-  CASE('ESDIRK')
-    ! Implicit time integration
-    TimeStep=>TimeStepByESDIRK
-    ! Predictor for Newton
-    CALL InitPredictor(TimeDiscMethod)
+  !CASE('ESDIRK')
+  !  ! Implicit time integration
+  !  TimeStep=>TimeStepByESDIRK
+  !  ! Predictor for Newton
+  !  CALL InitPredictor(TimeDiscMethod)
 END SELECT
 
 ! Read the end time TEnd from ini file

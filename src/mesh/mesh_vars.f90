@@ -61,6 +61,9 @@ REAL,ALLOCATABLE :: dXCL_N(:,:,:,:,:,:)          !< geometry Jacobian matrix on 
 REAL,ALLOCATABLE :: Metrics_fTilde(:,:,:,:,:,:)  !< Metrics for transforming the fluxes f (1:3,0:N,0:N,0:N,nElems,0:FV)
 REAL,ALLOCATABLE :: Metrics_gTilde(:,:,:,:,:,:)  !< Metrics for transforming the fluxes g (1:3,0:N,0:N,0:N,nElems,0:FV)
 REAL,ALLOCATABLE :: Metrics_hTilde(:,:,:,:,:,:)  !< Metrics for transforming the fluxes h (1:3,0:N,0:N,0:N,nElems,0:FV)
+!@cuf REAL,ALLOCATABLE,DEVICE :: d_Metrics_fTilde(:,:,:,:,:,:)  !< Metrics for transforming the fluxes f (1:3,0:N,0:N,0:N,nElems,0:FV)
+!@cuf REAL,ALLOCATABLE,DEVICE :: d_Metrics_gTilde(:,:,:,:,:,:)  !< Metrics for transforming the fluxes g (1:3,0:N,0:N,0:N,nElems,0:FV)
+!@cuf REAL,ALLOCATABLE,DEVICE :: d_Metrics_hTilde(:,:,:,:,:,:)  !< Metrics for transforming the fluxes h (1:3,0:N,0:N,0:N,nElems,0:FV)
 REAL,ALLOCATABLE :: detJac_Ref(:,:,:,:,:)        !< determinant of the mesh Jacobian for each Gauss point at degree 3*NGeo
 REAL,ALLOCATABLE :: sJ(:,:,:,:,:)                !< inverse of Jacobian determinent for each Gauss Point at degree N
 REAL,ALLOCATABLE :: scaledJac(:,:,:,:)           !< scaled Jacobian determinent for each Gauss Point at degree N
@@ -70,8 +73,11 @@ REAL,ALLOCATABLE :: sJ_slave(:,:,:,:,:)          !< Jacobian on faces slave
 ! surface vectors
 !----------------------------------------------------------------------------------------------------------------------------------
 REAL,ALLOCATABLE :: NormVec(:,:,:,:,:)           !< normal vector for each side       (1:3,0:N,0:N,nSides)
+!@cuf REAL,ALLOCATABLE,DEVICE :: d_NormVec(:,:,:,:,:) 
 REAL,ALLOCATABLE :: TangVec1(:,:,:,:,:)          !< tangential vector 1 for each side (1:3,0:N,0:N,nSides)
+!@cuf REAL,ALLOCATABLE,DEVICE :: d_TangVec1(:,:,:,:,:) 
 REAL,ALLOCATABLE :: TangVec2(:,:,:,:,:)          !< tangential vector 3 for each side (1:3,0:N,0:N,nSides)
+!@cuf REAL,ALLOCATABLE,DEVICE :: d_TangVec2(:,:,:,:,:) 
 REAL,ALLOCATABLE :: SurfElem(:,:,:,:)            !< surface area for each side        (    0:N,0:N,nSides)
 REAL,ALLOCATABLE :: Ja_Face(:,:,:,:,:)           !< surface  metrics for each side
 !----------------------------------------------------------------------------------------------------------------------------------

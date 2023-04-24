@@ -50,10 +50,123 @@ INTERFACE ProlongToFaceCons
   MODULE PROCEDURE ProlongToFace
 END INTERFACE
 
-PUBLIC::ProlongToFaceCons
+INTERFACE ProlongToFaceCons_GPU
+  MODULE PROCEDURE ProlongToFace_GPU
+END INTERFACE
+
+PUBLIC::ProlongToFaceCons,ProlongToFaceCons_GPU
 
 CONTAINS
 #include "prolongtoface.t90"
+
+! Avoid compiling it for all TP_nVar to improve compilation speed
+
+!==================================================================================================================================
+!> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
+!> integration points, using fast 1D Interpolation and store in global side structure
+!==================================================================================================================================
+SUBROUTINE ProlongToFace_GPU(&
+#ifdef WITHnVar
+    TP_nVar,&
+#endif
+    Nloc,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,doMPISides &
+)
+! MODULES
+USE MOD_Mesh_Vars,          ONLY: nElems,nSides
+USE MOD_Mesh_Vars,          ONLY: SideToElem,S2V2
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+#ifdef WITHnVar
+INTEGER,INTENT(IN)              :: TP_nVar
+#endif
+INTEGER,INTENT(IN)              :: Nloc
+REAL,DEVICE,INTENT(IN)          :: Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)
+REAL,DEVICE,INTENT(INOUT)       :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+REAL,DEVICE,INTENT(INOUT)       :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
+LOGICAL,INTENT(IN)              :: doMPISides  != .TRUE. only YOUR MPISides are filled, =.FALSE. BCSides +InnerSides +MPISides MINE
+#if FV_ENABLED
+LOGICAL,INTENT(IN),OPTIONAL     :: pureDG      != .TRUE. prolongates all elements as DG elements
+#endif
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+REAL,DEVICE                     :: d_L_Minus(0:Nloc),d_L_Plus(0:Nloc)
+INTEGER,DEVICE                  :: d_SideToElem(5,nSides)
+INTEGER,DEVICE                  :: d_S2V2(2,0:Nloc,0:Nloc,0:4,6)
+!==================================================================================================================================
+d_L_Minus      = L_Minus
+d_L_Plus       = L_Plus
+d_SideToElem   = SideToElem
+d_S2V2         = S2V2
+
+CALL ProlongToFace_Kernel<<<nSides/32+1,32>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,d_L_Minus,d_L_Plus,d_SideToElem,d_S2V2)
+END SUBROUTINE ProlongToFace_GPU
+
+
+
+!==================================================================================================================================
+!> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
+!> integration points, using fast 1D Interpolation and store in global side structure
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE ProlongToFace_Kernel(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,SideToElem,S2V2)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+#ifdef WITHnVar
+INTEGER,VALUE,INTENT(IN)        :: TP_nVar
+#endif
+INTEGER,VALUE,INTENT(IN)        :: Nloc
+INTEGER,VALUE,INTENT(IN)        :: nSides
+INTEGER,VALUE,INTENT(IN)        :: nElems
+REAL,INTENT(IN)                 :: Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)
+REAL,INTENT(INOUT)              :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+REAL,INTENT(INOUT)              :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
+INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
+INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                         :: p,q
+INTEGER                         :: ElemID,nbElemID,locSide,nblocSide,SideID,flip
+REAL                            :: Uface(TP_nVar,0:Nloc,0:ZDIM(Nloc))
+!==================================================================================================================================
+SideID = (blockidx%x-1) * blockdim%x + threadidx%x
+IF (SideID.LE.nSides) THEN
+  ElemID    = SideToElem(S2E_ELEM_ID,SideID)
+  nbElemID  = SideToElem(S2E_NB_ELEM_ID,SideID)
+
+  !master sides
+  IF(ElemID.GT.0)THEN
+    locSide = SideToElem(S2E_LOC_SIDE_ID,SideID)
+    flip    = 0
+
+    CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface,L_Minus,L_Plus,locSide)
+
+    DO q=0,ZDIM(Nloc); DO p=0,Nloc
+      Uface_master(:,p,q,SideID)=Uface(:,S2V2(1,p,q,0,locSide),S2V2(2,p,q,0,locSide))
+    END DO; END DO
+  END IF
+
+  !slave side (ElemID,locSide and flip =-1 if not existing)
+  IF(nbElemID.GT.0)THEN
+   nblocSide = SideToElem(S2E_NB_LOC_SIDE_ID,SideID)
+   flip      = SideToElem(S2E_FLIP,SideID)
+
+    CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,nbElemID),Uface,L_Minus,L_Plus,nblocSide)
+
+    DO q=0,ZDIM(Nloc); DO p=0,Nloc
+      Uface_slave( :,p,q,SideID)=Uface(:,S2V2(1,p,q,flip,nblocSide),S2V2(2,p,q,flip,nblocSide))
+    END DO; END DO
+  END IF
+END IF
+
+END SUBROUTINE ProlongToFace_Kernel
+
+
+
+
 END MODULE MOD_ProlongToFaceCons
 
 !==================================================================================================================================

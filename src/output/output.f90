@@ -410,7 +410,7 @@ SUBROUTINE PrintAnalyze(dt)
 USE MOD_Globals
 USE MOD_PreProc
 USE MOD_Analyze_Vars        ,ONLY: PID
-USE MOD_Implicit_Vars       ,ONLY: nGMRESIterGlobal,nNewtonIterGlobal
+!USE MOD_Implicit_Vars       ,ONLY: nGMRESIterGlobal,nNewtonIterGlobal
 USE MOD_Mesh_Vars           ,ONLY: nGlobalElems
 USE MOD_TimeDisc_Vars       ,ONLY: CalcTimeStart,CalcTimeEnd,TimeDiscType,ViscousTimeStep
 USE MOD_TimeDisc_Vars       ,ONLY: iter,iter_analyze,nRKStages
@@ -439,12 +439,12 @@ WRITE(UNIT_stdOut,'(A,ES12.5,A)')' CALCULATION TIME PER STAGE/DOF: [',PID,' sec 
 WRITE(UNIT_stdOut,'(A,ES16.7)')  ' Timestep   : ',dt
 IF(ViscousTimeStep) WRITE(UNIT_stdOut,'(A)')' Viscous timestep dominates! '
 WRITE(UNIT_stdOut,'(A,ES16.7)')  '#Timesteps  : ',REAL(iter)
-IF(TimeDiscType.EQ.'ESDIRK') THEN
-  WRITE(UNIT_stdOut,'(A,ES16.7)')'#GMRES iter : ',REAL(nGMRESIterGlobal)
-  WRITE(UNIT_stdOut,'(A,ES16.7)')'#Newton iter: ',REAL(nNewtonIterGlobal)
-  nGMRESIterGlobal  = 0
-  nNewtonIterGlobal = 0
-END IF
+!IF(TimeDiscType.EQ.'ESDIRK') THEN
+!  WRITE(UNIT_stdOut,'(A,ES16.7)')'#GMRES iter : ',REAL(nGMRESIterGlobal)
+!  WRITE(UNIT_stdOut,'(A,ES16.7)')'#Newton iter: ',REAL(nNewtonIterGlobal)
+!  nGMRESIterGlobal  = 0
+!  nNewtonIterGlobal = 0
+!END IF
 
 END SUBROUTINE PrintAnalyze
 

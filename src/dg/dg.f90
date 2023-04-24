@@ -95,8 +95,10 @@ CALL InitDGBasis(PP_N, xGP,wGP,L_minus,L_plus,D ,D_T ,D_Hat ,D_Hat_T ,L_HatMinus
 
 ! Allocate the local DG solution (JU or U): element-based
 ALLOCATE(U(        PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
+!@cuf ALLOCATE(d_U(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 ! Allocate the time derivative / solution update /residual vector dU/dt: element-based
 ALLOCATE(Ut(       PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
+!@cuf ALLOCATE(d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 U=0.
 Ut=0.
 
@@ -104,13 +106,18 @@ Ut=0.
 ! and one for the sides which belong to another proc (slaves): side-based
 ALLOCATE(U_master(PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
 ALLOCATE(U_slave( PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_U_master(PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_U_slave( PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
 U_master=0.
 U_slave=0.
 
 ! Repeat the U, U_Minus, U_Plus structure for the primitive quantities
 ALLOCATE(UPrim(       PP_nVarPrim,0:PP_N,0:PP_N,0:PP_NZ,nElems))
+!@cuf ALLOCATE(d_UPrim(PP_nVarPrim,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 ALLOCATE(UPrim_master(PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
 ALLOCATE(UPrim_slave( PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_UPrim_master(PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_UPrim_slave( PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
 UPrim=0.
 UPrim_master=0.
 UPrim_slave=0.
@@ -121,6 +128,8 @@ ALLOCATE(UPrim_boundary(PP_nVarPrim,0:PP_N,0:PP_NZ))
 ! Allocate two fluxes per side (necessary for coupling of FV and DG)
 ALLOCATE(Flux_master(PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
 ALLOCATE(Flux_slave (PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_Flux_master(PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_Flux_slave( PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
 Flux_master=0.
 Flux_slave=0.
 
@@ -223,31 +232,38 @@ USE MOD_Globals
 USE MOD_Preproc
 USE MOD_Vector
 USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave,L_HatPlus,L_HatMinus
-USE MOD_DG_Vars             ,ONLY: UPrim,UPrim_master,UPrim_slave
-!USE MOD_DG_Vars,             ONLY: nTotalU
+USE MOD_DG_Vars             ,ONLY: UPrim,UPrim_master,UPrim_slave,nDOFElem,nDOFFace
+!@cuf USE MOD_DG_Vars          ,ONLY: d_U,d_UPrim,d_Ut
+!@cuf USE MOD_DG_Vars          ,ONLY: d_U_master,d_U_slave,d_UPrim_master,d_UPrim_Slave
+!@cuf USE MOD_DG_Vars          ,ONLY: d_Flux_master,d_Flux_slave,d_UPrim_master,d_UPrim_Slave
 USE MOD_VolInt
-USE MOD_SurfIntCons         ,ONLY: SurfIntCons
-USE MOD_ProlongToFaceCons   ,ONLY: ProlongToFaceCons
+USE MOD_SurfIntCons         ,ONLY: SurfIntCons,SurfIntCons_GPU
+USE MOD_ProlongToFaceCons   ,ONLY: ProlongToFaceCons,ProlongToFaceCons_GPU
 USE MOD_FillFlux            ,ONLY: FillFlux
 USE MOD_ApplyJacobianCons   ,ONLY: ApplyJacobianCons
 USE MOD_Interpolation_Vars  ,ONLY: L_Minus,L_Plus
+USE MOD_Overintegration_Vars,ONLY: OverintegrationType
+USE MOD_Overintegration,     ONLY: Overintegration
 USE MOD_ChangeBasisByDim    ,ONLY: ChangeBasisVolume
 USE MOD_TestCase            ,ONLY: TestcaseSource
 USE MOD_TestCase_Vars       ,ONLY: doTCSource
 USE MOD_Equation            ,ONLY: GetPrimitiveStateSurface,GetConservativeStateSurface
 USE MOD_EOS                 ,ONLY: ConsToPrim
+USE MOD_EOS                 ,ONLY: ConsToPrim_GPU
 USE MOD_Exactfunc           ,ONLY: CalcSource
 USE MOD_Equation_Vars       ,ONLY: doCalcSource
 USE MOD_Sponge              ,ONLY: Sponge
 USE MOD_Sponge_Vars         ,ONLY: doSponge
 USE MOD_Filter              ,ONLY: Filter_Pointer
 USE MOD_Filter_Vars         ,ONLY: FilterType,FilterMat
+USE MOD_Mesh_Vars,           ONLY: nElems,nSides
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
 REAL,INTENT(IN)                 :: t                      !< Current time
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
+INTEGER :: i
 !==================================================================================================================================
 
 ! -----------------------------------------------------------------------------
@@ -270,23 +286,33 @@ REAL,INTENT(IN)                 :: t                      !< Current time
 ! -----------------------------------------------------------------------------
 
 ! 2. Convert Volume solution to primitive
-CALL ConsToPrim(PP_N,UPrim,U)
+d_U     = U
+CALL ConsToPrim_GPU<<<nElems*nDOFElem/256+1,256>>>(nElems*nDOFElem,d_UPrim,d_U)
 
 ! 3. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
-CALL ProlongToFaceCons(PP_N,U,U_master,U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
+CALL ProlongToFaceCons_GPU(PP_N,d_U,d_U_master,d_U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
+!CALL ProlongToFaceCons(PP_N,U,U_master,U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
+!d_U_master = U_master
+!d_U_slave  = U_slave
 
 ! 4. Convert face data from conservative to primitive variables
 !    Attention: For FV with 2nd order reconstruction U_master/slave and therewith UPrim_master/slave are still only 1st order
-CALL GetPrimitiveStateSurface(U_master,U_slave,UPrim_master,UPrim_slave)
+! TODO: Linadv?
+!CALL GetPrimitiveStateSurface(U_master,U_slave,UPrim_master,UPrim_slave)
+CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_master,d_U_master)
+CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_slave ,d_U_slave )
 
 ! 8. Compute volume integral contribution and add to Ut
-CALL VolInt(Ut)
-
+CALL VolInt(d_Ut)
 
 ! 11. Fill flux and Surface integral
-CALL FillFlux(t,Flux_master,Flux_slave,U_master,U_slave,UPrim_master,UPrim_slave,doMPISides=.FALSE.)
-! 11.4)
+!CALL FillFlux(t,Flux_master,Flux_slave,U_master,U_slave,UPrim_master,UPrim_slave,doMPISides=.FALSE.)
+CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.)
 ! 11.5)
+!CALL SurfIntCons_GPU(PP_N,d_Flux_master,d_Flux_slave,d_Ut,.FALSE.,L_HatMinus,L_hatPlus)
+Ut = d_Ut
+Flux_master = d_Flux_master
+Flux_slave  = d_Flux_slave
 CALL SurfIntCons(PP_N,Flux_master,Flux_slave,Ut,.FALSE.,L_HatMinus,L_hatPlus)
 
 ! 12. Swap to right sign :)

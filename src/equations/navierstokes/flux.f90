@@ -38,6 +38,7 @@ PRIVATE
 INTERFACE EvalFlux3D
   MODULE PROCEDURE EvalFlux3D_Point
   MODULE PROCEDURE EvalFlux3D_Volume
+  MODULE PROCEDURE EvalFlux3D_Volume_CPU
 END INTERFACE
 
 INTERFACE EvalEulerFlux1D
@@ -56,7 +57,7 @@ INTERFACE EvalDiffFlux3D
 END INTERFACE
 #endif /*PARABOLIC*/
 
-PUBLIC::EvalFlux3D, EvalEulerFlux1D, EvalEulerFlux1D_fast
+PUBLIC::EvalFlux3D, EvalEulerFlux1D, EvalEulerFlux1D_fast, EvalFlux3D_Volume
 #if PARABOLIC
 PUBLIC::EvalDiffFlux3D
 #endif /*PARABOLIC*/
@@ -67,7 +68,7 @@ CONTAINS
 !==================================================================================================================================
 !> Compute advection part of the Navier-Stokes fluxes in all space dimensions using the conservative and primitive variables
 !==================================================================================================================================
-PPURE SUBROUTINE EvalFlux3D_Point(U,UPrim,f,g,h)
+ATTRIBUTES(DEVICE) SUBROUTINE EvalFlux3D_Point(U,UPrim,f,g,h)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -76,6 +77,9 @@ REAL,DIMENSION(CONS),INTENT(IN)  :: U        !< Conservative solution
 REAL,DIMENSION(PRIM),INTENT(IN)  :: UPrim    !< Primitive solution
 !> Physical fluxes in x/y/z direction
 REAL,DIMENSION(CONS),INTENT(OUT) :: f,g,h
+!----------------------------------------------------------------------------------------------------------------------------------
+! CUDA VARIABLES
+!@cuf ATTRIBUTES(DEVICE) :: U,UPrim,f,g,h
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 REAL                :: Ep
@@ -123,15 +127,74 @@ h   = 0.
 END SUBROUTINE EvalFlux3D_Point
 
 !==================================================================================================================================
-!> Wrapper routine to compute the advection part of the Navier-Stokes fluxes for a single volume cell
+!> Compute advection part of the Navier-Stokes fluxes in all space dimensions using the conservative and primitive variables
 !==================================================================================================================================
-PPURE SUBROUTINE EvalFlux3D_Volume(Nloc,U,UPrim,f,g,h)
+SUBROUTINE EvalFlux3D_Point_CPU(U,UPrim,f,g,h)
 ! MODULES
-USE MOD_PreProc
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
-INTEGER                                               ,INTENT(IN)  :: Nloc     !< Polynomial degree
+REAL,DIMENSION(CONS),INTENT(IN)  :: U        !< Conservative solution
+REAL,DIMENSION(PRIM),INTENT(IN)  :: UPrim    !< Primitive solution
+!> Physical fluxes in x/y/z direction
+REAL,DIMENSION(CONS),INTENT(OUT) :: f,g,h
+!----------------------------------------------------------------------------------------------------------------------------------
+! CUDA VARIABLES
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+REAL                :: Ep
+!==================================================================================================================================
+! auxiliary variables
+Ep   = U(ENER) + UPrim(PRES)
+#if PP_dim==3
+! Euler part
+! Euler fluxes x-direction
+f(DENS) = U(MOM1)                             ! rho*u
+f(MOM1) = U(MOM1) * UPrim(VEL1) + UPrim(PRES) ! rho*u²+p
+f(MOM2) = U(MOM1) * UPrim(VEL2)               ! rho*u*v
+f(MOM3) = U(MOM1) * UPrim(VEL3)               ! rho*u*w
+f(ENER) = Ep * UPrim(VEL1)                    ! (rho*e+p)*u
+! Euler fluxes y-direction
+g(DENS) = U(MOM2)                             ! rho*v
+g(MOM1) = f(MOM2)                             ! rho*u*v
+g(MOM2) = U(MOM2) * UPrim(VEL2) + UPrim(PRES) ! rho*v²+p
+g(MOM3) = U(MOM2) * UPrim(VEL3)               ! rho*v*w
+g(ENER) = Ep * UPrim(VEL2)                    ! (rho*e+p)*v
+! Euler fluxes z-direction
+h(DENS) = U(MOM3)                             ! rho*v
+h(MOM1) = f(MOM3)                             ! rho*u*w
+h(MOM2) = g(MOM3)                             ! rho*v*w
+h(MOM3) = U(MOM3) * UPrim(VEL3) + UPrim(PRES) ! rho*v²+p
+h(ENER) = Ep * UPrim(VEL3)                    ! (rho*e+p)*w
+#else
+
+! Euler part
+! Euler fluxes x-direction
+f(DENS) = U(MOM1)                             ! rho*u
+f(MOM1) = U(MOM1)*UPrim(VEL1)+UPrim(PRES)     ! rho*u²+p
+f(MOM2) = U(MOM1)*UPrim(VEL2)                 ! rho*u*v
+f(MOM3) = 0.
+f(ENER) = Ep*UPrim(VEL1)                      ! (rho*e+p)*u
+! Euler fluxes y-direction
+g(DENS)= U(MOM2)                              ! rho*v
+g(MOM1)= f(MOM2)                              ! rho*u*v
+g(MOM2)= U(MOM2)*UPrim(VEL2)+UPrim(PRES)      ! rho*v²+p
+g(MOM3)= 0.
+g(ENER)= Ep*UPrim(VEL2)                       ! (rho*e+p)*v
+! Euler fluxes z-direction
+h   = 0.
+#endif
+END SUBROUTINE EvalFlux3D_Point_CPU
+
+!==================================================================================================================================
+!> Wrapper routine to compute the advection part of the Navier-Stokes fluxes for a single volume cell
+!==================================================================================================================================
+SUBROUTINE EvalFlux3D_Volume_CPU(Nloc,U,UPrim,f,g,h)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,VALUE                                         ,INTENT(IN)  :: Nloc     !< Polynomial degree
 REAL,DIMENSION(PP_nVar    ,0:Nloc,0:Nloc,0:ZDIM(Nloc)),INTENT(IN)  :: U        !< Conservative solution
 REAL,DIMENSION(PP_nVarPrim,0:Nloc,0:Nloc,0:ZDIM(Nloc)),INTENT(IN)  :: UPrim    !< Primitive solution
 !> Physical fluxes in x,y,z directions
@@ -141,8 +204,30 @@ REAL,DIMENSION(PP_nVar    ,0:Nloc,0:Nloc,0:ZDIM(Nloc)),INTENT(OUT) :: f,g,h
 INTEGER             :: i,j,k
 !==================================================================================================================================
 DO k=0,ZDIM(Nloc);  DO j=0,Nloc; DO i=0,Nloc
-  CALL EvalFlux3D_Point(U(:,i,j,k),UPrim(:,i,j,k),f(:,i,j,k),g(:,i,j,k),h(:,i,j,k))
+  CALL EvalFlux3D_Point_CPU(U(:,i,j,k),UPrim(:,i,j,k),f(:,i,j,k),g(:,i,j,k),h(:,i,j,k))
 END DO; END DO; END DO ! i,j,k
+END SUBROUTINE EvalFlux3D_Volume_CPU
+
+!==================================================================================================================================
+!> Wrapper routine to compute the advection part of the Navier-Stokes fluxes for a single volume cell
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE EvalFlux3D_Volume(nDOFElem,U,UPrim,f,g,h)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,VALUE                         ,INTENT(IN)  :: nDOFElem !< Polynomial degree
+REAL,DIMENSION(PP_nVar    ,1:nDOFElem),INTENT(IN)  :: U        !< Conservative solution
+REAL,DIMENSION(PP_nVarPrim,1:nDOFElem),INTENT(IN)  :: UPrim    !< Primitive solution
+!> Physical fluxes in x,y,z1:nDOFElem
+REAL,DIMENSION(PP_nVar    ,1:nDOFElem),INTENT(OUT) :: f,g,h
+!@cuf ATTRIBUTES(DEVICE) :: U,UPrim,f,g,h
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER             :: i
+!==================================================================================================================================
+i = (blockidx%x-1) * blockdim%x + threadidx%x
+IF (i.LE.nDOFElem) CALL EvalFlux3D_Point(U(:,i),UPrim(:,i),f(:,i),g(:,i),h(:,i))
 END SUBROUTINE EvalFlux3D_Volume
 
 #if PARABOLIC
@@ -350,7 +435,7 @@ END SUBROUTINE EvalEulerFlux1D
 !==================================================================================================================================
 !> Computes 1D Euler flux using the conservative and primitive variables (for better performance)
 !==================================================================================================================================
-PPURE SUBROUTINE EvalEulerFlux1D_fast(U,F)
+ATTRIBUTES(DEVICE,HOST) SUBROUTINE EvalEulerFlux1D_fast(U,F)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------

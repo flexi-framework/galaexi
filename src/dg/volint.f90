@@ -113,48 +113,73 @@ END SUBROUTINE VolInt_weakForm_Visc
 !> Attention 2: input Ut is overwritten with the volume flux derivatives
 !==================================================================================================================================
 #ifndef SPLIT_DG
-SUBROUTINE VolInt_weakForm(Ut)
+SUBROUTINE VolInt_weakForm(d_Ut)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
+USE CUDAFOR
 USE MOD_PreProc
 USE MOD_DG_Vars      ,ONLY: D_hat_T,nDOFElem,UPrim,U
+!@cuf USE MOD_DG_Vars      ,ONLY: d_U,d_UPrim
 USE MOD_Mesh_Vars    ,ONLY: Metrics_fTilde,Metrics_gTilde,Metrics_hTilde,nElems
+!@cuf USE MOD_Mesh_Vars    ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,nElems
 USE MOD_Flux         ,ONLY: EvalFlux3D      ! computes volume fluxes in local coordinates
+#if VOLINT_VISC
+USE MOD_Flux         ,ONLY: EvalDiffFlux3D  ! computes volume fluxes in local coordinates
+USE MOD_Lifting_Vars ,ONLY: gradUx,gradUy,gradUz
+#endif
+#if FV_ENABLED
+USE MOD_FV_Vars      ,ONLY: FV_Elems
+#endif
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
-REAL,INTENT(OUT)   :: Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
+REAL,DEVICE,INTENT(OUT)   :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER            :: i,j,k,l,iElem
-REAL,DIMENSION(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ) :: f,g,h     !< Volume advective fluxes at GP
+INTEGER,PARAMETER  :: nElems_Block=32
+INTEGER            :: i,j,k,l,iElem,iiElem,nElems_myBlock
+INTEGER            :: lastElem
+REAL,DEVICE,DIMENSION(PP_nVar    ,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block) :: d_f, d_g, d_h
+REAL,DEVICE,DIMENSION(0:PP_N,0:PP_N) :: d_D_hat_T
 !==================================================================================================================================
 ! Diffusive part
-DO iElem=1,nElems
+d_D_hat_T = D_hat_T
+DO iElem=1,nElems,nElems_Block
+  lastElem    = MIN(nElems,iElem+nElems_Block-1)
+  nElems_myBlock = lastElem-iElem+1
+
   ! Cut out the local DG solution for a grid cell iElem and all Gauss points from the global field
   ! Compute for all Gauss point values the Cartesian flux components
-  CALL EvalFlux3D(PP_N,U(:,:,:,:,iElem),UPrim(:,:,:,:,iElem),f,g,h)
+  !CALL EvalFlux3D(PP_N,U(:,:,:,:,iElem),UPrim(:,:,:,:,iElem),f,g,h)
+  CALL EvalFlux3D_Volume<<<(nDOFElem*nElems_myBlock)/256+1,256>>>(nDOFElem*nElems_myBlock,d_U(    :,:,:,:,iElem:lastElem) &
+                                                                                         ,d_UPrim(:,:,:,:,iElem:lastElem) &
+                                                                                         ,d_f,d_g,d_h)
 
-  CALL VolInt_Metrics(nDOFElem,f,g,h,Metrics_fTilde(:,:,:,:,iElem,0),&
-                                     Metrics_gTilde(:,:,:,:,iElem,0),&
-                                     Metrics_hTilde(:,:,:,:,iElem,0))
+  CALL VolInt_Metrics_GPU<<<(nDOFElem*nElems_myBlock)/256+1,256>>>(nDOFElem*nElems_myBlock, &
+                                                                   d_f,d_g,d_h,             &
+                                                                   d_Metrics_fTilde(:,:,:,:,iElem:lastElem,0), &
+                                                                   d_Metrics_gTilde(:,:,:,:,iElem:lastElem,0), &
+                                                                   d_Metrics_hTilde(:,:,:,:,iElem:lastElem,0))
+  !$cuf kernel do(4) <<< *, 256 >>>
+  DO iiElem=1,nElems_myBlock
+    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
+        ! Update the time derivative with the spatial derivatives of the transformed fluxes
+        d_Ut(:,i,j,k,iElem+iiElem-1) =         d_D_Hat_T(0,i)*d_f(:,0,j,k,iiElem) + &
+#if PP_dim==3
+                                               d_D_Hat_T(0,k)*d_h(:,i,j,0,iiElem) + &
+#endif
+                                               d_D_Hat_T(0,j)*d_g(:,i,0,k,iiElem)
+        DO l=1,PP_N
+          ! Update the time derivative with the spatial derivatives of the transformed fluxes
+          d_Ut(:,i,j,k,iElem+iiElem-1) = d_Ut(:,i,j,k,iElem+iiElem-1) + d_D_Hat_T(l,i)*d_f(:,l,j,k,iiElem) + &
+#if PP_dim==3
+                                                                        d_D_Hat_T(l,k)*d_h(:,i,j,l,iiElem) + &
+#endif
+                                                                        d_D_Hat_T(l,j)*d_g(:,i,l,k,iiElem)
+      END DO ! l
+    END DO; END DO; END DO !i,j,k
+  END DO !iiElem
 
-  DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      ! Update the time derivative with the spatial derivatives of the transformed fluxes
-      Ut(:,i,j,k,iElem) =                     D_Hat_T(0,i)*f(:,0,j,k) + &
-#if PP_dim==3
-                                              D_Hat_T(0,k)*h(:,i,j,0) + &
-#endif
-                                              D_Hat_T(0,j)*g(:,i,0,k)
-    DO l=1,PP_N
-      ! Update the time derivative with the spatial derivatives of the transformed fluxes
-      Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) + D_Hat_T(l,i)*f(:,l,j,k) + &
-#if PP_dim==3
-                                              D_Hat_T(l,k)*h(:,i,j,l) + &
-#endif
-                                              D_Hat_T(l,j)*g(:,i,l,k)
-    END DO ! l
-  END DO; END DO; END DO !i,j,k
 END DO ! iElem
 END SUBROUTINE VolInt_weakForm
 #endif
@@ -199,9 +224,6 @@ INTEGER            :: i,j,k,l,iElem
 REAL,DIMENSION(PP_nVar                     )  :: Flux         !< temp variable for split flux
 !==================================================================================================================================
 DO iElem=1,nElems
-#if FV_ENABLED
-  IF (FV_Elems(iElem).EQ.1) CYCLE ! FV Elem
-#endif
 
 ! For split DG, the matrix DVolSurf will always be equal to 0 on the main diagonal. Thus, the (consistent) fluxes will always be
 ! multiplied by zero and we don't have to take them into account at all.
@@ -298,6 +320,55 @@ DO i=1,nDOFs
 END DO ! i
 END SUBROUTINE VolInt_Metrics
 
+!==================================================================================================================================
+!> Compute the tranformed states for all conservative variables using the metric terms
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE VolInt_Metrics_GPU(nDOFs,f,g,h,Mf,Mg,Mh)
+!----------------------------------------------------------------------------------------------------------------------------------
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)                    :: nDOFs    !< Number of DOFs per element
+                                                        !> Metrics terms
+REAL,DIMENSION(3,nDOFs),INTENT(IN)          :: Mf,Mg,Mh
+                                                        !> Volume fluxes at GP to be transformed from physical to reference space
+REAL,DIMENSION(1:PP_nVar,nDOFs),INTENT(INOUT) :: f,g,h
+!@cuf ATTRIBUTES(DEVICE) Mf,Mg,Mh,f,g,h
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                                     :: i
+REAL,DIMENSION(PP_nVar),DEVICE              :: fTilde,gTilde !< Auxiliary variables needed to store the fluxes at one GP
+#if PP_dim==3
+REAL,DIMENSION(PP_nVar),DEVICE              :: hTilde !< Auxiliary variables needed to store the fluxes at one GP
+#endif
+!==================================================================================================================================
+i = (blockidx%x-1) * blockdim%x + threadidx%x
+IF (i.LE.nDOFs) THEN
+  fTilde=f(:,i)
+  gTilde=g(:,i)
+#if PP_dim==3
+  hTilde=h(:,i)
+  
+  ! Compute the transformed fluxes with the metric terms
+  ! Attention 1: we store the transformed fluxes in f,g,h again
+  f(:,i) = fTilde(:)*Mf(1,i) + &
+           gTilde(:)*Mf(2,i) + &
+           hTilde(:)*Mf(3,i)
+  g(:,i) = fTilde(:)*Mg(1,i) + &
+           gTilde(:)*Mg(2,i) + &
+           hTilde(:)*Mg(3,i)
+  h(:,i) = fTilde(:)*Mh(1,i) + &
+           gTilde(:)*Mh(2,i) + &
+           hTilde(:)*Mh(3,i)
+#else
+  f(:,i) = fTilde*Mf(1,i) + &
+           gTilde*Mf(2,i)
+  g(:,i) = fTilde*Mg(1,i) + &
+           gTilde*Mg(2,i)
+#endif
+ENDIF
+END SUBROUTINE VolInt_Metrics_GPU
 
 
 END MODULE MOD_VolInt

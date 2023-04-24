@@ -353,8 +353,8 @@ REAL,ALLOCATABLE    :: ElemData(:,:),tmp(:)
 CHARACTER(LEN=255),ALLOCATABLE :: VarNamesElemData(:)
 #endif /*FV_ENABLED==1*/
 !==================================================================================================================================
-
-doFlushFiles_loc = MERGE(doFlushFiles,.TRUE.,PRESENT(doFlushFiles))
+doFlushFiles_loc = .TRUE.
+IF(PRESENT(doFlushFiles)) doFlushFiles_loc = doFlushFiles
 
 IF (DoRestart) THEN
   SWRITE(UNIT_stdOut,'(132("-"))')

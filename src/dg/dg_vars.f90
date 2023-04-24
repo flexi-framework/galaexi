@@ -35,6 +35,7 @@ REAL,ALLOCATABLE                      :: D_T(:,:)               !< Transpose of 
 REAL,ALLOCATABLE                      :: D_Hat(:,:)             !< Differentiation matrix premultiplied by
                                                                 !< mass matrix, \f$ \hat{D} = M^{-1} D^T M \f$, size [0..N,0..N].
 
+!@cuda REAL,ALLOCATABLER              ::d_ D_Hat_T(:,:)
 REAL,ALLOCATABLE                      :: D_Hat_T(:,:)           !< Transpose of differentiation matrix premultiplied by
                                                                 !< mass matrix, size [0..N,0..N].
 
@@ -55,10 +56,13 @@ REAL,ALLOCATABLE                      :: DVolSurf(:,:)          !< Transpose of 
 ! DG solution (JU or U) vectors)
 REAL,ALLOCATABLE,TARGET               :: U(:,:,:,:,:)           !< Solution variable for each equation, node and element,
                                                                 !< size [1..NVar,0..N,0..N,0..N,nElems].
+!@cuf REAL,ALLOCATABLE,DEVICE         :: d_U(:,:,:,:,:)
+
 
 !----------------------------------------------------------------------------------------------------------------------------------
 ! DG time derivative or Residual U_t
 REAL,ALLOCATABLE                      :: Ut(:,:,:,:,:)          !< Residual/time derivative, size [1..NVar,0..N,0..N,0..NZ,nElems].
+!@cuf REAL,ALLOCATABLE,DEVICE         :: d_Ut(:,:,:,:,:)
 
 !----------------------------------------------------------------------------------------------------------------------------------
 ! auxilliary counters: number of entries in U, Ut, gradUx, gradUy, gradUz, used of optimization
@@ -72,21 +76,28 @@ INTEGER                               :: nDOFElem               !< Degrees of fr
 ! interior face values for all elements
 REAL,ALLOCATABLE                      :: U_master(:,:,:,:)      !< 1D/2D Solution on face nodes for the master sides,
                                                                 !< size [1..NVar,0..N,0..NZ,all_master_sides]
+!@cuf REAL,ALLOCATABLE,DEVICE         :: d_U_master(:,:,:,:)
 
 REAL,ALLOCATABLE                      :: U_slave(:,:,:,:)       !< 1D/2D Solution on face nodes for the slave sides,
                                                                 !< size [1..NVar,0..N,0..NZ,all_slave_sides]
+!@cuf REAL,ALLOCATABLE,DEVICE         :: d_U_slave(:,:,:,:)
 
 REAL,ALLOCATABLE                      :: Flux_master(:,:,:,:)   !< Fluxes on face, size [1..NVar,0..N,0..NZ,allsides].
+!@cuf REAL,ALLOCATABLE,DEVICE         :: d_Flux_master(:,:,:,:)
 REAL,ALLOCATABLE                      :: Flux_slave (:,:,:,:)   !< Fluxes on face, size [1..NVar,0..N,0..NZ,allsides].
+!@cuf REAL,ALLOCATABLE,DEVICE         :: d_Flux_slave(:,:,:,:)
 
 !----------------------------------------------------------------------------------------------------------------------------------
 ! Variables in case of primitive lifting
 REAL,ALLOCATABLE                      :: UPrim(:,:,:,:,:)       !< Solution in primitive variables per equation, node and element,
                                                                 !< size [1..NVar,0..N,0..N,0..NZ,nElems].
+!@cuf REAL,ALLOCATABLE,DEVICE         :: d_UPrim(:,:,:,:,:)
 REAL,ALLOCATABLE                      :: UPrim_master(:,:,:,:)  !< 2D Solution in Primitive variables on face, master side,
                                                                 !< size [1..NVar,0..N,0..NZ,all_master_sides]
+!@cuf REAL,ALLOCATABLE,DEVICE         :: d_UPrim_master(:,:,:,:)
 REAL,ALLOCATABLE                      :: UPrim_slave(:,:,:,:)   !< 2D Solution in Primitive variables on face, slave side,
                                                                 !<size [1..NVar,0..N,0..NZ,all_slave_sides]
+!@cuf REAL,ALLOCATABLE,DEVICE         :: d_UPrim_slave(:,:,:,:)
 !----------------------------------------------------------------------------------------------------------------------------------
 INTEGER                               :: SplitDG                !< Shows which split formulation is used
 ! Variables for boundary flux calculation

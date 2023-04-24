@@ -50,7 +50,7 @@ USE MOD_Mesh_Vars           ,ONLY: MeshFile,nGlobalElems
 USE MOD_Output              ,ONLY: Visualize,PrintStatusLine
 USE MOD_Overintegration     ,ONLY: Overintegration
 USE MOD_Overintegration_Vars,ONLY: OverintegrationType
-USE MOD_Predictor           ,ONLY: FillInitPredictor
+!USE MOD_Predictor           ,ONLY: FillInitPredictor
 USE MOD_RecordPoints        ,ONLY: RecordPoints
 USE MOD_RecordPoints_Vars   ,ONLY: RP_onProc
 USE MOD_Restart_Vars        ,ONLY: DoRestart,RestartTime
@@ -170,7 +170,7 @@ CALL PPLimiter_Info(1_8)
 
 SWRITE(UNIT_stdOut,'(A)') ' CALCULATION RUNNING...'
 
-IF(TimeDiscType.EQ.'ESDIRK') CALL FillInitPredictor(t)
+!IF(TimeDiscType.EQ.'ESDIRK') CALL FillInitPredictor(t)
 
 ! Run computation
 DO
