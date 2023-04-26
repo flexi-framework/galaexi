@@ -46,7 +46,7 @@ ENDIF()
 # =========================================================================
 # MPI
 # =========================================================================
-OPTION(LIBS_USE_MPI "Compile SINGLE or MPI version" ON)
+OPTION(LIBS_USE_MPI "Compile SINGLE or MPI version" OFF)
 IF(LIBS_USE_MPI)
   MESSAGE(SEND_ERROR "Reduced FLEXI does not support MPI.")
   SET(MPI_DETERMINE_LIBRARY_VERSION TRUE)
@@ -187,8 +187,8 @@ ELSE()
     ENDIF()
 
     # Set parallel build with maximum number of threads
-    INCLUDE(ProcessorCount)
-    PROCESSORCOUNT(N)
+    #INCLUDE(ProcessorCount)
+    #PROCESSORCOUNT(N)
 
     # Optional Features:
     #   --enable-silent-rules   less verbose build output (undo: "make V=1")
@@ -212,10 +212,11 @@ ELSE()
       ${${GITSHALLOW}}
       PREFIX ${LIBS_HDF5_DIR}
       UPDATE_COMMAND ""
-      CONFIGURE_COMMAND FC=${LIBS_HDF5FC} CC=${LIBS_HDF5CC} ${LIBS_HDF5_DIR}/src/HDF5/configure --prefix=${LIBS_HDF5_DIR} --with-pic --enable-fortran ${LIBS_HDF5PARALLEL} --libdir=${LIBS_HDF5_DIR}/lib --enable-build-mode=production --enable-silent-rules --disable-dependency-tracking
+      #CONFIGURE_COMMAND FC=${LIBS_HDF5FC} CC=${LIBS_HDF5CC} ${LIBS_HDF5_DIR}/src/HDF5/configure --prefix=${LIBS_HDF5_DIR} --with-pic --enable-fortran ${LIBS_HDF5PARALLEL} --libdir=${LIBS_HDF5_DIR}/lib --enable-build-mode=production --enable-silent-rules --disable-dependency-tracking
+      CONFIGURE_COMMAND CCFLAGS=-fPIC FCFLAGS=-fPIC FC=${LIBS_HDF5FC} CC=${LIBS_HDF5CC} ${LIBS_HDF5_DIR}/src/HDF5/configure --prefix=${LIBS_HDF5_DIR} --with-pic --enable-fortran ${LIBS_HDF5PARALLEL} --libdir=${LIBS_HDF5_DIR}/lib --enable-build-mode=production --enable-silent-rules --disable-dependency-tracking
       BUILD_BYPRODUCTS ${LIBS_HDF5_DIR}/lib/libhdf5_fortran.a ${LIBS_HDF5_DIR}/lib/libhdf5.a ${LIBS_HDF5_DIR}/bin/h5diff
       # Configure explicitly requires GNU make
-      BUILD_COMMAND make -j${N}
+      BUILD_COMMAND make -j4
     )
     SET(LIBS_HDF5_CMAKE FALSE)
 
