@@ -309,11 +309,11 @@ CALL VolInt(d_Ut)
 !CALL FillFlux(t,Flux_master,Flux_slave,U_master,U_slave,UPrim_master,UPrim_slave,doMPISides=.FALSE.)
 CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.)
 ! 11.5)
-!CALL SurfIntCons_GPU(PP_N,d_Flux_master,d_Flux_slave,d_Ut,.FALSE.,L_HatMinus,L_hatPlus)
+CALL SurfIntCons_GPU(PP_N,d_Flux_master,d_Flux_slave,d_Ut,.FALSE.,L_HatMinus,L_hatPlus)
 Ut = d_Ut
-Flux_master = d_Flux_master
-Flux_slave  = d_Flux_slave
-CALL SurfIntCons(PP_N,Flux_master,Flux_slave,Ut,.FALSE.,L_HatMinus,L_hatPlus)
+!Flux_master = d_Flux_master
+!Flux_slave  = d_Flux_slave
+!CALL SurfIntCons(PP_N,Flux_master,Flux_slave,Ut,.FALSE.,L_HatMinus,L_hatPlus)
 
 ! 12. Swap to right sign :)
 Ut=-Ut

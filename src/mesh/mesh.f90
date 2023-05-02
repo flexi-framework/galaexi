@@ -301,7 +301,7 @@ IF (meshMode.GT.0) THEN
   LOGWRITE(*,*)'-------------------------------------------------------'
 
   ! fill ElemToSide, SideToElem,BC
-  ALLOCATE(ElemToSide(2,6,nElems))
+  ALLOCATE(ElemToSide(3,6,nElems))
   ALLOCATE(SideToElem(5,nSides))
   ALLOCATE(BC(1:nBCSides))
   ALLOCATE(AnalyzeSide(1:nSides))
@@ -402,6 +402,14 @@ IF (meshMode.GT.0) THEN
       SideID = ElemToSide(E2S_SIDE_ID,LocSideID,iElem)
       iSide = ElemInfo(3,iElem+offsetElem) + LocSideID
       SideToGlobalSide(SideID) = ABS(SideInfo(2,iSide))
+      ! Fill Master/Slave Info
+      IF (SideToElem(S2E_ELEM_ID,SideID).EQ.iElem) THEN
+        ElemToSide(E2S_IS_MASTER,LocSideID,iElem) = 1
+      ELSE IF (SideToElem(S2E_NB_ELEM_ID,SideID).EQ.iElem) THEN
+        ElemToSide(E2S_IS_MASTER,LocSideID,iElem) = 0
+      ELSE
+        CALL ABORT(__STAMP__,"Seems like an error in side connectivity!")
+      END IF
     END DO
   END DO ! iElem
 END IF

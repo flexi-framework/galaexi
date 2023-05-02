@@ -102,8 +102,9 @@
 #define S2E_FLIP           5
 
 ! Entry position in ElemToSide
-#define E2S_SIDE_ID 1
-#define E2S_FLIP    2
+#define E2S_SIDE_ID   1
+#define E2S_FLIP      2
+#define E2S_IS_MASTER 3
 
 ! Entry position in BC
 #define MI_SIDEID 1
