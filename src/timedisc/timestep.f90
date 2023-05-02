@@ -51,7 +51,7 @@ SUBROUTINE TimeStepByLSERKW2(t)
 USE MOD_PreProc
 USE MOD_Vector
 USE MOD_DG            ,ONLY: DGTimeDerivative_weakForm
-USE MOD_DG_Vars       ,ONLY: U,Ut,nTotalU
+USE MOD_DG_Vars       ,ONLY: U,Ut,nTotalU,d_Ut,d_U
 USE MOD_PruettDamping ,ONLY: TempFilterTimeDeriv
 USE MOD_TimeDisc_Vars ,ONLY: dt,Ut_tmp,RKA,RKb,RKc,nRKStages,CurrentStage
 #if FV_ENABLED
@@ -73,12 +73,17 @@ REAL,INTENT(INOUT)  :: t                                     !< current simulati
 !-----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 REAL     :: b_dt(1:nRKStages)
+REAL     :: mRKA
 REAL     :: tStage
-INTEGER  :: iStage
+INTEGER  :: iStage,i
+INTEGER,PARAMETER :: nThreads=256
 !===================================================================================================================================
 
 ! Premultiply with dt
 b_dt = RKb*dt
+
+! Copy solution to GPU
+d_U = U
 
 DO iStage = 1,nRKStages
   ! NOTE: perform timestep in rk
@@ -91,26 +96,20 @@ DO iStage = 1,nRKStages
   CALL DGTimeDerivative_weakForm(tStage)
 
   IF (iStage.EQ.1) THEN
-    CALL VCopy(nTotalU,Ut_tmp,Ut)                        !Ut_tmp = Ut
+    !CALL VCopy(nTotalU,Ut_tmp,Ut)                        !Ut_tmp = d_Ut
+    CALL VCopy_GPU<<<nTotalU/nThreads+1,nThreads>>>(nTotalU,Ut_tmp,d_Ut)                        !Ut_tmp = Ut
   ELSE
-    CALL VAXPBY(nTotalU,Ut_tmp,Ut,ConstOut=-RKA(iStage)) !Ut_tmp = Ut - Ut_tmp*RKA (iStage)
+    !CALL VAXPBY(nTotalU,Ut_tmp,Ut,ConstOut=-RKA(iStage)) !Ut_tmp = d_Ut - Ut_tmp*RKA (iStage)
+    mRKA=-1.*RKA(iStage)
+    CALL VAXPB_OUT_GPU<<<nTotalU/nThreads+1,nThreads>>>(nTotalU,Ut_tmp,d_Ut,mRKA) !Ut_tmp = Ut - Ut_tmp*RKA (iStage)
   END IF
-  CALL VAXPBY(nTotalU,U,Ut_tmp,   ConstIn =b_dt(iStage)) !U       = U + Ut_tmp*b_dt(iStage)
+  !CALL VAXPBY(nTotalU,U,Ut_tmp,   ConstIn =b_dt(iStage)) !U       = U + Ut_tmp*b_dt(iStage)
+  CALL VAXPB_IN_GPU<<<nTotalU/nThreads+1,nThreads>>>(nTotalU,d_U,Ut_tmp,   b_dt(iStage)) !U       = U + Ut_tmp*b_dt(iStage)
 
-#if FV_ENABLED
-  ! Time needs to be evaluated at the next step because time integration was already performed
-  ASSOCIATE(tFV => MERGE(t+dt,t,iStage.EQ.nRKStages))
-  CALL CalcIndicator(U,tFV)
-  END ASSOCIATE
-#endif /*FV_ENABLED*/
-#if FV_ENABLED == 1
-  ! NOTE: Apply switch and update FV_Elems
-  CALL FV_Switch(U,Ut_tmp,AllowToDG=(iStage.EQ.nRKStages .OR. FV_toDGinRK))
-#endif /*FV_ENABLED==1*/
-#if PP_LIMITER
-  IF(DoPPLimiter) CALL PPLimiter()
-#endif /*PP_LIMITER*/
 END DO
+
+! Copy solution out
+U = d_U
 
 END SUBROUTINE TimeStepByLSERKW2
 

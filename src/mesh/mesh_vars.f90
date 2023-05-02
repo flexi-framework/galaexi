@@ -66,6 +66,7 @@ REAL,ALLOCATABLE :: Metrics_hTilde(:,:,:,:,:,:)  !< Metrics for transforming the
 !@cuf REAL,ALLOCATABLE,DEVICE :: d_Metrics_hTilde(:,:,:,:,:,:)  !< Metrics for transforming the fluxes h (1:3,0:N,0:N,0:N,nElems,0:FV)
 REAL,ALLOCATABLE :: detJac_Ref(:,:,:,:,:)        !< determinant of the mesh Jacobian for each Gauss point at degree 3*NGeo
 REAL,ALLOCATABLE :: sJ(:,:,:,:,:)                !< inverse of Jacobian determinent for each Gauss Point at degree N
+!@cuf REAL,ALLOCATABLE,DEVICE :: d_sJ(:,:,:,:,:) !< inverse of Jacobian determinent for each Gauss Point at degree N
 REAL,ALLOCATABLE :: scaledJac(:,:,:,:)           !< scaled Jacobian determinent for each Gauss Point at degree N
 REAL,ALLOCATABLE :: sJ_master(:,:,:,:,:)         !< Jacobian on faces master
 REAL,ALLOCATABLE :: sJ_slave(:,:,:,:,:)          !< Jacobian on faces slave

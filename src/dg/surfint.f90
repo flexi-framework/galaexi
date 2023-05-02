@@ -92,7 +92,7 @@ INTEGER,DEVICE        :: d_SideToElem(5,nSides)
 INTEGER,DEVICE        :: d_ElemToSide(3,6,nElems)
 INTEGER,DEVICE        :: d_S2V2(2,0:Nloc,0:Nloc,0:4,6)
 INTEGER               :: iElem,i,j,k
-INTEGER,PARAMETER     :: nThreads
+INTEGER,PARAMETER     :: nThreads=8
 !==================================================================================================================================
 ! Move necessary data to GPU (TODO: Do this in INIT!)
 d_L_HatMinus   = L_HatMinus

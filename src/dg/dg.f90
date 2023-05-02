@@ -240,7 +240,7 @@ USE MOD_VolInt
 USE MOD_SurfIntCons         ,ONLY: SurfIntCons,SurfIntCons_GPU
 USE MOD_ProlongToFaceCons   ,ONLY: ProlongToFaceCons,ProlongToFaceCons_GPU
 USE MOD_FillFlux            ,ONLY: FillFlux
-USE MOD_ApplyJacobianCons   ,ONLY: ApplyJacobianCons
+USE MOD_ApplyJacobianCons   ,ONLY: ApplyJacobianCons,ApplyJacobianCons_GPU
 USE MOD_Interpolation_Vars  ,ONLY: L_Minus,L_Plus
 USE MOD_Overintegration_Vars,ONLY: OverintegrationType
 USE MOD_Overintegration,     ONLY: Overintegration
@@ -256,7 +256,8 @@ USE MOD_Sponge              ,ONLY: Sponge
 USE MOD_Sponge_Vars         ,ONLY: doSponge
 USE MOD_Filter              ,ONLY: Filter_Pointer
 USE MOD_Filter_Vars         ,ONLY: FilterType,FilterMat
-USE MOD_Mesh_Vars,           ONLY: nElems,nSides
+USE MOD_Mesh_Vars           ,ONLY: nElems,nSides
+!@cuf USE MOD_Mesh_Vars     ,ONLY: d_sJ
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -286,7 +287,7 @@ INTEGER :: i
 ! -----------------------------------------------------------------------------
 
 ! 2. Convert Volume solution to primitive
-d_U     = U
+!d_U     = U
 CALL ConsToPrim_GPU<<<nElems*nDOFElem/256+1,256>>>(nElems*nDOFElem,d_UPrim,d_U)
 
 ! 3. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
@@ -310,13 +311,13 @@ CALL VolInt(d_Ut)
 CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.)
 ! 11.5)
 CALL SurfIntCons_GPU(PP_N,d_Flux_master,d_Flux_slave,d_Ut,.FALSE.,L_HatMinus,L_hatPlus)
-Ut = d_Ut
+!Ut = d_Ut
 !Flux_master = d_Flux_master
 !Flux_slave  = d_Flux_slave
 !CALL SurfIntCons(PP_N,Flux_master,Flux_slave,Ut,.FALSE.,L_HatMinus,L_hatPlus)
 
 ! 12. Swap to right sign :)
-Ut=-Ut
+!Ut=-Ut
 
 ! 13. Compute source terms and sponge (in physical space, conversion to reference space inside routines)
 !IF(doCalcSource) CALL CalcSource(Ut,t)
@@ -324,7 +325,11 @@ Ut=-Ut
 !IF(doTCSource)   CALL TestcaseSource(Ut)
 
 ! 14. apply Jacobian
-CALL ApplyJacobianCons(Ut,toPhysical=.TRUE.)
+!CALL ApplyJacobianCons(Ut,toPhysical=.TRUE.)
+
+! ATTENTION: INCLUDES THE - Sign from 12.)
+CALL ApplyJacobianCons_GPU<<<nElems*nDOFElem/256+1,256>>>(nDOFElem*nElems,d_sJ,d_Ut,toPhysical=.TRUE.)
+!Ut = d_Ut
 
 END SUBROUTINE DGTimeDerivative_weakForm
 

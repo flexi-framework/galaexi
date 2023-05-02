@@ -76,6 +76,26 @@ REAL,INTENT(OUT)      :: VecOut(nTotal)                                       !<
 VecOut=VecIn
 END SUBROUTINE VCopy
 
+!==================================================================================================================================
+!> Y=X
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE VCopy_GPU(nTotal,VecOut,VecIn)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)    :: nTotal                                               !< vector length
+REAL,INTENT(IN)             :: VecIn(nTotal)                                        !< input vector
+REAL,INTENT(OUT)            :: VecOut(nTotal)                                       !< output vector
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER :: i
+!==================================================================================================================================
+i = (blockidx%x-1) * blockdim%x + threadidx%x
+IF (i.LE.nTotal) THEN
+  VecOut(i)=VecIn(i)
+END IF
+END SUBROUTINE VCopy_GPU
 
 !==================================================================================================================================
 !> Y=AY+BX
@@ -112,6 +132,51 @@ ELSE
   END DO
 END IF
 END SUBROUTINE VAXPBY
+
+!==================================================================================================================================
+!> Y=AY+X
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE VAXPB_OUT_GPU(nTotal,VecOut,VecIn,ConstOut)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)    :: nTotal                                               !< vector length
+REAL,INTENT(IN)             :: VecIn(nTotal)                                        !< input vector
+REAL,INTENT(INOUT)          :: VecOut(nTotal)                                       !< output vector
+REAL,VALUE,INTENT(IN)       :: ConstOut                                          !< constant to multiply with output vec
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER               :: i
+!==================================================================================================================================
+i = (blockidx%x-1) * blockdim%x + threadidx%x
+IF (i.LE.nTotal) THEN
+  VecOut(i)=VecOut(i)*ConstOut+VecIn(i)
+END IF
+END SUBROUTINE VAXPB_OUT_GPU
+
+!==================================================================================================================================
+!> Y=AY+BX
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE VAXPB_IN_GPU(nTotal,VecOut,VecIn,ConstIn)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)    :: nTotal                                               !< vector length
+REAL,INTENT(IN)             :: VecIn(nTotal)                                        !< input vector
+REAL,INTENT(INOUT)          :: VecOut(nTotal)                                       !< output vector
+REAL,VALUE,INTENT(IN)       :: ConstIn                                           !< constant to multiply with input vec
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER               :: i
+!==================================================================================================================================
+i = (blockidx%x-1) * blockdim%x + threadidx%x
+IF (i.LE.nTotal) THEN
+  VecOut(i)=VecOut(i)+VecIn(i)*ConstIn
+END IF
+END SUBROUTINE VAXPB_IN_GPU
+
 
 
 END MODULE MOD_Vector

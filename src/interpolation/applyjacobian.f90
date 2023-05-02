@@ -60,9 +60,35 @@ INTERFACE ApplyJacobianCons
 END INTERFACE
 
 PUBLIC::ApplyJacobianCons
+PUBLIC::ApplyJacobianCons_GPU
 
 CONTAINS
 #include "applyjacobian.t90"
+!==================================================================================================================================
+!> Convert solution between physical <-> reference space, separate input and output variables
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE ApplyJacobianCons_GPU(nDOF,sJ,U,toPhysical)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)  :: nDOF               !< Input: Number of degrees of freedom
+REAL,INTENT(IN)           :: sJ(        1:nDOF) !< Input: Inverse Jacobian for each DOF
+REAL,INTENT(INOUT)        :: U( PP_nVar,1:nDOF) !< Input: Solution to be transformed
+LOGICAL,VALUE,INTENT(IN)  :: toPhysical         !< Switch for physical<-->reference transformation
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER             :: i
+!==================================================================================================================================
+i = (blockidx%x-1) * blockdim%x + threadidx%x
+IF (i.LE.nDOF) THEN
+  IF(toPhysical)THEN
+    U(:,i)=-U(:,i)*sJ(i) ! ATTENTION: INCLUDES THE MINUS SIGN FROM DG OPERATOR!!!!
+  ELSE
+    U(:,i)=U(:,i)/sJ(i)
+  END IF
+END IF
+END SUBROUTINE ApplyJacobianCons_GPU
 END MODULE MOD_ApplyJacobianCons
 
 !==================================================================================================================================
