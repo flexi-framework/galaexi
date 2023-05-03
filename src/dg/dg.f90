@@ -257,6 +257,7 @@ USE MOD_Sponge_Vars         ,ONLY: doSponge
 USE MOD_Filter              ,ONLY: Filter_Pointer
 USE MOD_Filter_Vars         ,ONLY: FilterType,FilterMat
 USE MOD_Mesh_Vars           ,ONLY: nElems,nSides
+USE NVTX
 !@cuf USE MOD_Mesh_Vars     ,ONLY: d_sJ
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -286,12 +287,18 @@ INTEGER :: i
 ! 14.  Perform overintegration and apply Jacobian
 ! -----------------------------------------------------------------------------
 
+
+
 ! 2. Convert Volume solution to primitive
 !d_U     = U
+call nvtxStartRange("A")
 CALL ConsToPrim_GPU<<<nElems*nDOFElem/256+1,256>>>(nElems*nDOFElem,d_UPrim,d_U)
+call nvtxEndRange()
 
 ! 3. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
+call nvtxStartRange("B")
 CALL ProlongToFaceCons_GPU(PP_N,d_U,d_U_master,d_U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
+call nvtxEndRange()
 !CALL ProlongToFaceCons(PP_N,U,U_master,U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
 !d_U_master = U_master
 !d_U_slave  = U_slave
@@ -300,17 +307,25 @@ CALL ProlongToFaceCons_GPU(PP_N,d_U,d_U_master,d_U_slave,L_Minus,L_Plus,doMPISid
 !    Attention: For FV with 2nd order reconstruction U_master/slave and therewith UPrim_master/slave are still only 1st order
 ! TODO: Linadv?
 !CALL GetPrimitiveStateSurface(U_master,U_slave,UPrim_master,UPrim_slave)
+call nvtxStartRange("C")
 CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_master,d_U_master)
 CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_slave ,d_U_slave )
+call nvtxEndRange()
 
 ! 8. Compute volume integral contribution and add to Ut
+call nvtxStartRange("D")
 CALL VolInt(d_Ut)
+call nvtxEndRange()
 
 ! 11. Fill flux and Surface integral
 !CALL FillFlux(t,Flux_master,Flux_slave,U_master,U_slave,UPrim_master,UPrim_slave,doMPISides=.FALSE.)
+call nvtxStartRange("E")
 CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.)
+call nvtxEndRange()
 ! 11.5)
+call nvtxStartRange("F")
 CALL SurfIntCons_GPU(PP_N,d_Flux_master,d_Flux_slave,d_Ut,.FALSE.,L_HatMinus,L_hatPlus)
+call nvtxEndRange()
 !Ut = d_Ut
 !Flux_master = d_Flux_master
 !Flux_slave  = d_Flux_slave
@@ -328,7 +343,9 @@ CALL SurfIntCons_GPU(PP_N,d_Flux_master,d_Flux_slave,d_Ut,.FALSE.,L_HatMinus,L_h
 !CALL ApplyJacobianCons(Ut,toPhysical=.TRUE.)
 
 ! ATTENTION: INCLUDES THE - Sign from 12.)
+call nvtxStartRange("G")
 CALL ApplyJacobianCons_GPU<<<nElems*nDOFElem/256+1,256>>>(nDOFElem*nElems,d_sJ,d_Ut,toPhysical=.TRUE.)
+call nvtxEndRange()
 !Ut = d_Ut
 
 END SUBROUTINE DGTimeDerivative_weakForm
