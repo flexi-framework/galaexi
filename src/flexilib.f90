@@ -39,6 +39,7 @@ SUBROUTINE InitFlexi(nArgs_In,Args_In,mpi_comm_loc)
 USE MOD_Globals
 USE MOD_PreProc
 USE MOD_Commandline_Arguments
+USE MOD_GPU,               ONLY:InitGPU
 USE MOD_Restart,           ONLY:DefineParametersRestart,InitRestart,Restart
 USE MOD_Interpolation,     ONLY:DefineParametersInterpolation,InitInterpolation
 USE MOD_Mesh,              ONLY:DefineParametersMesh,InitMesh
@@ -218,6 +219,9 @@ CALL InitAnalyze()
 CALL InitRecordpoints()
 CALL IgnoredParameters()
 CALL Restart()
+
+! GPU
+CALL InitGPU()
 
 ! Measure init duration
 Time=FLEXITIME()

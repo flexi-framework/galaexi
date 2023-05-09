@@ -73,7 +73,7 @@ SUBROUTINE ProlongToFace_GPU(&
 )
 ! MODULES
 USE MOD_Mesh_Vars,          ONLY: nElems,nSides
-USE MOD_Mesh_Vars,          ONLY: SideToElem,S2V2,ElemToSide
+!@cuf USE MOD_Mesh_Vars,             ONLY: d_SideToElem,d_S2V2,d_ElemToSide
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -84,30 +84,21 @@ INTEGER,INTENT(IN)              :: Nloc
 REAL,DEVICE,INTENT(IN)          :: Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)
 REAL,DEVICE,INTENT(INOUT)       :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
 REAL,DEVICE,INTENT(INOUT)       :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
-REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
+REAL,DEVICE,INTENT(IN)          :: L_Minus(0:Nloc),L_Plus(0:Nloc)
 LOGICAL,INTENT(IN)              :: doMPISides  != .TRUE. only YOUR MPISides are filled, =.FALSE. BCSides +InnerSides +MPISides MINE
 #if FV_ENABLED
 LOGICAL,INTENT(IN),OPTIONAL     :: pureDG      != .TRUE. prolongates all elements as DG elements
 #endif
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-REAL,DEVICE                     :: d_L_Minus(0:Nloc),d_L_Plus(0:Nloc)
 REAL,DEVICE                     :: Uface_work(TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides,2)
-INTEGER,DEVICE                  :: d_SideToElem(5,nSides)
-INTEGER,DEVICE                  :: d_ElemToSide(3,6,nElems)
-INTEGER,DEVICE                  :: d_S2V2(2,0:Nloc,0:Nloc,0:4,6)
 INTEGER,PARAMETER               :: nThreads=12
 !==================================================================================================================================
-d_L_Minus      = L_Minus
-d_L_Plus       = L_Plus
-d_SideToElem   = SideToElem
-d_ElemToSide   = ElemToSide
-d_S2V2         = S2V2
 
-!CALL ProlongToFace_Kernel<<<nSides/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,d_L_Minus,d_L_Plus,d_SideToElem,d_S2V2)
-!CALL ProlongToFace_Kernel_Elem<<<nElems/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,d_L_Minus,d_L_Plus,d_ElemToSide,d_S2V2)
-!CALL ProlongToFace_Kernel_Elem_locSide<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,d_L_Minus,d_L_Plus,d_ElemToSide,d_S2V2)
-CALL ProlongToFace_Kernel_Elem_locSide_PreAlloc<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,Uface_work,d_L_Minus,d_L_Plus,d_ElemToSide,d_S2V2)
+! CALL ProlongToFace_Kernel<<<nSides/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_SideToElem,d_S2V2)
+! CALL ProlongToFace_Kernel_Elem<<<nElems/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
+! CALL ProlongToFace_Kernel_Elem_locSide<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
+CALL ProlongToFace_Kernel_Elem_locSide_PreAlloc<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,Uface_work,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
 END SUBROUTINE ProlongToFace_GPU
 
 
@@ -401,4 +392,3 @@ CONTAINS
 END MODULE MOD_ProlongToFace1
 
 !==================================================================================================================================
-

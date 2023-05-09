@@ -75,6 +75,7 @@ SUBROUTINE SurfIntCons_GPU(Nloc,Flux_master,Flux_slave,Ut,doMPISides,L_HatMinus,
 USE MOD_DG_Vars   ,ONLY: nDOFElem
 USE MOD_Mesh_Vars ,ONLY: SideToElem,nSides,ElemToSide
 USE MOD_Mesh_Vars ,ONLY: S2V2,nElems
+!@cuf USE MOD_Mesh_Vars ,ONLY: d_SideToElem,d_ElemToSide,d_S2V2,d_S2V2_inv
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -84,41 +85,16 @@ LOGICAL,INTENT(IN) :: doMPISides  !<= .TRUE. only MPISides_YOUR+MPIMortar are fi
 REAL,DEVICE,INTENT(IN)    :: Flux_master(1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides) !< (IN) Flux on master side
 REAL,DEVICE,INTENT(IN)    :: Flux_slave (1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides) !< (IN) Flux on slave side
 !> (IN) Lagrange polynomials evaluated at \f$\xi=+1\f$ and \f$\xi=-1\f$ and premultiplied by mass matrix
-REAL,INTENT(IN)    :: L_HatPlus(0:Nloc),L_HatMinus(0:Nloc)
+REAL,DEVICE,INTENT(IN)    :: L_HatPlus(0:Nloc),L_HatMinus(0:Nloc)
 REAL,DEVICE,INTENT(INOUT) :: Ut(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)   !< (INOUT) Time derivative of the solution
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-REAL,DEVICE           :: d_L_HatMinus(0:Nloc),d_L_HatPlus(0:Nloc)
-INTEGER,DEVICE        :: d_SideToElem(5,nSides)
-INTEGER,DEVICE        :: d_ElemToSide(3,6,nElems)
-INTEGER,DEVICE        :: d_S2V2(2,0:Nloc,0:Nloc,0:4,6)
-INTEGER,DEVICE        :: d_S2V2_inverse(2,0:Nloc,0:Nloc,0:4,6)
-INTEGER               ::   S2V2_inverse(2,0:Nloc,0:Nloc,0:4,6)
-INTEGER               :: iElem,i,j,k,flip,locside
 INTEGER,PARAMETER     :: nThreads=128
 !==================================================================================================================================
-! Move necessary data to GPU (TODO: Do this in INIT!)
-d_L_HatMinus   = L_HatMinus
-d_L_HatPlus    = L_HatPlus
-d_SideToElem   = SideToElem
-d_ElemToSide   = ElemToSide
-d_S2V2         = S2V2
-
-! Inverse mapping is necessary to directly read correct value from master side!
-S2V2_inverse(:,:,:,:,:) = -1
-DO locSide=1,6
-  DO flip=0,4
-    DO j=0,Nloc; DO i=0,Nloc
-      S2V2_inverse(1,S2V2(1,i,j,flip,locSide),S2V2(2,i,j,flip,locSide),flip,locSide) = i
-      S2V2_inverse(2,S2V2(1,i,j,flip,locSide),S2V2(2,i,j,flip,locSide),flip,locSide) = j
-    END DO; END DO
-  END DO
-END DO
-d_S2V2_inverse = S2V2_inverse
 
 !CALL SurfIntCons_Kernel<<<nElems/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,d_L_HatMinus,d_L_HatPlus,d_ElemToSide,d_S2V2)
-CALL SurfIntCons_Kernel_Point<<<nElems*nDOFElem/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,d_L_HatMinus,d_L_HatPlus,d_ElemToSide,d_S2V2_inverse)
-!CALL SurfIntCons_Kernel_Point_Contract<<<nElems*nDOFElem/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,d_L_HatMinus,d_L_HatPlus,d_ElemToSide,d_S2V2_inverse)
+CALL SurfIntCons_Kernel_Point<<<nElems*nDOFElem/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,L_HatMinus,L_HatPlus,d_ElemToSide,d_S2V2_inv)
+!CALL SurfIntCons_Kernel_Point_Contract<<<nElems*nDOFElem/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,L_HatMinus,L_HatPlus,d_ElemToSide,d_S2V2_inv)
 END SUBROUTINE SurfIntCons_GPU
 
 !==================================================================================================================================

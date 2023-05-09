@@ -90,14 +90,14 @@ INTEGER,ALLOCATABLE :: SideToGlobalSide(:)     !< maps the local SideIDs to glob
 INTEGER,ALLOCATABLE :: ElemToSide(:,:,:)       !< Array containing element-wise connectivity information to sides
                                                !< SideID    = ElemToSide(E2S_SIDE_ID,ZETA_PLUS,iElem)
                                                !< flip      = ElemToSide(E2S_FLIP,ZETA_PLUS,iElem)
-
+!@cuf INTEGER,ALLOCATABLE,DEVICE :: d_ElemToSide(:,:,:)
 INTEGER,ALLOCATABLE :: SideToElem(:,:)         !< Array containing per-side connectivity information to elements and local side ids
                                                !< ElemID      = SideToElem(S2E_ELEM_ID,SideID)
                                                !< NB_ElemID   = SideToElem(S2E_NB_ELEM_ID,SideID)
                                                !< locSideID   = SideToElem(S2E_LOC_SIDE_ID,SideID)
                                                !< nblocSideID = SideToElem(S2E_NB_LOC_SIDE_ID,SideID)
                                                !< flip        = SideToElem(S2E_Flip,SideID)
-
+!@cuf INTEGER,ALLOCATABLE,DEVICE :: d_SideToElem(:,:)
 INTEGER,ALLOCATABLE :: BC(:)                   !< BCIndex   = BC(SideID), 1:nBCSides
 
 INTEGER,ALLOCATABLE :: BoundaryType(:,:)       !< List of boundary conditions containing type and state
@@ -118,10 +118,13 @@ REAL   ,PARAMETER :: NormalSigns(6)= (/-1.,-1., 1., 1.,-1., 1./) !< normal vecto
 !----------------------------------------------------------------------------------------------------------------------------------
 ! Volume/Side mappings filled by mappings.f90 - not all available there are currently used!
 !----------------------------------------------------------------------------------------------------------------------------------
-INTEGER,ALLOCATABLE :: FS2M(:,:,:,:)     !< flip slave side to master and reverse
-INTEGER,ALLOCATABLE :: V2S(:,:,:,:,:,:)  !< volume to side mapping
-INTEGER,ALLOCATABLE :: S2V(:,:,:,:,:,:)  !< side to volume
-INTEGER,ALLOCATABLE :: S2V2(:,:,:,:,:)   !< side to volume 2
+INTEGER,ALLOCATABLE :: FS2M(:,:,:,:)         !< flip slave side to master and reverse
+INTEGER,ALLOCATABLE :: V2S(:,:,:,:,:,:)      !< volume to side mapping
+INTEGER,ALLOCATABLE :: S2V(:,:,:,:,:,:)      !< side to volume
+INTEGER,ALLOCATABLE :: S2V2(:,:,:,:,:)       !< side to volume 2
+!@cuf INTEGER,ALLOCATABLE,DEVICE :: d_S2V2(:,:,:,:,:)
+INTEGER,ALLOCATABLE :: S2V2_inv(:,:,:,:,:)   !< side to volume 2
+!@cuf INTEGER,ALLOCATABLE,DEVICE :: d_S2V2_inv(:,:,:,:,:)
 !----------------------------------------------------------------------------------------------------------------------------------
 INTEGER             :: nGlobalElems=0          !< number of elements in mesh
 INTEGER             :: nElems=0                !< number of local elements

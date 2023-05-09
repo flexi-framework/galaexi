@@ -302,7 +302,10 @@ IF (meshMode.GT.0) THEN
 
   ! fill ElemToSide, SideToElem,BC
   ALLOCATE(ElemToSide(3,6,nElems))
+!@cuf ALLOCATE(d_ElemToSide(3,6,nElems))
   ALLOCATE(SideToElem(5,nSides))
+!@cuf ALLOCATE(d_SideToElem(5,nSides))
+
   ALLOCATE(BC(1:nBCSides))
   ALLOCATE(AnalyzeSide(1:nSides))
   ElemToSide  = 0
@@ -329,7 +332,19 @@ IF (meshMode.GT.0) THEN
 #endif
 
   ! Build necessary mappings
-  CALL buildMappings(PP_N,V2S=V2S,S2V=S2V,S2V2=S2V2,FS2M=FS2M,dim=PP_dim)
+  CALL buildMappings(PP_N,V2S=V2S,S2V=S2V,S2V2=S2V2,S2V2_inv=S2V2_inv,FS2M=FS2M,dim=PP_dim)
+
+  ! Copy mappings to GPU
+#if PP_dim==2
+!@cuf ALLOCATE(d_S2V2(    2,0:PP_N,0:PP_NZ,0:1,2:5))
+!@cuf ALLOCATE(d_S2V2_inv(2,0:PP_N,0:PP_NZ,0:1,2:5))
+#else
+!@cuf ALLOCATE(d_S2V2(    2,0:PP_N,0:PP_NZ,0:4,1:6))
+!@cuf ALLOCATE(d_S2V2_inv(2,0:PP_N,0:PP_NZ,0:4,1:6))
+#endif
+!@cuf d_S2V2     = S2V2  
+!@cuf d_S2V2_inv = S2V2_inv
+
 END IF
 ! deallocate pointers
 SWRITE(UNIT_stdOut,'(A)') "NOW CALLING deleteMeshPointer..."
@@ -425,9 +440,14 @@ IF ((.NOT.postiMode).AND.(ALLOCATED(scaledJac))) DEALLOCATE(scaledJac)
 
 CALL AddToElemData(ElementOut,'myRank',IntScalar=myRank)
 
-!@cuf d_NormVec  = NormVec
-!@cuf d_TangVec1 = TangVec1
-!@cuf d_TangVec2 = TangVec2
+
+! Copy more arrays to GPU
+!@cuf d_NormVec    = NormVec
+!@cuf d_TangVec1   = TangVec1
+!@cuf d_TangVec2   = TangVec2
+!@cuf d_ElemToSide = ElemToSide
+!@cuf d_SideToElem = SideToElem
+
 
 MeshInitIsDone=.TRUE.
 SWRITE(UNIT_stdOut,'(A)')' INIT MESH DONE!'

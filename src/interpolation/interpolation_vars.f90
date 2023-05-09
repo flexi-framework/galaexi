@@ -24,9 +24,9 @@ SAVE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! reserved for Gauss Points with polynomial degree N, all allocated (0:N)
 REAL,ALLOCATABLE   :: L_Plus(:)                   !< L for boundary flux computation at plus side  (1)
-!@cuf REAL,ALLOCATABLE   :: d_L_Plus(:)           !< L for boundary flux computation at plus side  (1)
+!@cuf REAL,DEVICE,ALLOCATABLE   :: d_L_Plus(:)    !< L for boundary flux computation at plus side  (1)
 REAL,ALLOCATABLE   :: L_Minus(:)                  !< L for boundary flux computation at minus side (-1)
-!@cuf REAL,ALLOCATABLE   :: d_L_Minus(:)          !< L for boundary flux computation at plus side  (1)
+!@cuf REAL,DEVICE,ALLOCATABLE   :: d_L_Minus(:)   !< L for boundary flux computation at plus side  (1)
 REAL,ALLOCATABLE   :: xGP(:)                      !< Gauss point coordinates
 REAL,ALLOCATABLE   :: wGP(:)                      !< GP integration weights
 REAL,ALLOCATABLE   :: wBary(:)                    !< barycentric weights

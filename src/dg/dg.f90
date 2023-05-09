@@ -93,6 +93,11 @@ SWRITE(UNIT_stdOut,'(A)') ' INIT DG...'
 ! Pre-compute the dg operator building blocks (differentiation matrices and prolongation operators)
 CALL InitDGBasis(PP_N, xGP,wGP,L_minus,L_plus,D ,D_T ,D_Hat ,D_Hat_T ,L_HatMinus ,L_HatPlus)
 
+! Copy LHat Vectors to GPU
+!@cuf ALLOCATE(d_L_HatMinus(0:PP_N),d_L_HatPlus(0:PP_N))
+!@cuf d_L_HatPlus = L_HatPlus
+!@cuf d_L_HatMinus = L_HatMinus
+
 ! Allocate the local DG solution (JU or U): element-based
 ALLOCATE(U(        PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 !@cuf ALLOCATE(d_U(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
@@ -231,7 +236,8 @@ SUBROUTINE DGTimeDerivative_weakForm(t)
 USE MOD_Globals
 USE MOD_Preproc
 USE MOD_Vector
-USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave,L_HatPlus,L_HatMinus
+USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave
+!@cuf USE MOD_DG_Vars          ,ONLY: d_L_HatPlus,d_L_HatMinus
 USE MOD_DG_Vars             ,ONLY: UPrim,UPrim_master,UPrim_slave,nDOFElem,nDOFFace
 !@cuf USE MOD_DG_Vars          ,ONLY: d_U,d_UPrim,d_Ut
 !@cuf USE MOD_DG_Vars          ,ONLY: d_U_master,d_U_slave,d_UPrim_master,d_UPrim_Slave
@@ -241,7 +247,7 @@ USE MOD_SurfIntCons         ,ONLY: SurfIntCons,SurfIntCons_GPU
 USE MOD_ProlongToFaceCons   ,ONLY: ProlongToFaceCons,ProlongToFaceCons_GPU
 USE MOD_FillFlux            ,ONLY: FillFlux
 USE MOD_ApplyJacobianCons   ,ONLY: ApplyJacobianCons,ApplyJacobianCons_GPU
-USE MOD_Interpolation_Vars  ,ONLY: L_Minus,L_Plus
+!@cuf USE MOD_Interpolation_Vars  ,ONLY: d_L_Minus,d_L_Plus
 USE MOD_Overintegration_Vars,ONLY: OverintegrationType
 USE MOD_Overintegration,     ONLY: Overintegration
 USE MOD_ChangeBasisByDim    ,ONLY: ChangeBasisVolume
@@ -297,7 +303,7 @@ call nvtxEndRange()
 
 ! 3. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
 call nvtxStartRange("B")
-CALL ProlongToFaceCons_GPU(PP_N,d_U,d_U_master,d_U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
+CALL ProlongToFaceCons_GPU(PP_N,d_U,d_U_master,d_U_slave,d_L_Minus,d_L_Plus,doMPISides=.FALSE.)
 call nvtxEndRange()
 !CALL ProlongToFaceCons(PP_N,U,U_master,U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
 !d_U_master = U_master
@@ -324,7 +330,7 @@ CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d
 call nvtxEndRange()
 ! 11.5)
 call nvtxStartRange("F")
-CALL SurfIntCons_GPU(PP_N,d_Flux_master,d_Flux_slave,d_Ut,.FALSE.,L_HatMinus,L_hatPlus)
+CALL SurfIntCons_GPU(PP_N,d_Flux_master,d_Flux_slave,d_Ut,.FALSE.,d_L_HatMinus,d_L_hatPlus)
 call nvtxEndRange()
 !Ut = d_Ut
 !Flux_master = d_Flux_master

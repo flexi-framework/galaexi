@@ -72,18 +72,19 @@ CONTAINS
 !==================================================================================================================================
 !> Routine which prebuilds mappings for a specific polynomial degree and allocates and stores them in given mapping arrays.
 !==================================================================================================================================
-SUBROUTINE buildMappings(Nloc,V2S,S2V,S2V2,FS2M,dim)
+SUBROUTINE buildMappings(Nloc,V2S,S2V,S2V2,S2V2_inv,FS2M,dim)
 ! MODULES
 USE MOD_Globals,           ONLY:CollectiveStop
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
-INTEGER,INTENT(IN)                       :: Nloc              !< Polynomial degree to build mappings on
-INTEGER,ALLOCATABLE,INTENT(OUT),OPTIONAL :: V2S(:,:,:,:,:,:)  !< VolumeToSide mapping
-INTEGER,ALLOCATABLE,INTENT(OUT),OPTIONAL :: S2V(:,:,:,:,:,:)  !< SideToVolume mapping
-INTEGER,ALLOCATABLE,INTENT(OUT),OPTIONAL :: S2V2(:,:,:,:,:)   !< SideToVolume2 mapping
-INTEGER,ALLOCATABLE,INTENT(OUT),OPTIONAL :: FS2M(:,:,:,:)     !< FlipSlaveToMaster mapping
-INTEGER,INTENT(IN),OPTIONAL              :: dim               !< dimension (2 or 3)
+INTEGER,INTENT(IN)                       :: Nloc                  !< Polynomial degree to build mappings on
+INTEGER,ALLOCATABLE,INTENT(OUT),OPTIONAL :: V2S(:,:,:,:,:,:)      !< VolumeToSide mapping
+INTEGER,ALLOCATABLE,INTENT(OUT),OPTIONAL :: S2V(:,:,:,:,:,:)      !< SideToVolume mapping
+INTEGER,ALLOCATABLE,INTENT(OUT),OPTIONAL :: S2V2(:,:,:,:,:)       !< SideToVolume2 mapping
+INTEGER,ALLOCATABLE,INTENT(OUT),OPTIONAL :: S2V2_inv(:,:,:,:,:)   !< SideToVolume2 inverse mapping
+INTEGER,ALLOCATABLE,INTENT(OUT),OPTIONAL :: FS2M(:,:,:,:)         !< FlipSlaveToMaster mapping
+INTEGER,INTENT(IN),OPTIONAL              :: dim                   !< dimension (2 or 3)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER             :: i,j,k,p,q,l,f,s,ijk(3),pq(3),NlocZ
@@ -159,6 +160,21 @@ IF(PRESENT(S2V2))THEN
   SDEALLOCATE(S2V2)
   ALLOCATE(S2V2(2,0:Nloc,0:NlocZ,Flip_lower:Flip_upper,locSide_lower:locSide_upper))
   S2V2 = S2V2_check
+END IF
+
+IF(PRESENT(S2V2_inv))THEN
+  SDEALLOCATE(S2V2_inv)
+  ALLOCATE(S2V2_inv(2,0:Nloc,0:NlocZ,Flip_lower:Flip_upper,locSide_lower:locSide_upper))
+  ! Inverse mapping is necessary to directly read correct value from master side!
+  S2V2_inv(:,:,:,:,:) = -1
+  DO l=locSide_lower,locSide_upper
+    DO f=Flip_lower,Flip_upper
+      DO j=0,NlocZ; DO i=0,Nloc
+        S2V2_inv(1,S2V2(1,i,j,f,l),S2V2(2,i,j,f,l),f,l) = i
+        S2V2_inv(2,S2V2(1,i,j,f,l),S2V2(2,i,j,f,l),f,l) = j
+      END DO; END DO
+    END DO
+  END DO
 END IF
 
 ! Flip_S2M

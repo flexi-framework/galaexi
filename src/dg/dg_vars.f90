@@ -41,10 +41,10 @@ REAL,ALLOCATABLE                      :: D_Hat_T(:,:)           !< Transpose of 
 
 REAL,ALLOCATABLE                      :: L_HatMinus(:)          !< Lagrange polynomials evaluated at \f$\xi=-1\f$
                                                                 !< premultiplied by mass matrix
-
+!@cuf REAL,ALLOCATABLE,DEVICE         :: d_L_HatMinus(:)
 REAL,ALLOCATABLE                      :: L_HatPlus(:)           !< Lagrange polynomials evaluated at \f$\xi=+1\f$
                                                                 !< premultiplied by mass matrix
-
+!@cuf REAL,ALLOCATABLE,DEVICE         :: d_L_HatPlus(:)
 #ifdef SPLIT_DG
 REAL,ALLOCATABLE                      :: DVolSurf(:,:)          !< Transpose of differentiation matrix used for calculating the strong form
                                                                 !< DVolSurf = D_T
