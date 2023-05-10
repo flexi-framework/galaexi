@@ -93,15 +93,15 @@ LOGICAL,INTENT(IN),OPTIONAL     :: pureDG      != .TRUE. prolongates all element
 ! LOCAL VARIABLES
 REAL,DEVICE                     :: Uface_work(TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides,2)
 REAL,DEVICE                     :: UFace_temp(TP_NVar)
-INTEGER,PARAMETER               :: nThreads=12
+INTEGER,PARAMETER               :: nThreads=128
 !==================================================================================================================================
 
 ! CALL ProlongToFace_Kernel<<<nSides/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_SideToElem,d_S2V2)
 ! CALL ProlongToFace_Kernel_Elem<<<nElems/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
 ! CALL ProlongToFace_Kernel_Elem_locSide<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
-CALL ProlongToFace_Kernel_Elem_locSide_PreAlloc<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,Uface_work,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
+!CALL ProlongToFace_Kernel_Elem_locSide_PreAlloc<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,Uface_work,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
 ! CALL ProlongToFace_Kernel_Elem_locSide_pq<<<(nElems*6*Nloc*Nloc)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,UFace_temp,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
-! CALL ProlongToFace_Kernel_Elem_DOFwise<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,Uface_work,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
+ CALL ProlongToFace_Kernel_Elem_DOFwise<<<(nElems*6*(Nloc+1)**2)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
 END SUBROUTINE ProlongToFace_GPU
 
 
@@ -502,8 +502,11 @@ LOGICAL                         :: isMaster
 ! Get thread indices
 threadID = (blockidx%x-1) * blockdim%x + threadidx%x
 ! Get ElemID of current thread
-ElemID   =        (threadID-1)/(Nloc+1)**2+1 ! Elems are 1-indexed
-rest     = threadID-(ElemID-1)*(Nloc+1)**2
+ElemID   =        (threadID-1)/((Nloc+1)**2*6)+1 ! Elems are 1-indexed
+rest     = threadID-(ElemID-1)*((Nloc+1)**2*6)
+! Get locSideID
+locSideID= (rest-1)            /(Nloc+1)**2+1 ! locSideID is 1-indexed
+rest     =  rest- (locSideID-1)*(Nloc+1)**2
 ! Get pq indices of current thread
 p        = (rest-1)/(Nloc+1)!**1
 rest     =  rest- p*(Nloc+1)!**1
@@ -511,7 +514,7 @@ q        = (rest-1)!/(Nloc+1)**0
 rest     =  rest- q!*(Nloc+1)**0
 
 IF (ElemID.LE.nElems) THEN
-  DO locSideID=1,6
+  !DO locSideID=1,6
     SideID   = ElemToSide(E2S_SIDE_ID  ,locSideID,ElemID)
     flip     = ElemToSide(E2S_FLIP     ,locSideID,ElemID)
     isMaster = ElemToSide(E2S_IS_MASTER,locSideID,ElemID).EQ.1 ! master side for current elem
@@ -561,7 +564,7 @@ IF (ElemID.LE.nElems) THEN
       Uface_slave( :,p,q,SideID)=Uface(:)
     END IF
 
-  END DO !locSide
+  !END DO !locSide
 END IF
 
 END SUBROUTINE ProlongToFace_Kernel_Elem_DOFwise
