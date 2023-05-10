@@ -91,7 +91,6 @@ LOGICAL,INTENT(IN),OPTIONAL     :: pureDG      != .TRUE. prolongates all element
 #endif
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-<<<<<<< HEAD
 REAL,DEVICE                     :: Uface_work(TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides,2)
 INTEGER,PARAMETER               :: nThreads=12
 !==================================================================================================================================
@@ -100,26 +99,6 @@ INTEGER,PARAMETER               :: nThreads=12
 ! CALL ProlongToFace_Kernel_Elem<<<nElems/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
 ! CALL ProlongToFace_Kernel_Elem_locSide<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
 CALL ProlongToFace_Kernel_Elem_locSide_PreAlloc<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,Uface_work,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
-=======
-REAL,DEVICE                     :: d_L_Minus(0:Nloc),d_L_Plus(0:Nloc)
-!REAL,DEVICE                     :: Uface_work(TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides,2)
-INTEGER,DEVICE                  :: d_SideToElem(5,nSides)
-INTEGER,DEVICE                  :: d_ElemToSide(3,6,nElems)
-INTEGER,DEVICE                  :: d_S2V2(2,0:Nloc,0:Nloc,0:4,6)
-INTEGER,PARAMETER               :: nThreads=32
-!==================================================================================================================================
-d_L_Minus      = L_Minus
-d_L_Plus       = L_Plus
-d_SideToElem   = SideToElem
-d_ElemToSide   = ElemToSide
-d_S2V2         = S2V2
-
-!CALL ProlongToFace_Kernel<<<nSides/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,d_L_Minus,d_L_Plus,d_SideToElem,d_S2V2)
-!CALL ProlongToFace_Kernel_Elem<<<nElems/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,d_L_Minus,d_L_Plus,d_ElemToSide,d_S2V2)
-!CALL ProlongToFace_Kernel_Elem_locSide<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,d_L_Minus,d_L_Plus,d_ElemToSide,d_S2V2)
-!CALL ProlongToFace_Kernel_Elem_locSide_PreAlloc<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,Uface_work,d_L_Minus,d_L_Plus,d_ElemToSide,d_S2V2)
-CALL ProlongToFace_Kernel_Elem_DOFwise<<<(nElems*(Nloc+1)**2)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,d_L_Minus,d_L_Plus,d_ElemToSide,d_S2V2)
->>>>>>> 1dc4560b9 (dofwise prolongtoface)
 END SUBROUTINE ProlongToFace_GPU
 
 
