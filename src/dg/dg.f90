@@ -94,9 +94,11 @@ SWRITE(UNIT_stdOut,'(A)') ' INIT DG...'
 CALL InitDGBasis(PP_N, xGP,wGP,L_minus,L_plus,D ,D_T ,D_Hat ,D_Hat_T ,L_HatMinus ,L_HatPlus)
 
 ! Copy LHat Vectors to GPU
+!@cuf ALLOCATE(d_D_Hat_T(0:PP_N,0:PP_N))
 !@cuf ALLOCATE(d_L_HatMinus(0:PP_N),d_L_HatPlus(0:PP_N))
-!@cuf d_L_HatPlus = L_HatPlus
+!@cuf d_L_HatPlus  = L_HatPlus
 !@cuf d_L_HatMinus = L_HatMinus
+!@cuf d_D_Hat_T    = D_Hat_T
 
 ! Allocate the local DG solution (JU or U): element-based
 ALLOCATE(U(        PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
@@ -297,12 +299,12 @@ INTEGER :: i
 
 ! 2. Convert Volume solution to primitive
 !d_U     = U
-call nvtxStartRange("A")
+call nvtxStartRange("ConsToPrim")
 CALL ConsToPrim_GPU<<<nElems*nDOFElem/256+1,256>>>(nElems*nDOFElem,d_UPrim,d_U)
 call nvtxEndRange()
 
 ! 3. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
-call nvtxStartRange("B")
+call nvtxStartRange("ProlongToFace")
 CALL ProlongToFaceCons_GPU(PP_N,d_U,d_U_master,d_U_slave,d_L_Minus,d_L_Plus,doMPISides=.FALSE.)
 call nvtxEndRange()
 !CALL ProlongToFaceCons(PP_N,U,U_master,U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
@@ -313,23 +315,23 @@ call nvtxEndRange()
 !    Attention: For FV with 2nd order reconstruction U_master/slave and therewith UPrim_master/slave are still only 1st order
 ! TODO: Linadv?
 !CALL GetPrimitiveStateSurface(U_master,U_slave,UPrim_master,UPrim_slave)
-call nvtxStartRange("C")
+call nvtxStartRange("ConsToPrimSide")
 CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_master,d_U_master)
 CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_slave ,d_U_slave )
 call nvtxEndRange()
 
 ! 8. Compute volume integral contribution and add to Ut
-call nvtxStartRange("D")
+call nvtxStartRange("VolInt")
 CALL VolInt(d_Ut)
 call nvtxEndRange()
 
 ! 11. Fill flux and Surface integral
 !CALL FillFlux(t,Flux_master,Flux_slave,U_master,U_slave,UPrim_master,UPrim_slave,doMPISides=.FALSE.)
-call nvtxStartRange("E")
+call nvtxStartRange("FillFlux")
 CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.)
 call nvtxEndRange()
 ! 11.5)
-call nvtxStartRange("F")
+call nvtxStartRange("SurfInt")
 CALL SurfIntCons_GPU(PP_N,d_Flux_master,d_Flux_slave,d_Ut,.FALSE.,d_L_HatMinus,d_L_hatPlus)
 call nvtxEndRange()
 !Ut = d_Ut

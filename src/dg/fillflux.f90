@@ -54,7 +54,7 @@ SUBROUTINE FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_ma
 USE MOD_PreProc
 USE MOD_Globals
 USE MOD_DG_Vars,         ONLY: nDOFFace
-USE MOD_Mesh_Vars,       ONLY: d_NormVec, d_TangVec1, d_TangVec2, SurfElem, Face_xGP
+USE MOD_Mesh_Vars,       ONLY: d_NormVec, d_TangVec1, d_TangVec2, d_SurfElem, Face_xGP
 USE MOD_Mesh_Vars,       ONLY: firstInnerSide,lastInnerSide,firstMPISide_MINE,lastMPISide_MINE
 USE MOD_Mesh_Vars,       ONLY: nSides,firstBCSide
 USE MOD_ChangeBasisByDim,ONLY: ChangeBasisSurf
@@ -82,7 +82,6 @@ INTEGER,PARAMETER  :: nBlockSides=128
 INTEGER            :: firstBlockSide,lastBlockSide,nMyBlockSides
 INTEGER :: SideID,p,q,firstSideID_wo_BC,firstSideID ,lastSideID,FVEM
 INTEGER :: FV_Elems_Max(1:nSides) ! 0 if both sides DG, 1 else
-REAL,DEVICE  :: d_SurfElem (0:PP_N,0:PP_NZ,0:FV_ENABLED,1:nSides)      !< sum of advection and diffusion fluxes across the boundary
 !==================================================================================================================================
 ! fill flux for sides ranging between firstSideID and lastSideID using Riemann solver for advection and viscous terms
 ! Set the side range according to MPI or no MPI
@@ -101,8 +100,6 @@ END IF
 DO SideID=firstSideID,lastSideID
   FV_Elems_Max(SideID) = MAX(FV_Elems_master(SideID),FV_Elems_slave(SideID))
 END DO
-
-d_SurfElem = SurfElem
 
 ! =============================
 ! Workflow:

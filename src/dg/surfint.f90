@@ -93,8 +93,8 @@ INTEGER,PARAMETER     :: nThreads=128
 !==================================================================================================================================
 
 !CALL SurfIntCons_Kernel<<<nElems/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,d_L_HatMinus,d_L_HatPlus,d_ElemToSide,d_S2V2)
-CALL SurfIntCons_Kernel_Point<<<nElems*nDOFElem/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,L_HatMinus,L_HatPlus,d_ElemToSide,d_S2V2_inv)
-!CALL SurfIntCons_Kernel_Point_Contract<<<nElems*nDOFElem/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,L_HatMinus,L_HatPlus,d_ElemToSide,d_S2V2_inv)
+!CALL SurfIntCons_Kernel_Point<<<nElems*nDOFElem/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,L_HatMinus,L_HatPlus,d_ElemToSide,d_S2V2_inv)
+CALL SurfIntCons_Kernel_Point_Contract<<<nElems*nDOFElem/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,L_HatMinus,L_HatPlus,d_ElemToSide,d_S2V2_inv)
 END SUBROUTINE SurfIntCons_GPU
 
 !==================================================================================================================================

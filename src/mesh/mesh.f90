@@ -377,6 +377,7 @@ IF (meshMode.GT.1) THEN
   ALLOCATE(      TangVec2(3,0:PP_N,0:PP_NZ,0:FV_SIZE,1:nSides))
 !@cuf ALLOCATE(d_TangVec2(3,0:PP_N,0:PP_NZ,0:FV_SIZE,1:nSides))
   ALLOCATE(      SurfElem(  0:PP_N,0:PP_NZ,0:FV_SIZE,1:nSides))
+!@cuf ALLOCATE(d_SurfElem(  0:PP_N,0:PP_NZ,0:FV_SIZE,1:nSides))
   ALLOCATE(     Ja_Face(3,3,0:PP_N,0:PP_NZ,          1:nSides)) ! temp
 
 #if FV_ENABLED
@@ -401,6 +402,7 @@ IF (meshMode.GT.1) THEN
   !@cuf d_Metrics_fTilde = Metrics_fTilde
   !@cuf d_Metrics_gTilde = Metrics_gTilde
   !@cuf d_Metrics_hTilde = Metrics_hTilde
+  !@cuf d_SurfElem       = SurfElem
 #if FV_ENABLED
   CALL InitFV_Metrics()  ! FV metrics
 #endif

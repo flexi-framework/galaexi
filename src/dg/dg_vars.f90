@@ -35,9 +35,9 @@ REAL,ALLOCATABLE                      :: D_T(:,:)               !< Transpose of 
 REAL,ALLOCATABLE                      :: D_Hat(:,:)             !< Differentiation matrix premultiplied by
                                                                 !< mass matrix, \f$ \hat{D} = M^{-1} D^T M \f$, size [0..N,0..N].
 
-!@cuda REAL,ALLOCATABLER              ::d_ D_Hat_T(:,:)
 REAL,ALLOCATABLE                      :: D_Hat_T(:,:)           !< Transpose of differentiation matrix premultiplied by
                                                                 !< mass matrix, size [0..N,0..N].
+!@cuf REAL,DEVICE,ALLOCATABLE         :: d_D_Hat_T(:,:)
 
 REAL,ALLOCATABLE                      :: L_HatMinus(:)          !< Lagrange polynomials evaluated at \f$\xi=-1\f$
                                                                 !< premultiplied by mass matrix

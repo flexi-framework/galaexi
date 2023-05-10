@@ -118,8 +118,8 @@ SUBROUTINE VolInt_weakForm(d_Ut)
 ! MODULES
 USE CUDAFOR
 USE MOD_PreProc
-USE MOD_DG_Vars      ,ONLY: D_hat_T,nDOFElem,UPrim,U
-!@cuf USE MOD_DG_Vars      ,ONLY: d_U,d_UPrim
+USE MOD_DG_Vars      ,ONLY: nDOFElem,UPrim,U
+!@cuf USE MOD_DG_Vars      ,ONLY: d_U,d_UPrim,d_D_Hat_T
 USE MOD_Mesh_Vars    ,ONLY: Metrics_fTilde,Metrics_gTilde,Metrics_hTilde,nElems
 !@cuf USE MOD_Mesh_Vars    ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,nElems
 USE MOD_Flux         ,ONLY: EvalFlux3D      ! computes volume fluxes in local coordinates
@@ -140,10 +140,8 @@ INTEGER,PARAMETER  :: nElems_Block=32
 INTEGER            :: i,j,k,l,iElem,iiElem,nElems_myBlock
 INTEGER            :: lastElem
 REAL,DEVICE,DIMENSION(PP_nVar    ,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block) :: d_f, d_g, d_h
-REAL,DEVICE,DIMENSION(0:PP_N,0:PP_N) :: d_D_hat_T
 !==================================================================================================================================
 ! Diffusive part
-d_D_hat_T = D_hat_T
 DO iElem=1,nElems,nElems_Block
   lastElem    = MIN(nElems,iElem+nElems_Block-1)
   nElems_myBlock = lastElem-iElem+1
