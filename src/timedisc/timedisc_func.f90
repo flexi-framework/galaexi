@@ -103,7 +103,7 @@ USE MOD_Overintegration_Vars,ONLY: NUnder
 USE MOD_ReadInTools         ,ONLY: GETREAL,GETINT,GETSTR
 USE MOD_StringTools         ,ONLY: LowCase,StripSpaces
 USE MOD_TimeDisc_Vars       ,ONLY: CFLScale
-USE MOD_TimeDisc_Vars       ,ONLY: dtElem,dt,tend,tStart,dt_dynmin,dt_kill
+USE MOD_TimeDisc_Vars       ,ONLY: d_dtElem,dtElem,dt,tend,tStart,dt_dynmin,dt_kill
 USE MOD_TimeDisc_Vars       ,ONLY: Ut_tmp,UPrev,S2
 USE MOD_TimeDisc_Vars       ,ONLY: maxIter,nCalcTimeStepMax
 USE MOD_TimeDisc_Vars       ,ONLY: SetTimeDiscCoefs,TimeStep,TimeDiscName,TimeDiscType,TimeDiscInitIsDone
@@ -181,6 +181,8 @@ dt=HUGE(1.)
 ! Allocate and Initialize elementwise dt array
 ALLOCATE(dtElem(nElems))
 dtElem=0.
+!@cuf ALLOCATE(d_dtElem(nElems))
+!@cuf d_dtElem = dtElem
 
 CALL AddToElemData(ElementOut,'dt',dtElem)
 
@@ -304,6 +306,7 @@ USE MOD_Analyze_Vars        ,ONLY: analyze_dt,WriteData_dt,tWriteData,nWriteData
 USE MOD_AnalyzeEquation_Vars,ONLY: doCalcTimeAverage
 USE MOD_DG                  ,ONLY: DGTimeDerivative_weakForm
 USE MOD_DG_Vars             ,ONLY: U
+!@cuf USE MOD_DG_Vars       ,ONLY: d_U
 USE MOD_Equation_Vars       ,ONLY: StrVarNames
 USE MOD_HDF5_Output         ,ONLY: WriteState,WriteBaseFlow
 USE MOD_Mesh_Vars           ,ONLY: MeshFile
@@ -342,6 +345,7 @@ END IF
 ! Call DG operator to fill face data, fluxes, gradients for analyze
 IF (doAnalyze) THEN
   CALL DGTimeDerivative_weakForm(t)
+  !@cuf U = d_U
 END IF
 
 ! Call your analysis routine for your testcase here.
@@ -401,7 +405,7 @@ FUNCTION EvalInitialTimeStep(errType) RESULT(dt)
 ! MODULES
 USE MOD_Globals
 USE MOD_CalcTimeStep        ,ONLY: CalcTimeStep
-USE MOD_TimeDisc_Vars       ,ONLY: dt_kill,dt_dynmin,dt_analyzemin,dtElem,nDtLimited
+USE MOD_TimeDisc_Vars       ,ONLY: dt_kill,dt_dynmin,dt_analyzemin,dtElem,d_dtelem,nDtLimited
 ! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -417,10 +421,11 @@ dt_analyzemin = HUGE(1.)
 nDtLimited    = 0
 
 dt            = CalcTimeStep(errType)
+! dtElem        = d_dtElem
 dt_analyzemin = MIN(dt_analyzemin,dt)
 IF (dt.LT.dt_dynmin) THEN
   CALL PrintWarning("TimeDisc INFO - Timestep dropped below predefined minimum! - LIMITING!")
-  dt = dt_dynmin;   dtElem = dt_dynmin
+  dt = dt_dynmin;   dtElem = dt_dynmin;  d_dtelem = dtelem
   nDtLimited  = nDtLimited + 1
 END IF
 IF (dt.LT.dt_kill) &
@@ -437,7 +442,7 @@ USE MOD_Analyze_Vars        ,ONLY: tWriteData
 USE MOD_CalcTimeStep        ,ONLY: CalcTimeStep
 USE MOD_HDF5_Output         ,ONLY: WriteState
 USE MOD_Mesh_Vars           ,ONLY: MeshFile
-USE MOD_TimeDisc_Vars       ,ONLY: dt_kill,dt_dynmin,t,dt_analyzemin,dtElem,nDtLimited
+USE MOD_TimeDisc_Vars       ,ONLY: dt_kill,dt_dynmin,t,dt_analyzemin,dtElem,d_dtElem,nDtLimited
 ! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -448,6 +453,7 @@ INTEGER,INTENT(OUT)          :: errType
 ! LOCAL VARIABLES
 !==================================================================================================================================
 dt_Min        = CalcTimeStep(errType)
+! dtElem        = d_dtElem
 dt_analyzemin = MIN(dt_analyzemin,dt_Min)
 IF (dt_Min.LT.dt_dynmin) THEN
   dt_Min = dt_dynmin;   dtElem = dt_dynmin
@@ -471,7 +477,7 @@ SUBROUTINE FillCFL_DFL(Nin_CFL,Nin_DFL)
 ! MODULES
 USE MOD_PreProc
 USE MOD_Globals
-USE MOD_TimeDisc_Vars       ,ONLY:CFLScale,CFLScale_Readin,CFLScaleAlpha
+USE MOD_TimeDisc_Vars       ,ONLY:d_CFLScale,CFLScale,CFLScale_Readin,CFLScaleAlpha
 #if PARABOLIC
 USE MOD_TimeDisc_Vars       ,ONLY:DFLScale,DFLScale_Readin,DFLScaleAlpha,RelativeDFL
 #endif /*PARABOLIC*/
@@ -509,6 +515,9 @@ END IF
 CFLScale(0) = CFLScale(0)/(2.*Nin_CFL+1.)
 SWRITE(UNIT_stdOut,'(A,2ES16.7)') '   CFL (DG/FV):',CFLScale
 CFLScale_Readin = CFLScale
+
+! Copy CFLScale to GPU
+!@cuf d_CFLScale = CFLScale
 
 #if PARABOLIC
 !########################### DFL ########################################

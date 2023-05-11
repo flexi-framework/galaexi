@@ -83,7 +83,7 @@ INTEGER,PARAMETER :: nThreads=256
 b_dt = RKb*dt
 
 ! Copy solution to GPU
-d_U = U
+! d_U = U
 
 DO iStage = 1,nRKStages
   ! NOTE: perform timestep in rk
@@ -109,7 +109,7 @@ DO iStage = 1,nRKStages
 END DO
 
 ! Copy solution out
-U = d_U
+! U = d_U
 
 END SUBROUTINE TimeStepByLSERKW2
 

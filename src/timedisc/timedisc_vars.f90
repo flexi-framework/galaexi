@@ -51,6 +51,7 @@ REAL             :: tStart                             !< Start time of simulati
 REAL             :: tEnd                               !< End time of simulation
 REAL             :: tAnalyze                           !< Analyze time intervall
 REAL             :: CFLScale(0:FV_SIZE)                !< Convective CFL number
+!@cuf REAL,DEVICE:: d_CFLScale(0:FV_SIZE)
 REAL             :: CFLScale_Readin(0:FV_SIZE)         !< Convective CFL number (value from parameter file)
 #if FV_ENABLED
 REAL             :: CFLScaleFV                         !< For FV, this is always set to the CFLScale for Gauss and N=1
@@ -58,6 +59,7 @@ REAL             :: CFLScaleFV                         !< For FV, this is always
 REAL             :: DFLScale(0:FV_SIZE)                !< Viscous CFL number (only if PARABOLIC)
 REAL             :: DFLScale_Readin(0:FV_SIZE)         !< Viscous CFL number (only if PARABOLIC, value from parameter file)
 REAL,ALLOCATABLE :: dtElem(:)                          !< Timestep for each element
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_dtElem(:)
 INTEGER          :: CurrentStage=1                     !< Current Runge-Kutta stage within timestep
 INTEGER(KIND=8)  :: nDtLimited                         !< number of limited timesteps
 INTEGER          :: nCalcTimeStep                      !< Counter for iterations since last timestep calculation

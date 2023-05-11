@@ -42,7 +42,7 @@ USE MOD_Analyze_Vars        ,ONLY: analyze_dt,tWriteData,WriteData_dt
 USE MOD_AnalyzeEquation_Vars,ONLY: doCalcTimeAverage
 USE MOD_ApplyJacobianCons   ,ONLY: ApplyJacobianCons
 USE MOD_DG                  ,ONLY: DGTimeDerivative_weakForm
-USE MOD_DG_Vars             ,ONLY: U
+USE MOD_DG_Vars             ,ONLY: U, d_U
 USE MOD_Equation_Vars       ,ONLY: StrVarNames
 USE MOD_HDF5_Output         ,ONLY: WriteState
 USE MOD_IO_HDF5             ,ONLY:
@@ -103,6 +103,9 @@ writeCounter      = 0
 nCalcTimestep     = 0
 doAnalyze         = .FALSE.
 doFinalize        = .FALSE.
+
+! copy solution to GPU
+!@cuf d_U = U
 
 ! do initial filtering of solution (has to be done after DG and FV are filled -> after restart)
 ! --- Perform some preparational steps ---  overintegrate solution first time
