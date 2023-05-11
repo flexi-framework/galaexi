@@ -238,6 +238,7 @@ SUBROUTINE DGTimeDerivative_weakForm(t)
 USE MOD_Globals
 USE MOD_Preproc
 USE MOD_Vector
+USE MOD_GPU                 ,ONLY: stream1,stream2
 USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave
 !@cuf USE MOD_DG_Vars          ,ONLY: d_L_HatPlus,d_L_HatMinus
 USE MOD_DG_Vars             ,ONLY: UPrim,UPrim_master,UPrim_slave,nDOFElem,nDOFFace
@@ -300,7 +301,7 @@ INTEGER :: i
 ! 2. Convert Volume solution to primitive
 !d_U     = U
 call nvtxStartRange("ConsToPrim")
-CALL ConsToPrim_GPU<<<nElems*nDOFElem/256+1,256>>>(nElems*nDOFElem,d_UPrim,d_U)
+CALL ConsToPrim_GPU<<<nElems*nDOFElem/256+1,256,0,stream1>>>(nElems*nDOFElem,d_UPrim,d_U)
 call nvtxEndRange()
 
 ! 3. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
@@ -316,8 +317,8 @@ call nvtxEndRange()
 ! TODO: Linadv?
 !CALL GetPrimitiveStateSurface(U_master,U_slave,UPrim_master,UPrim_slave)
 call nvtxStartRange("ConsToPrimSide")
-CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_master,d_U_master)
-CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_slave ,d_U_slave )
+CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256,0,stream2>>>(nSides*nDOFFace,d_UPrim_master,d_U_master)
+CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256,0,stream2>>>(nSides*nDOFFace,d_UPrim_slave ,d_U_slave )
 call nvtxEndRange()
 
 ! 8. Compute volume integral contribution and add to Ut
@@ -351,7 +352,7 @@ call nvtxEndRange()
 !CALL ApplyJacobianCons(Ut,toPhysical=.TRUE.)
 
 ! ATTENTION: INCLUDES THE - Sign from 12.)
-call nvtxStartRange("G")
+call nvtxStartRange("ApplyJacobian")
 CALL ApplyJacobianCons_GPU<<<nElems*nDOFElem/256+1,256>>>(nDOFElem*nElems,d_sJ,d_Ut,toPhysical=.TRUE.)
 call nvtxEndRange()
 !Ut = d_Ut

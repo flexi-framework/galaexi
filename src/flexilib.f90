@@ -251,6 +251,7 @@ USE MOD_Commandline_Arguments,ONLY:FinalizeCommandlineArguments
 USE MOD_DG,                ONLY:FinalizeDG
 USE MOD_Equation,          ONLY:FinalizeEquation
 USE MOD_Filter,            ONLY:FinalizeFilter
+USE MOD_GPU,               ONLY:FinalizeGPU
 !USE MOD_Implicit,          ONLY:FinalizeImplicit
 USE MOD_Interpolation,     ONLY:FinalizeInterpolation
 USE MOD_IO_HDF5,           ONLY:FinalizeIOHDF5
@@ -301,6 +302,7 @@ CALL FinalizeMortar()
 CALL FinalizeSponge()
 CALL FinalizeOverintegration()
 CALL FinalizeFilter()
+CALL FinalizeGPU()
 #if FV_ENABLED
 CALL FinalizeFV_Basis()
 CALL FinalizeIndicator()

@@ -73,6 +73,7 @@ SUBROUTINE ProlongToFace_GPU(&
 )
 ! MODULES
 USE MOD_Mesh_Vars,          ONLY: nElems,nSides
+USE MOD_GPU,                ONLY:stream2
 !@cuf USE MOD_Mesh_Vars,             ONLY: d_SideToElem,d_S2V2,d_ElemToSide
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -101,7 +102,7 @@ INTEGER,PARAMETER               :: nThreads=128
 ! CALL ProlongToFace_Kernel_Elem_locSide<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
 !CALL ProlongToFace_Kernel_Elem_locSide_PreAlloc<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,Uface_work,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
 ! CALL ProlongToFace_Kernel_Elem_locSide_pq<<<(nElems*6*Nloc*Nloc)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,UFace_temp,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
- CALL ProlongToFace_Kernel_Elem_DOFwise<<<(nElems*6*(Nloc+1)**2)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
+ CALL ProlongToFace_Kernel_Elem_DOFwise<<<(nElems*6*(Nloc+1)**2)/nThreads+1,nThreads,0,stream2>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
 END SUBROUTINE ProlongToFace_GPU
 
 

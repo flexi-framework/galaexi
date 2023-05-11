@@ -15,15 +15,24 @@
 
 MODULE MOD_GPU
 ! MODULES
+USE CUDAFOR
 IMPLICIT NONE
 
 PRIVATE
+
+INTEGER(KIND=cuda_stream_kind) :: stream1
+INTEGER(KIND=cuda_stream_kind) :: stream2
 
 INTERFACE InitGPU
   MODULE PROCEDURE InitGPU
 END INTERFACE
 
-PUBLIC::InitGPU
+INTERFACE FinalizeGPU
+  MODULE PROCEDURE FinalizeGPU
+END INTERFACE
+
+PUBLIC::InitGPU,FinalizeGPU
+PUBLIC::stream1,stream2
 !==================================================================================================================================
 
 CONTAINS
@@ -40,15 +49,40 @@ IMPLICIT NONE
 ! INPUT/OUTPUT VARIABLES
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
+INTEGER               ::   istat
 !==================================================================================================================================
 SWRITE(UNIT_stdOut,'(132("-"))')
 SWRITE(UNIT_stdOut,'(A)') ' INIT GPU...'
 
 SWRITE(UNIT_stdOut,'(A)') ' DUMMY ' 
 
+
+istat = cudaStreamCreate(stream1)
+istat = cudaStreamCreate(stream2)
+
 SWRITE(UNIT_stdOut,'(A)')' INIT GPU DONE!'
 SWRITE(UNIT_stdOut,'(132("-"))')
 
 END SUBROUTINE InitGPU
+
+!==================================================================================================================================
+!> Initialize indicators
+!==================================================================================================================================
+SUBROUTINE FinalizeGPU()
+! MODULES
+USE MOD_Preproc
+USE MOD_Globals
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER               ::   istat
+!==================================================================================================================================
+
+istat = cudaStreamDestroy(stream1)
+istat = cudaStreamDestroy(stream2)
+
+END SUBROUTINE FinalizeGPU
 
 END MODULE MOD_GPU
