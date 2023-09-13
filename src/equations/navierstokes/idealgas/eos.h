@@ -52,6 +52,7 @@
 ! routines to compute physical quantities from conservative variables or extended variables
 ! conservative
 #define VELOCITY_H(U,sRho)             (U(MOMV)*sRho)
+#define PRESSURE_H(Ener,Mom,sRho)      (KappaM1*(Ener-0.5*sRho*DOT_PRODUCT(Mom,Mom)))
 #define SPEEDOFSOUND_H(p,sRho)         (SQRT(Kappa*p*sRho))
 #define TOTALENERGY_H(U,sRho,Vel)      (U(ENER)/U(DENS))
 #define TOTALENTHALPY_H(U,p,sRho)      ((U(ENER)+p)*sRho)
