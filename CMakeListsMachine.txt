@@ -27,9 +27,19 @@ MESSAGE(STATUS "Generating for [${CMAKE_GENERATOR}] build system")
 # =========================================================================
 # HLRS HAWK / SuperMUC
 IF ("${CMAKE_HOSTNAME}" MATCHES "hawk-login")
-  SET(CMAKE_C_COMPILER       mpicc)
-  SET(CMAKE_CXX_COMPILER     mpicxx)
-  SET(CMAKE_Fortran_COMPILER mpif90) # mpif08 wrapper seems to have issue
+  SET(CMAKE_C_COMPILER       nvc)
+  SET(CMAKE_CXX_COMPILER     nvc++)
+  SET(CMAKE_Fortran_COMPILER nvfortran)
+  MESSAGE (STATUS "Running on HAWK")
+  #SET(CMAKE_C_COMPILER       mpicc)
+  #SET(CMAKE_CXX_COMPILER     mpicxx)
+  #SET(CMAKE_Fortran_COMPILER mpif90) # mpif08 wrapper seems to have issue
+# HAWK AI
+ELSEIF("${CMAKE_HOSTNAME}" MATCHES "hawk-ai19")
+  SET(CMAKE_C_COMPILER       nvc)
+  SET(CMAKE_CXX_COMPILER     nvc++)
+  SET(CMAKE_Fortran_COMPILER nvfortran)
+  MESSAGE (STATUS "Running on HAWK-Ai")
 # IAG Prandtl
 ELSEIF("${CMAKE_HOSTNAME}" MATCHES "^prandtl")
   SET(CMAKE_C_COMPILER       gcc)
@@ -249,6 +259,18 @@ ELSEIF (CMAKE_Fortran_COMPILER_ID MATCHES "Cray")
 
 # PGI Compiler
 ELSEIF (CMAKE_Fortran_COMPILER_ID MATCHES "NVHPC")
+  #IF (NOT DEFINED C_FLAGS_INITIALIZED )
+  #  SET (C_FLAGS_INITIALIZED "yes" CACHE INTERNAL "Flag if compiler flags are already initialized" )
+  #  SET (CMAKE_Fortran_FLAGS         "${CMAKE_Fortran_FLAGS} -fdefault-real-8 -std=f2008 -DFLANG")
+  #ENDIF()
+  #SET (CMAKE_Fortran_FLAGS_RELEASE   "${CMAKE_Fortran_FLAGS}     -O0 ${FLEXI_INSTRUCTION} -Mfree -Mpreprocess")
+  SET (CMAKE_Fortran_FLAGS_RELEASE   "${CMAKE_Fortran_FLAGS} -cuda     -O4 -r8 -Mpreprocess -Minfo=accel ${FLEXI_INSTRUCTION}  -lnvToolsExt -L$(CUDA_HOME)/lib64/")
+  SET (CMAKE_Fortran_FLAGS_PROFILE   "${CMAKE_Fortran_FLAGS} -cuda -pg -O4 -r8 -Mpreprocess ${FLEXI_INSTRUCTION} ")
+  SET (CMAKE_Fortran_FLAGS_DEBUG     "${CMAKE_Fortran_FLAGS} -cuda -g  -O0 -r8 -Mpreprocess -Minfo=accel -lnvToolsExt -L$(CUDA_HOME)/lib64/")
+  # add flags only for compiling not linking!
+  SET (FLEXI_COMPILE_FLAGS "-fPIC")
+
+ELSEIF (CMAKE_Fortran_COMPILER_ID MATCHES "PGI")
   #IF (NOT DEFINED C_FLAGS_INITIALIZED )
   #  SET (C_FLAGS_INITIALIZED "yes" CACHE INTERNAL "Flag if compiler flags are already initialized" )
   #  SET (CMAKE_Fortran_FLAGS         "${CMAKE_Fortran_FLAGS} -fdefault-real-8 -std=f2008 -DFLANG")
