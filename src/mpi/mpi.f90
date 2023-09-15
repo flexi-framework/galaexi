@@ -373,7 +373,6 @@ DO iNbProc=1,nNbProcs
     CALL MPI_ISEND(FaceData(:,SideID_start:SideID_end),nSendVal,MPI_DOUBLE_PRECISION,  &
                     nbProc(iNbProc),0,MPI_COMM_FLEXI,MPIRequest(iNbProc),iError)
     h_FaceData=FaceData
-    WRITE(*,*) myRank,'Sending',h_FaceData(:,SideID_start:SideID_end)
   ELSE
     MPIRequest(iNbProc)=MPI_REQUEST_NULL
   END IF
@@ -458,7 +457,6 @@ INTEGER                     :: iNBProc
 DO iNbProc=1,nNbProcs
   ! Start send face data
   IF(nMPISides_send(iNbProc,SendID).GT.0)THEN
-    WRITE(*,*) nMPISides_send
     nSendVal    =nMPISides_send(iNbProc,SendID)
     SideID_start=OffsetMPISides_send(iNbProc-1,SendID)+1
     SideID_end  =OffsetMPISides_send(iNbProc,SendID)
