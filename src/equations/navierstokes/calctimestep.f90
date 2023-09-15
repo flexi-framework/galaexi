@@ -173,8 +173,8 @@ CALL MPI_ALLREDUCE(MPI_IN_PLACE,TimeStep,3,MPI_DOUBLE_PRECISION,MPI_MIN,MPI_COMM
 errType=INT(-TimeStep(3))
 #endif /*USE_MPI*/
 ViscousTimeStep=(TimeStep(2) .LT. TimeStep(1))
-CalcTimeStep=MINVAL(TimeStep(1:2))
-
+CalcTimeStep=1.e-2!MINVAL(TimeStep(1:2))
+!WRITE(*,*) myRank,CalcTimeStep
 END FUNCTION CALCTIMESTEP
 
 

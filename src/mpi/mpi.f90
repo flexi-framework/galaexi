@@ -69,6 +69,8 @@ PUBLIC::DefineParametersMPI
 PUBLIC::InitMPIvars
 PUBLIC::StartReceiveMPIData
 PUBLIC::StartSendMPIData
+PUBLIC::StartReceiveMPIData_GPU
+PUBLIC::StartSendMPIData_GPU
 #if FV_ENABLED
 PUBLIC::StartExchange_FV_Elems
 #endif
@@ -269,6 +271,40 @@ DO iNbProc=1,nNbProcs
 END DO !iProc=1,nNBProcs
 END SUBROUTINE StartReceiveMPIData
 
+!==================================================================================================================================
+!> Subroutine that controls the receive operations for the face data that has to be exchanged between processors.
+!==================================================================================================================================
+SUBROUTINE StartReceiveMPIData_GPU(FaceData,DataSize,LowerBound,UpperBound,MPIRequest,SendID)
+! MODULES
+USE MOD_Globals
+USE MOD_MPI_Vars
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,INTENT(IN)          :: SendID                                   !< defines the send / receive direction -> 1=send MINE
+                                                                        !< / receive YOUR, 2=send YOUR / receive MINE
+INTEGER,INTENT(IN)          :: DataSize                                 !< size of one entry in array (e.g. one side:
+                                                                        !< nVar*(N+1)**2
+INTEGER,INTENT(IN)          :: LowerBound                               !< lower side index for last dimension of FaceData
+INTEGER,INTENT(IN)          :: UpperBound                               !< upper side index for last dimension of FaceData
+INTEGER,INTENT(OUT)         :: MPIRequest(nNbProcs)                     !< communication handles
+REAL,INTENT(OUT),DEVICE     :: FaceData(DataSize,LowerBound:UpperBound) !< the complete face data (for inner, BC and MPI sides).
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                     :: iNBProc
+!==================================================================================================================================
+DO iNbProc=1,nNbProcs
+  IF(nMPISides_rec(iNbProc,SendID).GT.0)THEN
+    nRecVal     =DataSize*nMPISides_rec(iNbProc,SendID)
+    SideID_start=OffsetMPISides_rec(iNbProc-1,SendID)+1
+    SideID_end  =OffsetMPISides_rec(iNbProc,SendID)
+    CALL MPI_IRECV(FaceData(:,SideID_start:SideID_end),nRecVal,MPI_DOUBLE_PRECISION,  &
+                    nbProc(iNbProc),0,MPI_COMM_FLEXI,MPIRequest(iNbProc),iError)
+  ELSE
+    MPIRequest(iNbProc)=MPI_REQUEST_NULL
+  END IF
+END DO !iProc=1,nNBProcs
+END SUBROUTINE StartReceiveMPIData_GPU
 
 
 !==================================================================================================================================
@@ -305,6 +341,44 @@ DO iNbProc=1,nNbProcs
   END IF
 END DO !iProc=1,nNBProcs
 END SUBROUTINE StartSendMPIData
+
+!==================================================================================================================================
+!> Subroutine that performs the send operations for the face data that has to be exchanged between processors.
+!==================================================================================================================================
+SUBROUTINE StartSendMPIData_GPU(FaceData,DataSize,LowerBound,UpperBound,MPIRequest,SendID)
+! MODULES
+USE MOD_Globals
+USE MOD_MPI_Vars
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,INTENT(IN)          :: SendID                                   !< defines the send / receive direction -> 1=send MINE
+                                                                        !< / receive YOUR, 2=send YOUR / receive MINE
+INTEGER,INTENT(IN)          :: DataSize                                 !< size of one entry in array (e.g. one side:
+                                                                        !< nVar*(N+1)*(N+1))
+INTEGER,INTENT(IN)          :: LowerBound                               !< lower side index for last dimension of FaceData
+INTEGER,INTENT(IN)          :: UpperBound                               !< upper side index for last dimension of FaceData
+INTEGER,INTENT(OUT)         :: MPIRequest(nNbProcs)                     !< communication handles
+REAL,INTENT(IN),DEVICE      :: FaceData(DataSize,LowerBound:UpperBound) !< the complete face data (for inner, BC and MPI sides).
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                     :: iNBProc
+REAL :: h_FaceData(DataSize,LowerBound:UpperBound)
+!==================================================================================================================================
+DO iNbProc=1,nNbProcs
+  IF(nMPISides_send(iNbProc,SendID).GT.0)THEN
+    nSendVal    =DataSize*nMPISides_send(iNbProc,SendID)
+    SideID_start=OffsetMPISides_send(iNbProc-1,SendID)+1
+    SideID_end  =OffsetMPISides_send(iNbProc,SendID)
+    CALL MPI_ISEND(FaceData(:,SideID_start:SideID_end),nSendVal,MPI_DOUBLE_PRECISION,  &
+                    nbProc(iNbProc),0,MPI_COMM_FLEXI,MPIRequest(iNbProc),iError)
+    h_FaceData=FaceData
+    WRITE(*,*) myRank,'Sending',h_FaceData(:,SideID_start:SideID_end)
+  ELSE
+    MPIRequest(iNbProc)=MPI_REQUEST_NULL
+  END IF
+END DO !iProc=1,nNBProcs
+END SUBROUTINE StartSendMPIData_GPU
 
 #if FV_ENABLED
 !==================================================================================================================================
@@ -384,6 +458,7 @@ INTEGER                     :: iNBProc
 DO iNbProc=1,nNbProcs
   ! Start send face data
   IF(nMPISides_send(iNbProc,SendID).GT.0)THEN
+    WRITE(*,*) nMPISides_send
     nSendVal    =nMPISides_send(iNbProc,SendID)
     SideID_start=OffsetMPISides_send(iNbProc-1,SendID)+1
     SideID_end  =OffsetMPISides_send(iNbProc,SendID)

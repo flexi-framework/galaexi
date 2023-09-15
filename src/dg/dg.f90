@@ -106,8 +106,10 @@ ALLOCATE(U(        PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 ! Allocate the time derivative / solution update /residual vector dU/dt: element-based
 ALLOCATE(Ut(       PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 !@cuf ALLOCATE(d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
-U=0.
+U =0.
 Ut=0.
+d_U =U
+d_Ut=Ut
 
 ! Allocate the 2D solution vectors on the sides, one array for the data belonging to the proc (the master)
 ! and one for the sides which belong to another proc (slaves): side-based
@@ -116,7 +118,9 @@ ALLOCATE(U_slave( PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
 !@cuf ALLOCATE(d_U_master(PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
 !@cuf ALLOCATE(d_U_slave( PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
 U_master=0.
-U_slave=0.
+U_slave =0.
+d_U_master=U_master
+d_U_slave =U_slave
 
 ! Repeat the U, U_Minus, U_Plus structure for the primitive quantities
 ALLOCATE(UPrim(       PP_nVarPrim,0:PP_N,0:PP_N,0:PP_NZ,nElems))
@@ -128,6 +132,9 @@ ALLOCATE(UPrim_slave( PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides))
 UPrim=0.
 UPrim_master=0.
 UPrim_slave=0.
+d_UPrim=UPrim
+d_UPrim_master=UPrim_master
+d_UPrim_slave =UPrim_slave
 
 ! Allocate the UPrim_boundary for the boundary fluxes
 ALLOCATE(UPrim_boundary(PP_nVarPrim,0:PP_N,0:PP_NZ))
@@ -138,7 +145,9 @@ ALLOCATE(Flux_slave (PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
 !@cuf ALLOCATE(d_Flux_master(PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
 !@cuf ALLOCATE(d_Flux_slave( PP_nVar,0:PP_N,0:PP_NZ,1:nSides))
 Flux_master=0.
-Flux_slave=0.
+Flux_slave =0.
+d_Flux_master=Flux_master
+d_Flux_slave =Flux_slave
 
 ! variables for performance tricks
 nDOFFace=(PP_N+1)**(PP_dim-1)
@@ -238,8 +247,7 @@ SUBROUTINE DGTimeDerivative_weakForm(t)
 USE MOD_Globals
 USE MOD_Preproc
 USE MOD_Vector
-USE MOD_GPU                 ,ONLY: stream1,stream2
-USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave
+USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave,L_HatMinus,L_HatPlus
 !@cuf USE MOD_DG_Vars          ,ONLY: d_L_HatPlus,d_L_HatMinus
 USE MOD_DG_Vars             ,ONLY: UPrim,UPrim_master,UPrim_slave,nDOFElem,nDOFFace
 !@cuf USE MOD_DG_Vars          ,ONLY: d_U,d_UPrim,d_Ut
@@ -267,6 +275,11 @@ USE MOD_Filter              ,ONLY: Filter_Pointer
 USE MOD_Filter_Vars         ,ONLY: FilterType,FilterMat
 USE MOD_Mesh_Vars           ,ONLY: nElems,nSides
 USE NVTX
+#if USE_MPI
+USE MOD_MPI_Vars
+USE MOD_MPI                 ,ONLY: StartReceiveMPIData_GPU,StartSendMPIData_GPU,FinishExchangeMPIData
+USE MOD_Mesh_Vars,           ONLY: nSides,firstMPISide_YOUR,lastMPISide_YOUR,firstInnerSide,lastInnerSide,lastMPISide_MINE,ElemToSide,firstMPISide_MINE
+#endif /*USE_MPI*/
 !@cuf USE MOD_Mesh_Vars     ,ONLY: d_sJ
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -274,7 +287,7 @@ IMPLICIT NONE
 REAL,INTENT(IN)                 :: t                      !< Current time
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER :: i
+INTEGER :: i,j,iSide
 !==================================================================================================================================
 
 ! -----------------------------------------------------------------------------
@@ -300,41 +313,106 @@ INTEGER :: i
 
 ! 2. Convert Volume solution to primitive
 !d_U     = U
-call nvtxStartRange("ConsToPrim")
-CALL ConsToPrim_GPU<<<nElems*nDOFElem/256+1,256,0,stream1>>>(nElems*nDOFElem,d_UPrim,d_U)
-call nvtxEndRange()
+CALL ConsToPrim_GPU<<<nElems*nDOFElem/256+1,256,0>>>(nElems*nDOFElem,d_UPrim,d_U)
 
 ! 3. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
-call nvtxStartRange("ProlongToFace")
+CALL StartReceiveMPIData_GPU(d_U_slave,DataSizeSide,1,nSides,MPIRequest_U(:,SEND),SendID=2) ! Receive MINE / U_slave: slave -> master
 CALL ProlongToFaceCons_GPU(PP_N,d_U,d_U_master,d_U_slave,d_L_Minus,d_L_Plus,doMPISides=.FALSE.)
-call nvtxEndRange()
+
 !CALL ProlongToFaceCons(PP_N,U,U_master,U_slave,L_Minus,L_Plus,doMPISides=.FALSE.)
-!d_U_master = U_master
-!d_U_slave  = U_slave
+CALL StartSendMPIData_GPU(   d_U_slave,DataSizeSide,1,nSides,MPIRequest_U(:,RECV),SendID=2) ! SEND YOUR / U_slave: slave -> master
+CALL SLEEP(2)
+CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_U)        ! U_slave: slave -> master
+
+U_master = d_U_master
+U_slave  = d_U_slave
+WRITE(*,*) 'U_YOUR',myRank, U_slave(:,:,:,firstMPISide_YOUR)
+WRITE(*,*) 'U_MINE',myRank, U_slave(:,:,:,firstMPISide_MINE)
+WRITE(*,*) 'U_M',myRank, SUM(ABS(U_master))
+WRITE(*,*) 'U_S',myRank, SUM(ABS(U_slave))
 
 ! 4. Convert face data from conservative to primitive variables
 !    Attention: For FV with 2nd order reconstruction U_master/slave and therewith UPrim_master/slave are still only 1st order
 ! TODO: Linadv?
 !CALL GetPrimitiveStateSurface(U_master,U_slave,UPrim_master,UPrim_slave)
-call nvtxStartRange("ConsToPrimSide")
-CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256,0,stream2>>>(nSides*nDOFFace,d_UPrim_master,d_U_master)
-CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256,0,stream2>>>(nSides*nDOFFace,d_UPrim_slave ,d_U_slave )
-call nvtxEndRange()
+CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_master,d_U_master)
+CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_slave ,d_U_slave )
+
+UPrim_master = d_UPrim_master
+UPrim_slave  = d_UPrim_slave
+!UPrim_master(:,:,:,firstMPISide_YOUR:lastMPISide_YOUR) = 0.
+!WRITE(*,*) 'UPrim_M_Inner',myRank, SUM(ABS(UPrim_master(:,:,:,firstInnerSide:lastInnerSide)))
+!WRITE(*,*) 'UPrim_S_Inner',myRank, SUM(ABS(UPrim_slave (:,:,:,firstInnerSide:lastInnerSide)))
+!WRITE(*,*) 'UPrim_M',myRank, SUM(ABS(UPrim_master))
+!WRITE(*,*) 'UPrim_S',myRank, SUM(ABS(UPrim_slave))
+!SWRITE(*,*) 'U_Your',U_slave(:,:,:,firstMPISide_Your)
+!SWRITE(*,*) 'UPrim_Your',UPrim_slave(:,:,:,firstMPISide_Your)
+
+!DO j=0,PP_N
+!  DO i=0,PP_N
+!    SWRITE(*,*) i,j,'M Cons',U_master(    :,i,j,1)
+!    SWRITE(*,*) i,j,'M Prim',UPrim_master(:,i,j,1)
+!    SWRITE(*,*) i,j,'S Cons',U_slave(     :,i,j,1)
+!    SWRITE(*,*) i,j,'S Prim',UPrim_slave( :,i,j,1)
+!  END DO
+!END DO
+!DO iSide=1,nSides
+!  SWRITE(*,*) iSide,SUM(ABS(UPrim_master(:,:,:,iSide))),SUM(ABS(UPrim_slave(:,:,:,iSide)))
+!  SWRITE(*,*) iSide,SUM(ABS(U_master(    :,:,:,iSide))),SUM(ABS(U_slave(    :,:,:,iSide)))
+!END DO
 
 ! 8. Compute volume integral contribution and add to Ut
-call nvtxStartRange("VolInt")
 CALL VolInt(d_Ut)
-call nvtxEndRange()
+
+Ut = d_Ut
+WRITE(*,*) 'VolInt Ut',myRank, SUM(ABS(Ut))
 
 ! 11. Fill flux and Surface integral
+CALL StartReceiveMPIData_GPU(d_Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,SEND),SendID=1)
 !CALL FillFlux(t,Flux_master,Flux_slave,U_master,U_slave,UPrim_master,UPrim_slave,doMPISides=.FALSE.)
-call nvtxStartRange("FillFlux")
 CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.)
-call nvtxEndRange()
+Flux_master = d_Flux_master
+Flux_slave  = d_Flux_slave
+WRITE(*,*) 'F_M',myRank, SUM(ABS(Flux_master))
+WRITE(*,*) 'F_S',myRank, SUM(ABS(Flux_slave))
+WRITE(*,*) 'F_S3',myRank, SUM(ABS(Flux_slave(:,:,:,1:lastMPISide_MINE)))
+CALL StartSendMPIData_GPU(   d_Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,RECV),SendID=1)
+                                                                              ! Send MINE  /   Flux_slave: master -> slave
+
+CALL SLEEP(2)
+CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Flux )                       ! Flux_slave: master -> slave
+
+
+Flux_master = d_Flux_master
+Flux_slave  = d_Flux_slave
+WRITE(*,*) 'F_M',myRank, SUM(ABS(Flux_master))
+WRITE(*,*) 'F_S',myRank, SUM(ABS(Flux_slave))
+WRITE(*,*) 'F_S1',myRank, SUM(ABS(Flux_slave(:,:,:,1:lastMPISide_MINE)))
+WRITE(*,*) 'F_S2',myRank, SUM(ABS(Flux_slave(:,:,:,firstMPISide_YOUR:lastMPISide_YOUR)))
+SWRITE(*,*) 'F_S6',myRank, SUM(ABS(Flux_slave(:,1,2,firstMPISide_YOUR-1)))
+SWRITE(*,*) 'F_S5',myRank, SUM(ABS(Flux_slave(:,1,2,firstMPISide_YOUR+1)))
+!Flux_master(:,:,:,firstMPISide_YOUR:lastMPISide_YOUR) = 0.
+!Flux_slave( :,:,:,firstMPISide_YOUR:lastMPISide_YOUR) = 0.
+U_master = d_U_master
+U_slave  = d_U_slave
+!Flux_master(:,:,:,firstMPISide_YOUR:lastMPISide_YOUR) = U_master(:,:,:,firstMPISide_YOUR:lastMPISide_YOUR)
+!Flux_slave( :,:,:,firstMPISide_YOUR:lastMPISide_YOUR) = U_slave( :,:,:,firstMPISide_YOUR:lastMPISide_YOUR)
+!d_Flux_master = Flux_master
+!d_Flux_slave  = Flux_slave
 ! 11.5)
-call nvtxStartRange("SurfInt")
+!Ut = d_Ut
 CALL SurfIntCons_GPU(PP_N,d_Flux_master,d_Flux_slave,d_Ut,.FALSE.,d_L_HatMinus,d_L_hatPlus)
-call nvtxEndRange()
+!CALL SurfIntCons(PP_N,Flux_master,Flux_slave,Ut,.FALSE.,L_HatMinus,L_hatPlus)
+!CALL SurfIntCons(PP_N,Flux_master,Flux_slave,Ut,.TRUE.,L_HatMinus,L_hatPlus)
+!d_Ut = Ut
+Ut = d_Ut
+WRITE(*,*) 'SurfInt Ut',myRank, SUM(ABS(Ut))
+SWRITE(*,*) 'lastMPISide_MINE',lastMPISide_MINE
+!DO i=1,nElems
+!  DO iSide=1,6
+!    SWRITE(*,*) ElemToSide(E2S_SIDE_ID  ,iSide,i),ElemToSide(E2S_IS_MASTER,iSide,i).EQ.1
+!  END DO
+!END Do
 !Ut = d_Ut
 !Flux_master = d_Flux_master
 !Flux_slave  = d_Flux_slave
@@ -352,10 +430,14 @@ call nvtxEndRange()
 !CALL ApplyJacobianCons(Ut,toPhysical=.TRUE.)
 
 ! ATTENTION: INCLUDES THE - Sign from 12.)
-call nvtxStartRange("ApplyJacobian")
 CALL ApplyJacobianCons_GPU<<<nElems*nDOFElem/256+1,256>>>(nDOFElem*nElems,d_sJ,d_Ut,toPhysical=.TRUE.)
-call nvtxEndRange()
 !Ut = d_Ut
+
+Ut = d_Ut
+WRITE(*,*) 'Final Ut',myRank, SUM(ABS(Ut))
+DO i=1,nElems
+  SWRITE(*,*) 'My Final Ut',i,SUM(ABS(Ut(:,:,:,:,i))),ElemToSide(E2S_SIDE_ID,:,i)
+END Do
 
 END SUBROUTINE DGTimeDerivative_weakForm
 

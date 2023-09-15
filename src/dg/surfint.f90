@@ -92,7 +92,7 @@ REAL,DEVICE,INTENT(INOUT) :: Ut(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)   !
 INTEGER,PARAMETER     :: nThreads=128
 !==================================================================================================================================
 
-!CALL SurfIntCons_Kernel<<<nElems/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,d_L_HatMinus,d_L_HatPlus,d_ElemToSide,d_S2V2)
+!CALL SurfIntCons_Kernel<<<nElems/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,L_HatMinus,L_HatPlus,d_ElemToSide,d_S2V2)
 !CALL SurfIntCons_Kernel_Point<<<nElems*nDOFElem/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,L_HatMinus,L_HatPlus,d_ElemToSide,d_S2V2_inv)
 CALL SurfIntCons_Kernel_Point_Contract<<<nElems*nDOFElem/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,L_HatMinus,L_HatPlus,d_ElemToSide,d_S2V2_inv)
 END SUBROUTINE SurfIntCons_GPU
@@ -108,13 +108,13 @@ IMPLICIT NONE
 INTEGER,VALUE,INTENT(IN) :: Nloc  !< (IN) Polynomial degree
 INTEGER,VALUE,INTENT(IN) :: nSides
 INTEGER,VALUE,INTENT(IN) :: nElems
-REAL,INTENT(IN)    :: Flux_master(1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides) !< (IN) Flux on master side
-REAL,INTENT(IN)    :: Flux_slave (1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides) !< (IN) Flux on slave side
-REAL,INTENT(IN)    :: L_HatPlus(0:Nloc),L_HatMinus(0:Nloc)
-REAL,INTENT(INOUT) :: Ut(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)   !< (INOUT) Time derivative of the solution
-INTEGER,INTENT(IN)              :: ElemToSide(3,6,nElems)
+REAL,DEVICE,INTENT(IN)    :: Flux_master(1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides) !< (IN) Flux on master side
+REAL,DEVICE,INTENT(IN)    :: Flux_slave (1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides) !< (IN) Flux on slave side
+REAL,DEVICE,INTENT(IN)    :: L_HatPlus(0:Nloc),L_HatMinus(0:Nloc)
+REAL,DEVICE,INTENT(INOUT) :: Ut(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)   !< (INOUT) Time derivative of the solution
+INTEGER,DEVICE,INTENT(IN)              :: ElemToSide(3,6,nElems)
 !INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
-INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
+INTEGER,DEVICE,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER            :: ElemID,nbElemID,locSideID,nblocSideID,SideID,p,q,flip

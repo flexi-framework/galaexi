@@ -73,7 +73,6 @@ SUBROUTINE ProlongToFace_GPU(&
 )
 ! MODULES
 USE MOD_Mesh_Vars,          ONLY: nElems,nSides
-USE MOD_GPU,                ONLY:stream2
 !@cuf USE MOD_Mesh_Vars,             ONLY: d_SideToElem,d_S2V2,d_ElemToSide
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -102,372 +101,372 @@ INTEGER,PARAMETER               :: nThreads=128
 ! CALL ProlongToFace_Kernel_Elem_locSide<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
 !CALL ProlongToFace_Kernel_Elem_locSide_PreAlloc<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,Uface_work,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
 ! CALL ProlongToFace_Kernel_Elem_locSide_pq<<<(nElems*6*Nloc*Nloc)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,UFace_temp,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
- CALL ProlongToFace_Kernel_Elem_DOFwise<<<(nElems*6*(Nloc+1)**2)/nThreads+1,nThreads,0,stream2>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
+ CALL ProlongToFace_Kernel_Elem_DOFwise<<<(nElems*6*(Nloc+1)**2)/nThreads+1,nThreads,0>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
 END SUBROUTINE ProlongToFace_GPU
 
 
 
-!==================================================================================================================================
-!> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
-!> integration points, using fast 1D Interpolation and store in global side structure
-!==================================================================================================================================
-ATTRIBUTES(GLOBAL) SUBROUTINE ProlongToFace_Kernel(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,SideToElem,S2V2)
-! MODULES
-IMPLICIT NONE
-!----------------------------------------------------------------------------------------------------------------------------------
-! INPUT/OUTPUT VARIABLES
-#ifdef WITHnVar
-INTEGER,VALUE,INTENT(IN)        :: TP_nVar
-#endif
-INTEGER,VALUE,INTENT(IN)        :: Nloc
-INTEGER,VALUE,INTENT(IN)        :: nSides
-INTEGER,VALUE,INTENT(IN)        :: nElems
-REAL,INTENT(IN)                 :: Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)
-REAL,INTENT(INOUT)              :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
-REAL,INTENT(INOUT)              :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
-REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
-INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
-INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
-!----------------------------------------------------------------------------------------------------------------------------------
-! LOCAL VARIABLES
-INTEGER                         :: p,q
-INTEGER                         :: ElemID,nbElemID,locSide,nblocSide,SideID,flip
-REAL                            :: Uface(TP_nVar,0:Nloc,0:ZDIM(Nloc))
-!==================================================================================================================================
-SideID = (blockidx%x-1) * blockdim%x + threadidx%x
-IF (SideID.LE.nSides) THEN
-  ElemID    = SideToElem(S2E_ELEM_ID,SideID)
-  nbElemID  = SideToElem(S2E_NB_ELEM_ID,SideID)
-
-  !master sides
-  IF(ElemID.GT.0)THEN
-    locSide = SideToElem(S2E_LOC_SIDE_ID,SideID)
-    flip    = 0
-
-    CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface,L_Minus,L_Plus,locSide)
-
-    DO q=0,ZDIM(Nloc); DO p=0,Nloc
-      Uface_master(:,p,q,SideID)=Uface(:,S2V2(1,p,q,0,locSide),S2V2(2,p,q,0,locSide))
-    END DO; END DO
-  END IF
-
-  !slave side (ElemID,locSide and flip =-1 if not existing)
-  IF(nbElemID.GT.0)THEN
-   nblocSide = SideToElem(S2E_NB_LOC_SIDE_ID,SideID)
-   flip      = SideToElem(S2E_FLIP,SideID)
-
-    CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,nbElemID),Uface,L_Minus,L_Plus,nblocSide)
-
-    DO q=0,ZDIM(Nloc); DO p=0,Nloc
-      Uface_slave( :,p,q,SideID)=Uface(:,S2V2(1,p,q,flip,nblocSide),S2V2(2,p,q,flip,nblocSide))
-    END DO; END DO
-  END IF
-END IF
-
-END SUBROUTINE ProlongToFace_Kernel
-
-
-!==================================================================================================================================
-!> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
-!> integration points, using fast 1D Interpolation and store in global side structure
-!==================================================================================================================================
-ATTRIBUTES(GLOBAL) SUBROUTINE ProlongToFace_Kernel_Elem(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,ElemToSide,S2V2)
-! MODULES
-IMPLICIT NONE
-!----------------------------------------------------------------------------------------------------------------------------------
-! INPUT/OUTPUT VARIABLES
-#ifdef WITHnVar
-INTEGER,VALUE,INTENT(IN)        :: TP_nVar
-#endif
-INTEGER,VALUE,INTENT(IN)        :: Nloc
-INTEGER,VALUE,INTENT(IN)        :: nSides
-INTEGER,VALUE,INTENT(IN)        :: nElems
-REAL,INTENT(IN)                 :: Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)
-REAL,INTENT(INOUT)              :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
-REAL,INTENT(INOUT)              :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
-REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
-INTEGER,INTENT(IN)              :: ElemToSide(3,6,nElems)
+!!==================================================================================================================================
+!!> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
+!!> integration points, using fast 1D Interpolation and store in global side structure
+!!==================================================================================================================================
+!ATTRIBUTES(GLOBAL) SUBROUTINE ProlongToFace_Kernel(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,SideToElem,S2V2)
+!! MODULES
+!IMPLICIT NONE
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! INPUT/OUTPUT VARIABLES
+!#ifdef WITHnVar
+!INTEGER,VALUE,INTENT(IN)        :: TP_nVar
+!#endif
+!INTEGER,VALUE,INTENT(IN)        :: Nloc
+!INTEGER,VALUE,INTENT(IN)        :: nSides
+!INTEGER,VALUE,INTENT(IN)        :: nElems
+!REAL,INTENT(IN)                 :: Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)
+!REAL,INTENT(INOUT)              :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+!REAL,INTENT(INOUT)              :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+!REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
 !INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
-INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
-!----------------------------------------------------------------------------------------------------------------------------------
-! LOCAL VARIABLES
-INTEGER                         :: p,q
-INTEGER                         :: ElemID,nbElemID,locSide,SideID,flip
-REAL                            :: Uface(TP_nVar,0:Nloc,0:ZDIM(Nloc))
-LOGICAL                         :: isMaster
-!==================================================================================================================================
-ElemID = (blockidx%x-1) * blockdim%x + threadidx%x
-IF (ElemID.LE.nElems) THEN
-  DO locSide=1,6
-    SideID   = ElemToSide(E2S_SIDE_ID  ,locSide,ElemID)
-    flip     = ElemToSide(E2S_FLIP     ,locSide,ElemID)
-    isMaster = ElemToSide(E2S_IS_MASTER,locSide,ElemID).EQ.1 ! master side for current elem
-
-
-    IF(isMaster) THEN
-      CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface,L_Minus,L_Plus,locSide)
-      DO q=0,ZDIM(Nloc); DO p=0,Nloc
-        Uface_master(:,p,q,SideID)=Uface(:,S2V2(1,p,q,0,locSide),S2V2(2,p,q,0,locSide))
-      END DO; END DO
-    ELSE ! slave
-      CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface,L_Minus,L_Plus,locSide)
-      DO q=0,ZDIM(Nloc); DO p=0,Nloc
-        Uface_slave( :,p,q,SideID)=Uface(:,S2V2(1,p,q,flip,locSide),S2V2(2,p,q,flip,locSide))
-      END DO; END DO
-    END IF
-  END DO !locSideID
-END IF
-
-END SUBROUTINE ProlongToFace_Kernel_Elem
-
-!==================================================================================================================================
-!> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
-!> integration points, using fast 1D Interpolation and store in global side structure
-!==================================================================================================================================
-ATTRIBUTES(GLOBAL) SUBROUTINE ProlongToFace_Kernel_Elem_locSide(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,Uface,L_Minus,L_Plus,ElemToSide,S2V2)
-! MODULES
-IMPLICIT NONE
-!----------------------------------------------------------------------------------------------------------------------------------
-! INPUT/OUTPUT VARIABLES
-#ifdef WITHnVar
-INTEGER,VALUE,INTENT(IN)        :: TP_nVar
-#endif
-INTEGER,VALUE,INTENT(IN)        :: Nloc
-INTEGER,VALUE,INTENT(IN)        :: nSides
-INTEGER,VALUE,INTENT(IN)        :: nElems
-REAL,INTENT(IN)                 :: Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)
-REAL,INTENT(INOUT)              :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
-REAL,INTENT(INOUT)              :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
-REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
-INTEGER,INTENT(IN)              :: ElemToSide(3,6,nElems)
-!INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
-INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
-!----------------------------------------------------------------------------------------------------------------------------------
-! LOCAL VARIABLES
-INTEGER                         :: p,q
-INTEGER                         :: ElemID,nbElemID,locSide,SideID,flip,threadID
-REAL                            :: Uface(TP_nVar,0:Nloc,0:ZDIM(Nloc))
-LOGICAL                         :: isMaster
-!==================================================================================================================================
-threadID = (blockidx%x-1) * blockdim%x + threadidx%x
-ElemID  = (threadID-1)/6 + 1
-locSide = threadID-(ElemID-1)*6
-IF (ElemID.LE.nElems) THEN
-  !DO locSide=1,6
-    SideID   = ElemToSide(E2S_SIDE_ID  ,locSide,ElemID)
-    flip     = ElemToSide(E2S_FLIP     ,locSide,ElemID)
-    isMaster = ElemToSide(E2S_IS_MASTER,locSide,ElemID).EQ.1 ! master side for current elem
-
-    CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface,L_Minus,L_Plus,locSide)
-
-    IF(isMaster) THEN
-      DO q=0,ZDIM(Nloc); DO p=0,Nloc
-        Uface_master(:,p,q,SideID)=Uface(:,S2V2(1,p,q,0,locSide),S2V2(2,p,q,0,locSide))
-      END DO; END DO
-    ELSE ! slave
-      DO q=0,ZDIM(Nloc); DO p=0,Nloc
-        Uface_slave( :,p,q,SideID)=Uface(:,S2V2(1,p,q,flip,locSide),S2V2(2,p,q,flip,locSide))
-      END DO; END DO
-    END IF
-  !END DO !locSideID
-END IF
-
-END SUBROUTINE ProlongToFace_Kernel_Elem_locSide
-
-
-!==================================================================================================================================
-!> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
-!> integration points, using fast 1D Interpolation and store in global side structure
-!==================================================================================================================================
-ATTRIBUTES(GLOBAL) SUBROUTINE ProlongToFace_Kernel_Elem_locSide_PreAlloc(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,Uface,L_Minus,L_Plus,ElemToSide,S2V2)
-! MODULES
-IMPLICIT NONE
-!----------------------------------------------------------------------------------------------------------------------------------
-! INPUT/OUTPUT VARIABLES
-#ifdef WITHnVar
-INTEGER,VALUE,INTENT(IN)        :: TP_nVar
-#endif
-INTEGER,VALUE,INTENT(IN)        :: Nloc
-INTEGER,VALUE,INTENT(IN)        :: nSides
-INTEGER,VALUE,INTENT(IN)        :: nElems
-REAL,INTENT(IN)                 :: Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)
-REAL,INTENT(INOUT)              :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
-REAL,INTENT(INOUT)              :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
-REAL,INTENT(OUT)                :: Uface(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides,2)
-REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
-INTEGER,INTENT(IN)              :: ElemToSide(3,6,nElems)
-!INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
-INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
-!----------------------------------------------------------------------------------------------------------------------------------
-! LOCAL VARIABLES
-INTEGER                         :: p,q
-INTEGER                         :: ElemID,nbElemID,locSide,SideID,flip,threadID
+!INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! LOCAL VARIABLES
+!INTEGER                         :: p,q
+!INTEGER                         :: ElemID,nbElemID,locSide,nblocSide,SideID,flip
 !REAL                            :: Uface(TP_nVar,0:Nloc,0:ZDIM(Nloc))
-LOGICAL                         :: isMaster
-!==================================================================================================================================
-threadID = (blockidx%x-1) * blockdim%x + threadidx%x
-ElemID  = (threadID-1)/6 + 1
-locSide = threadID-(ElemID-1)*6
-IF (ElemID.LE.nElems) THEN
-  !DO locSide=1,6
-    SideID   = ElemToSide(E2S_SIDE_ID  ,locSide,ElemID)
-    flip     = ElemToSide(E2S_FLIP     ,locSide,ElemID)
-    isMaster = ElemToSide(E2S_IS_MASTER,locSide,ElemID).EQ.1 ! master side for current elem
-
-    !CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface,L_Minus,L_Plus,locSide)
-
-    IF(isMaster) THEN
-      CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface(:,:,:,SideID,1),L_Minus,L_Plus,locSide)
-      DO q=0,ZDIM(Nloc); DO p=0,Nloc
-        !Uface_master(:,p,q,SideID)=Uface(:,S2V2(1,p,q,0,locSide),S2V2(2,p,q,0,locSide))
-        Uface_master(:,p,q,SideID)=Uface(:,S2V2(1,p,q,0,locSide),S2V2(2,p,q,0,locSide),SideID,1)
-      END DO; END DO
-    ELSE ! slave
-      CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface(:,:,:,SideID,2),L_Minus,L_Plus,locSide)
-      DO q=0,ZDIM(Nloc); DO p=0,Nloc
-        !Uface_slave( :,p,q,SideID)=Uface(:,S2V2(1,p,q,flip,locSide),S2V2(2,p,q,flip,locSide))
-        Uface_slave( :,p,q,SideID)=Uface(:,S2V2(1,p,q,flip,locSide),S2V2(2,p,q,flip,locSide),SideID,2)
-      END DO; END DO
-    END IF
-  !END DO !locSideID
-END IF
-
-END SUBROUTINE ProlongToFace_Kernel_Elem_locSide_PreAlloc
-
-!==================================================================================================================================
-!> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
-!> integration points, using fast 1D Interpolation and store in global side structure
-!==================================================================================================================================
-ATTRIBUTES(GLOBAL) SUBROUTINE ProlongToFace_Kernel_Elem_locSide_pq(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,UFace_temp,L_Minus,L_Plus,ElemToSide,S2V2)
-! MODULES
-IMPLICIT NONE
-!----------------------------------------------------------------------------------------------------------------------------------
-! INPUT/OUTPUT VARIABLES
-#ifdef WITHnVar
-INTEGER,VALUE,INTENT(IN)        :: TP_nVar
-#endif
-INTEGER,VALUE,INTENT(IN)        :: Nloc
-INTEGER,VALUE,INTENT(IN)        :: nSides
-INTEGER,VALUE,INTENT(IN)        :: nElems
-REAL,INTENT(IN)                 :: Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)
-REAL,INTENT(INOUT)              :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
-REAL,INTENT(INOUT)              :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
-REAL,INTENT(OUT)                :: UFace_temp(TP_nVar)
-REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
-INTEGER,INTENT(IN)              :: ElemToSide(3,6,nElems)
-!INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
-INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
-!----------------------------------------------------------------------------------------------------------------------------------
-! LOCAL VARIABLES
-INTEGER                         :: pq(2)
-INTEGER                         :: p,q,l,rest
-INTEGER                         :: ElemID,nbElemID,locSide,SideID,flip,threadID
-LOGICAL                         :: isMaster
-!==================================================================================================================================
-! Get thread indices
-threadID = (blockidx%x-1) * blockdim%x + threadidx%x
-! Get ElemID of current thread
-ElemID   =        (threadID-1)/((Nloc+1)**2*6)+1 ! Elems are 1-indexed
-rest     =         threadID-(ElemID-1)*(Nloc+1)**2*6
-! Get ijk indices of current thread
-q        = (rest-1)/((Nloc+1)*6)
-rest     =  rest- q*(Nloc+1)*6
-p        = (rest-1)/6
-rest     =  rest- p*6
-locSide  = (rest-1)
-rest     =  rest- p
-
-! threadID = (blockidx%x-1) * blockdim%x + threadidx%x
-! ElemID  = (threadID-1)/6 + 1
-! locSide = threadID-(ElemID-1)*6
-IF (ElemID.LE.nElems) THEN
-  SideID   = ElemToSide(E2S_SIDE_ID  ,locSide,ElemID)
-  flip     = ElemToSide(E2S_FLIP     ,locSide,ElemID)
-  isMaster = ElemToSide(E2S_IS_MASTER,locSide,ElemID).EQ.1 ! master side for current elem
-
-  !CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface,L_Minus,L_Plus,locSide)
-  SELECT CASE(locSide)
-  CASE(XI_MINUS)
-    IF(isMaster) THEN
-      pq(1) = S2V2(1,p,q,0,locSide)
-      pq(2) = S2V2(2,p,q,0,locSide)
-    ELSE
-      pq(1) = S2V2(1,p,q,flip,locSide)
-      pq(2) = S2V2(2,p,q,flip,locSide)
-    END IF
-    Uface_temp=UVol(:,0,pq(1),pq(2),ElemID)*L_Minus(0)
-    DO l=1,Nloc
-      Uface_temp=Uface_temp+Uvol(:,l,pq(1),pq(2),ElemID)*L_Minus(l)
-    END DO ! l
-    Uface_master(:,p,q,SideID)=Uface_temp
-  CASE(ETA_MINUS)
-    IF(isMaster) THEN
-      pq(1) = S2V2(1,p,q,0,locSide)
-      pq(2) = S2V2(2,p,q,0,locSide)
-    ELSE
-      pq(1) = S2V2(1,p,q,flip,locSide)
-      pq(2) = S2V2(2,p,q,flip,locSide)
-    END IF
-    Uface_temp=UVol(:,pq(1),0,pq(2),ElemID)*L_Minus(0)
-    DO l=1,Nloc
-      Uface_temp=Uface_temp+Uvol(:,pq(1),l,pq(2),ElemID)*L_Minus(l)
-    END DO ! l
-    Uface_master(:,p,q,SideID)=Uface_temp
-  CASE(ZETA_MINUS)
-    IF(isMaster) THEN
-      pq(1) = S2V2(1,p,q,0,locSide)
-      pq(2) = S2V2(2,p,q,0,locSide)
-    ELSE
-      pq(1) = S2V2(1,p,q,flip,locSide)
-      pq(2) = S2V2(2,p,q,flip,locSide)
-    END IF
-    Uface_temp=UVol(:,pq(1),pq(2),0,ElemID)*L_Minus(0)
-    DO l=1,Nloc
-      Uface_temp=Uface_temp+Uvol(:,pq(1),pq(2),l,ElemID)*L_Minus(l)
-    END DO ! l
-    Uface_master(:,p,q,SideID)=Uface_temp
-  CASE(XI_PLUS)
-    IF(isMaster) THEN
-      pq(1) = S2V2(1,p,q,0,locSide)
-      pq(2) = S2V2(2,p,q,0,locSide)
-    ELSE
-      pq(1) = S2V2(1,p,q,flip,locSide)
-      pq(2) = S2V2(2,p,q,flip,locSide)
-    END IF
-    Uface_temp=UVol(:,0,pq(1),pq(2),ElemID)*L_Plus(0)
-    DO l=1,Nloc
-      Uface_temp=Uface_temp+Uvol(:,l,pq(1),pq(2),ElemID)*L_Plus(l)
-    END DO ! l
-    Uface_master(:,p,q,SideID)=Uface_temp
-  CASE(ETA_PLUS)
-    IF(isMaster) THEN
-      pq(1) = S2V2(1,p,q,0,locSide)
-      pq(2) = S2V2(2,p,q,0,locSide)
-    ELSE
-      pq(1) = S2V2(1,p,q,flip,locSide)
-      pq(2) = S2V2(2,p,q,flip,locSide)
-    END IF
-    Uface_temp=UVol(:,pq(1),0,pq(2),ElemID)*L_Plus(0)
-    DO l=1,Nloc
-      Uface_temp=Uface_temp+Uvol(:,pq(1),l,pq(2),ElemID)*L_Plus(l)
-    END DO ! l
-    Uface_master(:,p,q,SideID)=Uface_temp
-  CASE(ZETA_PLUS)
-    IF(isMaster) THEN
-      pq(1) = S2V2(1,p,q,0,locSide)
-      pq(2) = S2V2(2,p,q,0,locSide)
-    ELSE
-      pq(1) = S2V2(1,p,q,flip,locSide)
-      pq(2) = S2V2(2,p,q,flip,locSide)
-    END IF
-    Uface_temp=UVol(:,pq(1),pq(2),0,ElemID)*L_Plus(0)
-    DO l=1,Nloc
-      Uface_temp=Uface_temp+Uvol(:,pq(1),pq(2),l,ElemID)*L_Plus(l)
-    END DO ! l
-    Uface_master(:,p,q,SideID)=Uface_temp
-  END SELECT
-END IF
-END SUBROUTINE ProlongToFace_Kernel_Elem_locSide_pq
+!!==================================================================================================================================
+!SideID = (blockidx%x-1) * blockdim%x + threadidx%x
+!IF (SideID.LE.nSides) THEN
+!  ElemID    = SideToElem(S2E_ELEM_ID,SideID)
+!  nbElemID  = SideToElem(S2E_NB_ELEM_ID,SideID)
+!
+!  !master sides
+!  IF(ElemID.GT.0)THEN
+!    locSide = SideToElem(S2E_LOC_SIDE_ID,SideID)
+!    flip    = 0
+!
+!    CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface,L_Minus,L_Plus,locSide)
+!
+!    DO q=0,ZDIM(Nloc); DO p=0,Nloc
+!      Uface_master(:,p,q,SideID)=Uface(:,S2V2(1,p,q,0,locSide),S2V2(2,p,q,0,locSide))
+!    END DO; END DO
+!  END IF
+!
+!  !slave side (ElemID,locSide and flip =-1 if not existing)
+!  IF(nbElemID.GT.0)THEN
+!   nblocSide = SideToElem(S2E_NB_LOC_SIDE_ID,SideID)
+!   flip      = SideToElem(S2E_FLIP,SideID)
+!
+!    CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,nbElemID),Uface,L_Minus,L_Plus,nblocSide)
+!
+!    DO q=0,ZDIM(Nloc); DO p=0,Nloc
+!      Uface_slave( :,p,q,SideID)=Uface(:,S2V2(1,p,q,flip,nblocSide),S2V2(2,p,q,flip,nblocSide))
+!    END DO; END DO
+!  END IF
+!END IF
+!
+!END SUBROUTINE ProlongToFace_Kernel
+!
+!
+!!==================================================================================================================================
+!!> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
+!!> integration points, using fast 1D Interpolation and store in global side structure
+!!==================================================================================================================================
+!ATTRIBUTES(GLOBAL) SUBROUTINE ProlongToFace_Kernel_Elem(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,ElemToSide,S2V2)
+!! MODULES
+!IMPLICIT NONE
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! INPUT/OUTPUT VARIABLES
+!#ifdef WITHnVar
+!INTEGER,VALUE,INTENT(IN)        :: TP_nVar
+!#endif
+!INTEGER,VALUE,INTENT(IN)        :: Nloc
+!INTEGER,VALUE,INTENT(IN)        :: nSides
+!INTEGER,VALUE,INTENT(IN)        :: nElems
+!REAL,INTENT(IN)                 :: Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)
+!REAL,INTENT(INOUT)              :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+!REAL,INTENT(INOUT)              :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+!REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
+!INTEGER,INTENT(IN)              :: ElemToSide(3,6,nElems)
+!!INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
+!INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! LOCAL VARIABLES
+!INTEGER                         :: p,q
+!INTEGER                         :: ElemID,nbElemID,locSide,SideID,flip
+!REAL                            :: Uface(TP_nVar,0:Nloc,0:ZDIM(Nloc))
+!LOGICAL                         :: isMaster
+!!==================================================================================================================================
+!ElemID = (blockidx%x-1) * blockdim%x + threadidx%x
+!IF (ElemID.LE.nElems) THEN
+!  DO locSide=1,6
+!    SideID   = ElemToSide(E2S_SIDE_ID  ,locSide,ElemID)
+!    flip     = ElemToSide(E2S_FLIP     ,locSide,ElemID)
+!    isMaster = ElemToSide(E2S_IS_MASTER,locSide,ElemID).EQ.1 ! master side for current elem
+!
+!
+!    IF(isMaster) THEN
+!      CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface,L_Minus,L_Plus,locSide)
+!      DO q=0,ZDIM(Nloc); DO p=0,Nloc
+!        Uface_master(:,p,q,SideID)=Uface(:,S2V2(1,p,q,0,locSide),S2V2(2,p,q,0,locSide))
+!      END DO; END DO
+!    ELSE ! slave
+!      CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface,L_Minus,L_Plus,locSide)
+!      DO q=0,ZDIM(Nloc); DO p=0,Nloc
+!        Uface_slave( :,p,q,SideID)=Uface(:,S2V2(1,p,q,flip,locSide),S2V2(2,p,q,flip,locSide))
+!      END DO; END DO
+!    END IF
+!  END DO !locSideID
+!END IF
+!
+!END SUBROUTINE ProlongToFace_Kernel_Elem
+!
+!!==================================================================================================================================
+!!> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
+!!> integration points, using fast 1D Interpolation and store in global side structure
+!!==================================================================================================================================
+!ATTRIBUTES(GLOBAL) SUBROUTINE ProlongToFace_Kernel_Elem_locSide(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,Uface,L_Minus,L_Plus,ElemToSide,S2V2)
+!! MODULES
+!IMPLICIT NONE
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! INPUT/OUTPUT VARIABLES
+!#ifdef WITHnVar
+!INTEGER,VALUE,INTENT(IN)        :: TP_nVar
+!#endif
+!INTEGER,VALUE,INTENT(IN)        :: Nloc
+!INTEGER,VALUE,INTENT(IN)        :: nSides
+!INTEGER,VALUE,INTENT(IN)        :: nElems
+!REAL,INTENT(IN)                 :: Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)
+!REAL,INTENT(INOUT)              :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+!REAL,INTENT(INOUT)              :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+!REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
+!INTEGER,INTENT(IN)              :: ElemToSide(3,6,nElems)
+!!INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
+!INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! LOCAL VARIABLES
+!INTEGER                         :: p,q
+!INTEGER                         :: ElemID,nbElemID,locSide,SideID,flip,threadID
+!REAL                            :: Uface(TP_nVar,0:Nloc,0:ZDIM(Nloc))
+!LOGICAL                         :: isMaster
+!!==================================================================================================================================
+!threadID = (blockidx%x-1) * blockdim%x + threadidx%x
+!ElemID  = (threadID-1)/6 + 1
+!locSide = threadID-(ElemID-1)*6
+!IF (ElemID.LE.nElems) THEN
+!  !DO locSide=1,6
+!    SideID   = ElemToSide(E2S_SIDE_ID  ,locSide,ElemID)
+!    flip     = ElemToSide(E2S_FLIP     ,locSide,ElemID)
+!    isMaster = ElemToSide(E2S_IS_MASTER,locSide,ElemID).EQ.1 ! master side for current elem
+!
+!    CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface,L_Minus,L_Plus,locSide)
+!
+!    IF(isMaster) THEN
+!      DO q=0,ZDIM(Nloc); DO p=0,Nloc
+!        Uface_master(:,p,q,SideID)=Uface(:,S2V2(1,p,q,0,locSide),S2V2(2,p,q,0,locSide))
+!      END DO; END DO
+!    ELSE ! slave
+!      DO q=0,ZDIM(Nloc); DO p=0,Nloc
+!        Uface_slave( :,p,q,SideID)=Uface(:,S2V2(1,p,q,flip,locSide),S2V2(2,p,q,flip,locSide))
+!      END DO; END DO
+!    END IF
+!  !END DO !locSideID
+!END IF
+!
+!END SUBROUTINE ProlongToFace_Kernel_Elem_locSide
+!
+!
+!!==================================================================================================================================
+!!> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
+!!> integration points, using fast 1D Interpolation and store in global side structure
+!!==================================================================================================================================
+!ATTRIBUTES(GLOBAL) SUBROUTINE ProlongToFace_Kernel_Elem_locSide_PreAlloc(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,Uface,L_Minus,L_Plus,ElemToSide,S2V2)
+!! MODULES
+!IMPLICIT NONE
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! INPUT/OUTPUT VARIABLES
+!#ifdef WITHnVar
+!INTEGER,VALUE,INTENT(IN)        :: TP_nVar
+!#endif
+!INTEGER,VALUE,INTENT(IN)        :: Nloc
+!INTEGER,VALUE,INTENT(IN)        :: nSides
+!INTEGER,VALUE,INTENT(IN)        :: nElems
+!REAL,INTENT(IN)                 :: Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)
+!REAL,INTENT(INOUT)              :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+!REAL,INTENT(INOUT)              :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+!REAL,INTENT(OUT)                :: Uface(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides,2)
+!REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
+!INTEGER,INTENT(IN)              :: ElemToSide(3,6,nElems)
+!!INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
+!INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! LOCAL VARIABLES
+!INTEGER                         :: p,q
+!INTEGER                         :: ElemID,nbElemID,locSide,SideID,flip,threadID
+!!REAL                            :: Uface(TP_nVar,0:Nloc,0:ZDIM(Nloc))
+!LOGICAL                         :: isMaster
+!!==================================================================================================================================
+!threadID = (blockidx%x-1) * blockdim%x + threadidx%x
+!ElemID  = (threadID-1)/6 + 1
+!locSide = threadID-(ElemID-1)*6
+!IF (ElemID.LE.nElems) THEN
+!  !DO locSide=1,6
+!    SideID   = ElemToSide(E2S_SIDE_ID  ,locSide,ElemID)
+!    flip     = ElemToSide(E2S_FLIP     ,locSide,ElemID)
+!    isMaster = ElemToSide(E2S_IS_MASTER,locSide,ElemID).EQ.1 ! master side for current elem
+!
+!    !CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface,L_Minus,L_Plus,locSide)
+!
+!    IF(isMaster) THEN
+!      CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface(:,:,:,SideID,1),L_Minus,L_Plus,locSide)
+!      DO q=0,ZDIM(Nloc); DO p=0,Nloc
+!        !Uface_master(:,p,q,SideID)=Uface(:,S2V2(1,p,q,0,locSide),S2V2(2,p,q,0,locSide))
+!        Uface_master(:,p,q,SideID)=Uface(:,S2V2(1,p,q,0,locSide),S2V2(2,p,q,0,locSide),SideID,1)
+!      END DO; END DO
+!    ELSE ! slave
+!      CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface(:,:,:,SideID,2),L_Minus,L_Plus,locSide)
+!      DO q=0,ZDIM(Nloc); DO p=0,Nloc
+!        !Uface_slave( :,p,q,SideID)=Uface(:,S2V2(1,p,q,flip,locSide),S2V2(2,p,q,flip,locSide))
+!        Uface_slave( :,p,q,SideID)=Uface(:,S2V2(1,p,q,flip,locSide),S2V2(2,p,q,flip,locSide),SideID,2)
+!      END DO; END DO
+!    END IF
+!  !END DO !locSideID
+!END IF
+!
+!END SUBROUTINE ProlongToFace_Kernel_Elem_locSide_PreAlloc
+!
+!!==================================================================================================================================
+!!> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
+!!> integration points, using fast 1D Interpolation and store in global side structure
+!!==================================================================================================================================
+!ATTRIBUTES(GLOBAL) SUBROUTINE ProlongToFace_Kernel_Elem_locSide_pq(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,UFace_temp,L_Minus,L_Plus,ElemToSide,S2V2)
+!! MODULES
+!IMPLICIT NONE
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! INPUT/OUTPUT VARIABLES
+!#ifdef WITHnVar
+!INTEGER,VALUE,INTENT(IN)        :: TP_nVar
+!#endif
+!INTEGER,VALUE,INTENT(IN)        :: Nloc
+!INTEGER,VALUE,INTENT(IN)        :: nSides
+!INTEGER,VALUE,INTENT(IN)        :: nElems
+!REAL,INTENT(IN)                 :: Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)
+!REAL,INTENT(INOUT)              :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+!REAL,INTENT(INOUT)              :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+!REAL,INTENT(OUT)                :: UFace_temp(TP_nVar)
+!REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
+!INTEGER,INTENT(IN)              :: ElemToSide(3,6,nElems)
+!!INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
+!INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! LOCAL VARIABLES
+!INTEGER                         :: pq(2)
+!INTEGER                         :: p,q,l,rest
+!INTEGER                         :: ElemID,nbElemID,locSide,SideID,flip,threadID
+!LOGICAL                         :: isMaster
+!!==================================================================================================================================
+!! Get thread indices
+!threadID = (blockidx%x-1) * blockdim%x + threadidx%x
+!! Get ElemID of current thread
+!ElemID   =        (threadID-1)/((Nloc+1)**2*6)+1 ! Elems are 1-indexed
+!rest     =         threadID-(ElemID-1)*(Nloc+1)**2*6
+!! Get ijk indices of current thread
+!q        = (rest-1)/((Nloc+1)*6)
+!rest     =  rest- q*(Nloc+1)*6
+!p        = (rest-1)/6
+!rest     =  rest- p*6
+!locSide  = (rest-1)
+!rest     =  rest- p
+!
+!! threadID = (blockidx%x-1) * blockdim%x + threadidx%x
+!! ElemID  = (threadID-1)/6 + 1
+!! locSide = threadID-(ElemID-1)*6
+!IF (ElemID.LE.nElems) THEN
+!  SideID   = ElemToSide(E2S_SIDE_ID  ,locSide,ElemID)
+!  flip     = ElemToSide(E2S_FLIP     ,locSide,ElemID)
+!  isMaster = ElemToSide(E2S_IS_MASTER,locSide,ElemID).EQ.1 ! master side for current elem
+!
+!  !CALL EvalElemFaceG_GPU(Nloc,UVol(:,:,:,:,ElemID),Uface,L_Minus,L_Plus,locSide)
+!  SELECT CASE(locSide)
+!  CASE(XI_MINUS)
+!    IF(isMaster) THEN
+!      pq(1) = S2V2(1,p,q,0,locSide)
+!      pq(2) = S2V2(2,p,q,0,locSide)
+!    ELSE
+!      pq(1) = S2V2(1,p,q,flip,locSide)
+!      pq(2) = S2V2(2,p,q,flip,locSide)
+!    END IF
+!    Uface_temp=UVol(:,0,pq(1),pq(2),ElemID)*L_Minus(0)
+!    DO l=1,Nloc
+!      Uface_temp=Uface_temp+Uvol(:,l,pq(1),pq(2),ElemID)*L_Minus(l)
+!    END DO ! l
+!    Uface_master(:,p,q,SideID)=Uface_temp
+!  CASE(ETA_MINUS)
+!    IF(isMaster) THEN
+!      pq(1) = S2V2(1,p,q,0,locSide)
+!      pq(2) = S2V2(2,p,q,0,locSide)
+!    ELSE
+!      pq(1) = S2V2(1,p,q,flip,locSide)
+!      pq(2) = S2V2(2,p,q,flip,locSide)
+!    END IF
+!    Uface_temp=UVol(:,pq(1),0,pq(2),ElemID)*L_Minus(0)
+!    DO l=1,Nloc
+!      Uface_temp=Uface_temp+Uvol(:,pq(1),l,pq(2),ElemID)*L_Minus(l)
+!    END DO ! l
+!    Uface_master(:,p,q,SideID)=Uface_temp
+!  CASE(ZETA_MINUS)
+!    IF(isMaster) THEN
+!      pq(1) = S2V2(1,p,q,0,locSide)
+!      pq(2) = S2V2(2,p,q,0,locSide)
+!    ELSE
+!      pq(1) = S2V2(1,p,q,flip,locSide)
+!      pq(2) = S2V2(2,p,q,flip,locSide)
+!    END IF
+!    Uface_temp=UVol(:,pq(1),pq(2),0,ElemID)*L_Minus(0)
+!    DO l=1,Nloc
+!      Uface_temp=Uface_temp+Uvol(:,pq(1),pq(2),l,ElemID)*L_Minus(l)
+!    END DO ! l
+!    Uface_master(:,p,q,SideID)=Uface_temp
+!  CASE(XI_PLUS)
+!    IF(isMaster) THEN
+!      pq(1) = S2V2(1,p,q,0,locSide)
+!      pq(2) = S2V2(2,p,q,0,locSide)
+!    ELSE
+!      pq(1) = S2V2(1,p,q,flip,locSide)
+!      pq(2) = S2V2(2,p,q,flip,locSide)
+!    END IF
+!    Uface_temp=UVol(:,0,pq(1),pq(2),ElemID)*L_Plus(0)
+!    DO l=1,Nloc
+!      Uface_temp=Uface_temp+Uvol(:,l,pq(1),pq(2),ElemID)*L_Plus(l)
+!    END DO ! l
+!    Uface_master(:,p,q,SideID)=Uface_temp
+!  CASE(ETA_PLUS)
+!    IF(isMaster) THEN
+!      pq(1) = S2V2(1,p,q,0,locSide)
+!      pq(2) = S2V2(2,p,q,0,locSide)
+!    ELSE
+!      pq(1) = S2V2(1,p,q,flip,locSide)
+!      pq(2) = S2V2(2,p,q,flip,locSide)
+!    END IF
+!    Uface_temp=UVol(:,pq(1),0,pq(2),ElemID)*L_Plus(0)
+!    DO l=1,Nloc
+!      Uface_temp=Uface_temp+Uvol(:,pq(1),l,pq(2),ElemID)*L_Plus(l)
+!    END DO ! l
+!    Uface_master(:,p,q,SideID)=Uface_temp
+!  CASE(ZETA_PLUS)
+!    IF(isMaster) THEN
+!      pq(1) = S2V2(1,p,q,0,locSide)
+!      pq(2) = S2V2(2,p,q,0,locSide)
+!    ELSE
+!      pq(1) = S2V2(1,p,q,flip,locSide)
+!      pq(2) = S2V2(2,p,q,flip,locSide)
+!    END IF
+!    Uface_temp=UVol(:,pq(1),pq(2),0,ElemID)*L_Plus(0)
+!    DO l=1,Nloc
+!      Uface_temp=Uface_temp+Uvol(:,pq(1),pq(2),l,ElemID)*L_Plus(l)
+!    END DO ! l
+!    Uface_master(:,p,q,SideID)=Uface_temp
+!  END SELECT
+!END IF
+!END SUBROUTINE ProlongToFace_Kernel_Elem_locSide_pq
 
 
 !==================================================================================================================================
