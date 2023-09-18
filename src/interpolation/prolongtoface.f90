@@ -101,7 +101,9 @@ INTEGER,PARAMETER               :: nThreads=128
 ! CALL ProlongToFace_Kernel_Elem_locSide<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
 !CALL ProlongToFace_Kernel_Elem_locSide_PreAlloc<<<(nElems*6)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,Uface_work,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
 ! CALL ProlongToFace_Kernel_Elem_locSide_pq<<<(nElems*6*Nloc*Nloc)/nThreads+1,nThreads>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,UFace_temp,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
+
  CALL ProlongToFace_Kernel_Elem_DOFwise<<<(nElems*6*(Nloc+1)**2)/nThreads+1,nThreads,0>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_ElemToSide,d_S2V2)
+ !CALL  ProlongToFace_Kernel_Side_DOFwise<<<(nElems*6*(Nloc+1)**2)/nThreads+1,nThreads,0>>>(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,d_ElemToSide,d_S2V2,doMPISides)
 END SUBROUTINE ProlongToFace_GPU
 
 
@@ -568,6 +570,108 @@ IF (ElemID.LE.nElems) THEN
 END IF
 
 END SUBROUTINE ProlongToFace_Kernel_Elem_DOFwise
+
+
+!==================================================================================================================================
+!> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
+!> integration points, using fast 1D Interpolation and store in global side structure
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE ProlongToFace_Kernel_Side_DOFwise(Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,ElemToSide,S2V2)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+#ifdef WITHnVar
+INTEGER,VALUE,INTENT(IN)        :: TP_nVar
+#endif
+INTEGER,VALUE,INTENT(IN)        :: Nloc
+INTEGER,VALUE,INTENT(IN)        :: nSides
+INTEGER,VALUE,INTENT(IN)        :: nElems
+REAL,INTENT(IN)                 :: Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)
+REAL,INTENT(INOUT)              :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+REAL,INTENT(INOUT)              :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
+INTEGER,INTENT(IN)              :: ElemToSide(3,6,nElems)
+!INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
+INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                         :: p,q
+INTEGER                         :: i,j,l,rest
+INTEGER                         :: ElemID,locSideID,SideID,flip,threadID
+REAL                            :: Uface(TP_nVar)
+LOGICAL                         :: isMaster
+!==================================================================================================================================
+! Get thread indices
+threadID = (blockidx%x-1) * blockdim%x + threadidx%x
+! Get ElemID of current thread
+ElemID   =        (threadID-1)/((Nloc+1)**2*6)+1 ! Elems are 1-indexed
+
+rest     = threadID-(ElemID-1)*((Nloc+1)**2*6)
+! Get locSideID
+locSideID= (rest-1)            /(Nloc+1)**2+1 ! locSideID is 1-indexed
+rest     =  rest- (locSideID-1)*(Nloc+1)**2
+! Get pq indices of current thread
+p        = (rest-1)/(Nloc+1)!**1
+rest     =  rest- p*(Nloc+1)!**1
+q        = (rest-1)!/(Nloc+1)**0
+rest     =  rest- q!*(Nloc+1)**0
+
+IF (ElemID.LE.nElems) THEN
+  !DO locSideID=1,6
+    SideID   = ElemToSide(E2S_SIDE_ID  ,locSideID,ElemID)
+    flip     = ElemToSide(E2S_FLIP     ,locSideID,ElemID)
+    isMaster = ElemToSide(E2S_IS_MASTER,locSideID,ElemID).EQ.1 ! master side for current elem
+
+    ! Get 2D position in the two non-prolongated dimensions in volume coords
+    i = S2V2(1,p,q,flip,locSideID) ! First  index to evaluate volume solution at
+    j = S2V2(2,p,q,flip,locSideID) ! Second index to evaluate volume solution at
+
+    ! Eval pointwise
+    SELECT CASE(locSideID)
+    CASE(XI_MINUS)
+      Uface=Uvol(:,0,i,j,ElemID)*L_Minus(0)
+      DO l=1,Nloc
+        Uface=Uface+Uvol(:,l,i,j,ElemID)*L_Minus(l)
+      END DO ! l
+    CASE(ETA_MINUS)
+      Uface=Uvol(:,i,0,j,ElemID)*L_Minus(0)
+      DO l=1,Nloc
+        Uface=Uface+Uvol(:,i,l,j,ElemID)*L_Minus(l)
+      END DO ! l
+    CASE(ZETA_MINUS)
+      Uface=Uvol(:,i,j,0,ElemID)*L_Minus(0)
+      DO l=1,Nloc
+        Uface=Uface+Uvol(:,i,j,l,ElemID)*L_Minus(l)
+      END DO ! l
+    CASE(XI_PLUS)
+      Uface=Uvol(:,0,i,j,ElemID)*L_Plus(0)
+      DO l=1,Nloc
+        Uface=Uface+Uvol(:,l,i,j,ElemID)*L_Plus(l)
+      END DO ! l
+    CASE(ETA_PLUS)
+      Uface=Uvol(:,i,0,j,ElemID)*L_Plus(0)
+      DO l=1,Nloc
+        Uface=Uface+Uvol(:,i,l,j,ElemID)*L_Plus(l)
+      END DO ! l
+    CASE(ZETA_PLUS)
+      Uface=Uvol(:,i,j,0,ElemID)*L_Plus(0)
+      DO l=1,Nloc
+        Uface=Uface+Uvol(:,i,j,l,ElemID)*L_Plus(l)
+      END DO ! l
+    END SELECT
+
+    ! Write to correct array
+    IF (isMaster) THEN
+      Uface_master(:,p,q,SideID)=Uface(:)
+    ELSE
+      Uface_slave( :,p,q,SideID)=Uface(:)
+    END IF
+
+  !END DO !locSide
+END IF
+
+END SUBROUTINE ProlongToFace_Kernel_Side_DOFwise
 
 END MODULE MOD_ProlongToFaceCons
 

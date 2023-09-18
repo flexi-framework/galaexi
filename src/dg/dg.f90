@@ -149,6 +149,11 @@ Flux_slave =0.
 d_Flux_master=Flux_master
 d_Flux_slave =Flux_slave
 
+ALLOCATE(d_f (PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volInt))
+ALLOCATE(d_g (PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volInt))
+ALLOCATE(d_h (PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volInt))
+
+
 ! variables for performance tricks
 nDOFFace=(PP_N+1)**(PP_dim-1)
 nDOFElem=(PP_N+1)**PP_dim
@@ -310,13 +315,15 @@ INTEGER :: i,j,iSide
 ! -----------------------------------------------------------------------------
 
 ! 2. Convert Volume solution to primitive
-CALL ConsToPrim_GPU<<<nElems*nDOFElem/256+1,256,0>>>(nElems*nDOFElem,d_UPrim,d_U)
+!CALL ConsToPrim_GPU<<<nElems*nDOFElem/256+1,256,0>>>(nElems*nDOFElem,d_UPrim,d_U)
 
 ! 3. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
 CALL StartReceiveMPIData_GPU(d_U_slave,DataSizeSide,1,nSides,MPIRequest_U(:,SEND),SendID=2) ! Receive MINE / U_slave: slave -> master
 CALL ProlongToFaceCons_GPU(PP_N,d_U,d_U_master,d_U_slave,d_L_Minus,d_L_Plus,doMPISides=.FALSE.)
+!CALL ProlongToFaceCons_GPU(PP_N,d_U,d_U_master,d_U_slave,d_L_Minus,d_L_Plus,doMPISides=.TRUE.)
 CALL cudaDeviceSynchronize()
 CALL StartSendMPIData_GPU(   d_U_slave,DataSizeSide,1,nSides,MPIRequest_U(:,RECV),SendID=2) ! SEND YOUR / U_slave: slave -> master
+CALL ConsToPrim_GPU<<<nElems*nDOFElem/256+1,256,0>>>(nElems*nDOFElem,d_UPrim,d_U)
 CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_U)        ! U_slave: slave -> master
 
 ! 4. Convert face data from conservative to primitive variables
@@ -331,9 +338,10 @@ CALL VolInt(d_Ut)
 
 ! 11. Fill flux and Surface integral
 CALL StartReceiveMPIData_GPU(d_Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,SEND),SendID=1)
-CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.)
+CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.TRUE.)
 CALL cudaDeviceSynchronize()
 CALL StartSendMPIData_GPU(   d_Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,RECV),SendID=1)
+CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.)
 CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Flux )                       ! Flux_slave: master -> slave
 
 ! 11.5)
@@ -422,6 +430,9 @@ SDEALLOCATE(UPrim)
 SDEALLOCATE(UPrim_master)
 SDEALLOCATE(UPrim_slave)
 SDEALLOCATE(UPrim_boundary)
+SDEALLOCATE(d_f)
+SDEALLOCATE(d_g)
+SDEALLOCATE(d_h)
 
 DGInitIsDone = .FALSE.
 END SUBROUTINE FinalizeDG

@@ -118,7 +118,7 @@ SUBROUTINE VolInt_weakForm(d_Ut)
 ! MODULES
 USE CUDAFOR
 USE MOD_PreProc
-USE MOD_DG_Vars      ,ONLY: nDOFElem,UPrim,U
+USE MOD_DG_Vars      ,ONLY: nDOFElem,UPrim,U,d_f,d_g,d_h,nElems_Block_volInt
 !@cuf USE MOD_DG_Vars      ,ONLY: d_U,d_UPrim,d_D_Hat_T
 USE MOD_Mesh_Vars    ,ONLY: Metrics_fTilde,Metrics_gTilde,Metrics_hTilde,nElems
 !@cuf USE MOD_Mesh_Vars    ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,nElems
@@ -136,14 +136,12 @@ IMPLICIT NONE
 REAL,DEVICE,INTENT(OUT)   :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER,PARAMETER  :: nElems_Block=64
 INTEGER            :: i,j,k,l,iElem,iiElem,nElems_myBlock
 INTEGER            :: lastElem
-REAL,DEVICE,DIMENSION(PP_nVar    ,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block) :: d_f, d_g, d_h
 !==================================================================================================================================
 ! Diffusive part
-DO iElem=1,nElems,nElems_Block
-  lastElem    = MIN(nElems,iElem+nElems_Block-1)
+DO iElem=1,nElems,nElems_Block_volInt
+  lastElem    = MIN(nElems,iElem+nElems_Block_volInt-1)
   nElems_myBlock = lastElem-iElem+1
 
   ! Cut out the local DG solution for a grid cell iElem and all Gauss points from the global field

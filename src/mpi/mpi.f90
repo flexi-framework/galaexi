@@ -363,7 +363,6 @@ REAL,INTENT(IN),DEVICE      :: FaceData(DataSize,LowerBound:UpperBound) !< the c
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER                     :: iNBProc
-REAL :: h_FaceData(DataSize,LowerBound:UpperBound)
 !==================================================================================================================================
 DO iNbProc=1,nNbProcs
   IF(nMPISides_send(iNbProc,SendID).GT.0)THEN
@@ -372,7 +371,6 @@ DO iNbProc=1,nNbProcs
     SideID_end  =OffsetMPISides_send(iNbProc,SendID)
     CALL MPI_ISEND(FaceData(:,SideID_start:SideID_end),nSendVal,MPI_DOUBLE_PRECISION,  &
                     nbProc(iNbProc),0,MPI_COMM_FLEXI,MPIRequest(iNbProc),iError)
-    h_FaceData=FaceData
   ELSE
     MPIRequest(iNbProc)=MPI_REQUEST_NULL
   END IF

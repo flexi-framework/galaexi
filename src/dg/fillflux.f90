@@ -85,21 +85,21 @@ INTEGER :: FV_Elems_Max(1:nSides) ! 0 if both sides DG, 1 else
 !==================================================================================================================================
 ! fill flux for sides ranging between firstSideID and lastSideID using Riemann solver for advection and viscous terms
 ! Set the side range according to MPI or no MPI
-!IF(doMPISides)THEN
-!  ! fill only flux for MINE MPISides (where the local proc is master)
-!  firstSideID_wo_BC = firstMPISide_MINE
-!  firstSideID = firstMPISide_MINE
-!   lastSideID =  lastMPISide_MINE
-!ELSE
-!  ! fill only InnerSides that do not need communication
-!  firstSideID_wo_BC = firstInnerSide ! for fluxes
-!  firstSideID = firstBCSide    ! include BCs for master sides
-!   lastSideID = lastInnerSide
-!END IF
+IF(doMPISides)THEN
+  ! fill only flux for MINE MPISides (where the local proc is master)
+  firstSideID_wo_BC = firstMPISide_MINE
+  firstSideID = firstMPISide_MINE
+   lastSideID =  lastMPISide_MINE
+ELSE
+  ! fill only InnerSides that do not need communication
+  firstSideID_wo_BC = firstInnerSide ! for fluxes
+  firstSideID = firstBCSide    ! include BCs for master sides
+   lastSideID = lastInnerSide
+END IF
 
-firstSideID_wo_BC = firstInnerSide
-firstSideID = firstBCSide
- lastSideID = lastMPISide_MINE
+!firstSideID_wo_BC = firstInnerSide
+!firstSideID = firstBCSide
+ !lastSideID = lastMPISide_MINE
 
 DO SideID=firstSideID,lastSideID
   FV_Elems_Max(SideID) = MAX(FV_Elems_master(SideID),FV_Elems_slave(SideID))
