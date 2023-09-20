@@ -53,7 +53,6 @@ SUBROUTINE FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_ma
 ! MODULES
 USE MOD_PreProc
 USE MOD_Globals
-USE MOD_GPU,             ONLY:stream2
 USE MOD_DG_Vars,         ONLY: nDOFFace
 USE MOD_Mesh_Vars,       ONLY: d_NormVec, d_TangVec1, d_TangVec2, d_SurfElem, Face_xGP
 USE MOD_Mesh_Vars,       ONLY: firstInnerSide,lastInnerSide,firstMPISide_MINE,lastMPISide_MINE
@@ -98,6 +97,10 @@ ELSE
    lastSideID = lastInnerSide
 END IF
 
+!firstSideID_wo_BC = firstInnerSide
+!firstSideID = firstBCSide
+ !lastSideID = lastMPISide_MINE
+
 DO SideID=firstSideID,lastSideID
   FV_Elems_Max(SideID) = MAX(FV_Elems_master(SideID),FV_Elems_slave(SideID))
 END DO
@@ -126,7 +129,7 @@ DO firstBlockSide=firstSideID_wo_BC,lastSideID,nBlockSides
   !    NormVec (:,:,:,FV_Elems_Max(SideID),SideID), &
   !    TangVec1(:,:,:,FV_Elems_Max(SideID),SideID), &
   !    TangVec2(:,:,:,FV_Elems_Max(SideID),SideID),doBC=.FALSE.)
-  CALL Riemann<<<(nDOFFace*nMyBlockSides/256+1),256,0,stream2>>>(   &
+  CALL Riemann<<<(nDOFFace*nMyBlockSides/256+1),256,0>>>(   &
       (nDOFFace*nMyBlockSides),                           &
       d_Flux_master( :,:,:,firstBlockSide:lastBlockSide), &
       d_U_master(    :,:,:,firstBlockSide:lastBlockSide), &
@@ -162,7 +165,7 @@ END IF ! .NOT. MPISIDES
 
 
 ! 3. multiply by SurfElem
-!$cuf kernel do(3) <<< *, 256, 0 ,stream2 >>>
+!$cuf kernel do(3) <<< *, 256, 0 >>>
 DO SideID=firstSideID,lastSideID
   ! multiply with SurfElem
   DO q=0,PP_NZ; DO p=0,PP_N

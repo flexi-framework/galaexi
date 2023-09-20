@@ -118,8 +118,7 @@ SUBROUTINE VolInt_weakForm(d_Ut)
 ! MODULES
 USE CUDAFOR
 USE MOD_PreProc
-USE MOD_GPU          ,ONLY: stream1
-USE MOD_DG_Vars      ,ONLY: nDOFElem,UPrim,U
+USE MOD_DG_Vars      ,ONLY: nDOFElem,UPrim,U,d_f,d_g,d_h,nElems_Block_volInt
 !@cuf USE MOD_DG_Vars      ,ONLY: d_U,d_UPrim,d_D_Hat_T
 USE MOD_Mesh_Vars    ,ONLY: Metrics_fTilde,Metrics_gTilde,Metrics_hTilde,nElems
 !@cuf USE MOD_Mesh_Vars    ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,nElems
@@ -137,29 +136,27 @@ IMPLICIT NONE
 REAL,DEVICE,INTENT(OUT)   :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER,PARAMETER  :: nElems_Block=64
 INTEGER            :: i,j,k,l,iElem,iiElem,nElems_myBlock
 INTEGER            :: lastElem
-REAL,DEVICE,DIMENSION(PP_nVar    ,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block) :: d_f, d_g, d_h
 !==================================================================================================================================
 ! Diffusive part
-DO iElem=1,nElems,nElems_Block
-  lastElem    = MIN(nElems,iElem+nElems_Block-1)
+DO iElem=1,nElems,nElems_Block_volInt
+  lastElem    = MIN(nElems,iElem+nElems_Block_volInt-1)
   nElems_myBlock = lastElem-iElem+1
 
   ! Cut out the local DG solution for a grid cell iElem and all Gauss points from the global field
   ! Compute for all Gauss point values the Cartesian flux components
   !CALL EvalFlux3D(PP_N,U(:,:,:,:,iElem),UPrim(:,:,:,:,iElem),f,g,h)
-  CALL EvalFlux3D_Volume<<<(nDOFElem*nElems_myBlock)/256+1,256,0,stream1>>>(nDOFElem*nElems_myBlock,d_U(    :,:,:,:,iElem:lastElem) &
+  CALL EvalFlux3D_Volume<<<(nDOFElem*nElems_myBlock)/256+1,256,0>>>(nDOFElem*nElems_myBlock,d_U(    :,:,:,:,iElem:lastElem) &
                                                                                          ,d_UPrim(:,:,:,:,iElem:lastElem) &
                                                                                          ,d_f,d_g,d_h)
 
-  CALL VolInt_Metrics_GPU<<<(nDOFElem*nElems_myBlock)/256+1,256,0,stream1>>>(nDOFElem*nElems_myBlock, &
+  CALL VolInt_Metrics_GPU<<<(nDOFElem*nElems_myBlock)/256+1,256,0>>>(nDOFElem*nElems_myBlock, &
                                                                    d_f,d_g,d_h,             &
                                                                    d_Metrics_fTilde(:,:,:,:,iElem:lastElem,0), &
                                                                    d_Metrics_gTilde(:,:,:,:,iElem:lastElem,0), &
                                                                    d_Metrics_hTilde(:,:,:,:,iElem:lastElem,0))
-  !$cuf kernel do(4) <<< *, * ,0 , stream1>>>
+  !$cuf kernel do(4) <<< *, * ,0>>>
   DO iiElem=1,nElems_myBlock
     DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
         ! Update the time derivative with the spatial derivatives of the transformed fluxes

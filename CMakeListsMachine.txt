@@ -62,6 +62,10 @@ ELSEIF ("${CMAKE_HOSTNAME}" MATCHES "jrlogin")
   SET(CMAKE_C_COMPILER       nvc)
   SET(CMAKE_CXX_COMPILER     nvc++)
   SET(CMAKE_Fortran_COMPILER nvfortran)
+ELSEIF ("${CMAKE_HOSTNAME}" MATCHES "jwlogin")
+  SET(CMAKE_C_COMPILER       nvc)
+  SET(CMAKE_CXX_COMPILER     nvc++)
+  SET(CMAKE_Fortran_COMPILER nvfortran)
 ENDIF()
 
 # =========================================================================
