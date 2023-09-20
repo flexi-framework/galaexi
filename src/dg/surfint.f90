@@ -338,6 +338,82 @@ IF (ElemID.LE.nElems) THEN
 ENDIF
 END SUBROUTINE SurfIntCons_Kernel_Point_Contract
 
+
+!==================================================================================================================================
+!> In this routine, the surface integral will be computed
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE SurfIntCons_Kernel_Point_Contract_RedBranch(Nloc,nSides,nElems,Flux_master,Flux_slave,Ut,L_HatMinus,L_HatPlus,ElemToSide,S2V2)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN) :: Nloc  !< (IN) Polynomial degree
+INTEGER,VALUE,INTENT(IN) :: nSides
+INTEGER,VALUE,INTENT(IN) :: nElems
+REAL,INTENT(IN)    :: Flux_master(1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides) !< (IN) Flux on master side
+REAL,INTENT(IN)    :: Flux_slave (1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides) !< (IN) Flux on slave side
+REAL,INTENT(IN)    :: L_HatPlus(0:Nloc),L_HatMinus(0:Nloc)
+REAL,INTENT(INOUT) :: Ut(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)   !< (INOUT) Time derivative of the solution
+INTEGER,INTENT(IN)              :: ElemToSide(3,6,nElems)
+!INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
+INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER            :: ElemID,locSideID,SideID,p,q,flip,rest
+INTEGER            :: i,j,k,threadID
+INTEGER            :: firstSideID,lastSideID
+LOGICAL            :: isMaster
+!==================================================================================================================================
+! Get thread indices
+threadID = (blockidx%x-1) * blockdim%x + threadidx%x
+! Get ElemID of current thread
+ElemID   =        (threadID-1)/(Nloc+1)**3+1 ! Elems are 1-indexed
+rest     = threadID-(ElemID-1)*(Nloc+1)**3
+! Get ijk indices of current thread
+k        = (rest-1)/(Nloc+1)**2
+rest     =  rest- k*(Nloc+1)**2
+j        = (rest-1)/(Nloc+1)!**1
+rest     =  rest- j*(Nloc+1)!**1
+i        = (rest-1)!/(Nloc+1)**0
+rest     =  rest- j!*(Nloc+1)**0
+
+IF (ElemID.LE.nElems) THEN
+  DO locSideID=1,6
+    SideID   = ElemToSide(E2S_SIDE_ID  ,locSideID,ElemID)
+    flip     = ElemToSide(E2S_FLIP     ,locSideID,ElemID)
+    isMaster = ElemToSide(E2S_IS_MASTER,locSideID,ElemID).EQ.1 ! master side for current elem
+
+    ! ATTENTION: Compute correct sign of master/slave flux contribution to avoiding branching.
+    !            Entry is "1" for master and "0" for slave sides. Use this to compute correct sign for fluxes
+    !            Casts INTEGER to REAL
+    !            If Side is master (1)  -> +1 
+    !            If Side is slave  (0) -> -1 
+    sig = 2.*REAL(ElemToSide(E2S_IS_MASTER,locSideID,ElemID))+1.
+
+    SELECT CASE(locSideID)
+    CASE(XI_MINUS,XI_PLUS)
+      ! Get indices of pointwise flux on locside
+      p=S2V2(1,j,k,flip,locSideID) 
+      q=S2V2(2,j,k,flip,locSideID)
+      ! Add with correct sign
+      Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID) +sig*Flux_master(:,p,q,SideID)*L_hatMinus(i)
+    CASE(ETA_MINUS,ETA_PLUS)
+      ! Get indices of pointwise flux on locside
+      p=S2V2(1,i,k,flip,locSideID)
+      q=S2V2(2,i,k,flip,locSideID)
+      ! Add with correct sign
+      Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID) +sig*Flux_master(:,p,q,SideID)*L_hatMinus(j)
+    CASE(ZETA_MINUS,ZETA_PLUS)
+      ! Get indices of pointwise flux on locside
+      p=S2V2(1,i,j,flip,locSideID)
+      q=S2V2(2,i,j,flip,locSideID)
+      ! Add with correct sign
+      Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID) +sig*Flux_master(:,p,q,SideID)*L_hatMinus(k)
+    END SELECT !locSideID
+  END DO
+ENDIF
+END SUBROUTINE SurfIntCons_Kernel_Point_Contract_RedBranch
+
 END MODULE MOD_SurfIntCons
 
 !==================================================================================================================================
