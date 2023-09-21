@@ -138,7 +138,7 @@ REAL,DEVICE,INTENT(IN)          :: d_L_Minus(0:Nloc),d_L_Plus(0:Nloc)
 INTEGER             :: nDOF
 INTEGER,PARAMETER   :: nThreads=128
 !==================================================================================================================================
-nDOF = nElems*6*(Nloc+1)**2
+nDOF = nElems*6*(Nloc+1)*(ZDIM(Nloc)+1)
 CALL ProlongToFace_Device<<<nDOF/nThreads+1,nThreads>>>(&
 #ifdef WITHnVar
              TP_nVar,&
