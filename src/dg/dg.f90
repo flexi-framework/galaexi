@@ -280,6 +280,9 @@ USE MOD_Filter              ,ONLY: Filter_Pointer
 USE MOD_Filter_Vars         ,ONLY: FilterType,FilterMat
 USE MOD_Mesh_Vars           ,ONLY: nElems,nSides,lastInnerSide,firstMPISide_MINE,lastMPISide_MINE,firstMPISide_YOUR,lastMPISide_YOUR
 USE NVTX
+#if PARABOLIC
+USE MOD_Lifting             ,ONLY: Lifting
+#endif
 #if USE_MPI
 USE MOD_MPI_Vars
 USE MOD_MPI                 ,ONLY: StartReceiveMPIData_GPU,StartSendMPIData_GPU,FinishExchangeMPIData
@@ -331,6 +334,15 @@ CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_U)        ! U_slave: slave -> m
 !CALL GetPrimitiveStateSurface(U_master,U_slave,UPrim_master,UPrim_slave)
 CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_master,d_U_master)
 CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_slave ,d_U_slave )
+
+#if PARABOLIC
+! 6. Lifting
+! Compute the gradients using Lifting (BR1 scheme,BR2 scheme ...)
+! The communication of the gradients is initialized within the lifting routines
+CALL Lifting(d_UPrim,d_UPrim_master,d_UPrim_slave,t)
+SWRITE(*,*) 'Smth2'
+!STOP
+#endif /* PARABOLIC */
 
 ! 8. Compute volume integral contribution and add to Ut
 CALL VolInt(d_Ut)

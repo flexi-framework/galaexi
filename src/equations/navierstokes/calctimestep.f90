@@ -131,7 +131,7 @@ INTEGER                        :: i,j,k,iElem
 REAL,DIMENSION(PP_2Var),DEVICE :: UE
 REAL,DEVICE                    :: TimeStepConv, TimeStepVisc
 REAL                           :: TimeStep(3)
-REAL,DEVICE                    :: Lambda(3),c,vsJ(3)
+REAL,DEVICE                    :: LambdaTmp(3),c,vsJ(3)
 #if EDDYVISCOSITY
 REAL                           :: muSGSmax
 #endif
@@ -155,13 +155,13 @@ DO iElem=1,nElems
     UE(EXT_TEMP)=TEMPERATURE_HE(UE)
     c=SPEEDOFSOUND_HE(UE)
     vsJ=UE(EXT_VELV)*d_sJ(i,j,k,iElem,FV_Elems(iElem))
-    Lambda(1)=ABS(SUM(d_Metrics_fTilde(:,i,j,k,iElem,FV_Elems(iElem))*vsJ)) + &
+    LambdaTmp(1)=ABS(SUM(d_Metrics_fTilde(:,i,j,k,iElem,FV_Elems(iElem))*vsJ)) + &
                           c*MetricsAdv(1,i,j,k,iElem,FV_Elems(iElem))
-    Lambda(2)=ABS(SUM(d_Metrics_gTilde(:,i,j,k,iElem,FV_Elems(iElem))*vsJ)) + &
+    LambdaTmp(2)=ABS(SUM(d_Metrics_gTilde(:,i,j,k,iElem,FV_Elems(iElem))*vsJ)) + &
                           c*MetricsAdv(2,i,j,k,iElem,FV_Elems(iElem))
-    Lambda(3)=ABS(SUM(d_Metrics_hTilde(:,i,j,k,iElem,FV_Elems(iElem))*vsJ)) + &
+    LambdaTmp(3)=ABS(SUM(d_Metrics_hTilde(:,i,j,k,iElem,FV_Elems(iElem))*vsJ)) + &
                           c*MetricsAdv(3,i,j,k,iElem,FV_Elems(iElem))
-    TimeStepConv=d_CFLScale(FV_Elems(iElem))*2./SUM(Lambda)
+    TimeStepConv=d_CFLScale(FV_Elems(iElem))*2./SUM(LambdaTmp)
   END DO; END DO; END DO ! i,j,k
 END DO ! iElem=1,nElems
 

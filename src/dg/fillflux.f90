@@ -97,14 +97,6 @@ ELSE
    lastSideID = lastInnerSide
 END IF
 
-!firstSideID_wo_BC = firstInnerSide
-!firstSideID = firstBCSide
- !lastSideID = lastMPISide_MINE
-
-DO SideID=firstSideID,lastSideID
-  FV_Elems_Max(SideID) = MAX(FV_Elems_master(SideID),FV_Elems_slave(SideID))
-END DO
-
 ! =============================
 ! Workflow:
 !

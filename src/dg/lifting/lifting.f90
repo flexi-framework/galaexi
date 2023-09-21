@@ -32,6 +32,7 @@ INTERFACE Lifting
 END INTERFACE
 
 INTERFACE Lifting_VolInt
+  MODULE PROCEDURE Lifting_VolInt_Conservative_GPU
   MODULE PROCEDURE Lifting_VolInt_Conservative
   MODULE PROCEDURE Lifting_VolInt_Nonconservative
 END INTERFACE
@@ -132,27 +133,7 @@ IF((.NOT.DGInitIsDone).OR.LiftingInitIsDone)THEN
 END IF
 
 SWRITE(UNIT_stdOut,'(132("-"))')
-#if PP_Lifting==1
 SWRITE(UNIT_stdOut,'(A)') ' INIT LIFTING WITH BR1...'
-doWeakLifting         = GETLOGICAL('doWeakLifting')
-IF(.NOT.doWeakLifting)&
-  doConservativeLifting = GETLOGICAL('doConservativeLifting')
-
-#elif PP_Lifting==2
-SWRITE(UNIT_stdOut,'(A)') ' INIT LIFTING WITH BR2 ...'
-doWeakLifting         = .FALSE.
-doConservativeLifting = GETLOGICAL('doConservativeLifting')
-etaBR2                = GETREAL('etaBR2')
-etaBR2_wall           = GETREAL('etaBR2_wall')
-IF(etaBR2_wall .EQ. -1.) etaBR2_wall = etaBR2  !default etaBR2_wall == etaBR2
-
-ALLOCATE(FluxX(PP_nVarLifting,0:PP_N,0:PP_NZ,1:nSides))
-ALLOCATE(FluxY(PP_nVarLifting,0:PP_N,0:PP_NZ,1:nSides))
-ALLOCATE(FluxZ(PP_nVarLifting,0:PP_N,0:PP_NZ,1:nSides))
-FluxX=0.
-FluxY=0.
-FluxZ=0.
-#endif
 
 ! We store the interior gradients at the each element face
 ALLOCATE(gradUx_slave (PP_nVarLifting,0:PP_N,0:PP_NZ,1:nSides))
@@ -167,6 +148,12 @@ gradUz_slave=0.
 gradUx_master=0.
 gradUy_master=0.
 gradUz_master=0.
+!@cuf ALLOCATE(d_gradUx_slave (PP_nVarLifting,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_gradUy_slave (PP_nVarLifting,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_gradUz_slave (PP_nVarLifting,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_gradUx_master(PP_nVarLifting,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_gradUy_master(PP_nVarLifting,0:PP_N,0:PP_NZ,1:nSides))
+!@cuf ALLOCATE(d_gradUz_master(PP_nVarLifting,0:PP_N,0:PP_NZ,1:nSides))
 
 ! The gradients of the conservative variables are stored at each volume integration point
 ALLOCATE(gradUx(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ,nElems))
@@ -175,6 +162,9 @@ ALLOCATE(gradUz(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 gradUx=0.
 gradUy=0.
 gradUz=0.
+!@cuf ALLOCATE(d_gradUx(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ,nElems))
+!@cuf ALLOCATE(d_gradUy(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ,nElems))
+!@cuf ALLOCATE(d_gradUz(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 
 ALLOCATE(diffFluxX_L(PP_nVar,0:PP_N,0:PP_NZ))
 ALLOCATE(diffFluxX_R(PP_nVar,0:PP_N,0:PP_NZ))
@@ -188,6 +178,16 @@ diffFluxY_L=0.
 diffFluxY_R=0.
 diffFluxZ_L=0.
 diffFluxZ_R=0.
+!@cuf ALLOCATE(d_diffFluxX_L(PP_nVar,0:PP_N,0:PP_NZ))
+!@cuf ALLOCATE(d_diffFluxX_R(PP_nVar,0:PP_N,0:PP_NZ))
+!@cuf ALLOCATE(d_diffFluxY_L(PP_nVar,0:PP_N,0:PP_NZ))
+!@cuf ALLOCATE(d_diffFluxY_R(PP_nVar,0:PP_N,0:PP_NZ))
+!@cuf ALLOCATE(d_diffFluxZ_L(PP_nVar,0:PP_N,0:PP_NZ))
+!@cuf ALLOCATE(d_diffFluxZ_R(PP_nVar,0:PP_N,0:PP_NZ))
+
+!@cuf ALLOCATE(d_UE_f(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ))
+!@cuf ALLOCATE(d_UE_g(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ))
+!@cuf ALLOCATE(d_UE_h(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ))
 
 LiftingInitIsDone=.TRUE.
 SWRITE(UNIT_stdOut,'(A)')' INIT LIFTING DONE!'
@@ -208,20 +208,33 @@ SDEALLOCATE(gradUz_slave)
 SDEALLOCATE(gradUx_master)
 SDEALLOCATE(gradUy_master)
 SDEALLOCATE(gradUz_master)
+!@cuf SDEALLOCATE(d_gradUx_slave )
+!@cuf SDEALLOCATE(d_gradUy_slave )
+!@cuf SDEALLOCATE(d_gradUz_slave )
+!@cuf SDEALLOCATE(d_gradUx_master)
+!@cuf SDEALLOCATE(d_gradUy_master)
+!@cuf SDEALLOCATE(d_gradUz_master)
 SDEALLOCATE(gradUx)
 SDEALLOCATE(gradUy)
 SDEALLOCATE(gradUz)
-#if PP_Lifting==2
-SDEALLOCATE(FluxX)
-SDEALLOCATE(FluxY)
-SDEALLOCATE(FluxZ)
-#endif
+!@cuf SDEALLOCATE(d_gradUx)
+!@cuf SDEALLOCATE(d_gradUy)
+!@cuf SDEALLOCATE(d_gradUz)
 SDEALLOCATE(diffFluxX_L)
 SDEALLOCATE(diffFluxX_R)
 SDEALLOCATE(diffFluxY_L)
 SDEALLOCATE(diffFluxY_R)
 SDEALLOCATE(diffFluxZ_L)
 SDEALLOCATE(diffFluxZ_R)
+!@cuf SDEALLOCATE(d_diffFluxX_L)
+!@cuf SDEALLOCATE(d_diffFluxX_R)
+!@cuf SDEALLOCATE(d_diffFluxY_L)
+!@cuf SDEALLOCATE(d_diffFluxY_R)
+!@cuf SDEALLOCATE(d_diffFluxZ_L)
+!@cuf SDEALLOCATE(d_diffFluxZ_R)
+!@cuf SDEALLOCATE(d_UE_f)
+!@cuf SDEALLOCATE(d_UE_g)
+!@cuf SDEALLOCATE(d_UE_h)
 LiftingInitIsDone = .FALSE.
 END SUBROUTINE FinalizeLifting
 

@@ -28,7 +28,7 @@ USE MOD_PreProc
 USE MOD_DG_Vars      ,ONLY: D_T
 USE MOD_Mesh_Vars    ,ONLY: Metrics_fTilde,Metrics_gTilde
 #if (PP_dim==3)
-USE MOD_Mesh_Vars    ,ONLY: Metrics_hTilde 
+USE MOD_Mesh_Vars    ,ONLY: Metrics_hTilde
 #endif
 USE MOD_Mesh_Vars    ,ONLY: nElems
 #if FV_ENABLED
@@ -206,6 +206,68 @@ END DO ! iElem=1,nElems
 END SUBROUTINE Lifting_VolInt_Conservative
 
 !==================================================================================================================================
+!> \brief Computes the volume integral of the BR1 scheme in the conservative way for one direction at a time (x,y,z) in weak or
+!> strong form (BR1) or only in strong form (BR2)
+!>
+!> In the conservative form of the volume integral in BR1 we calculate the transformed solution using the Lifting_Metrics routine
+!> and then integrate over the derivative of this transformed solution. A weak or strong form volume integral can be performed.
+!> - Weak form: We integrate over the transformed flux times the derivative of the trial functions, which is implemented
+!>   using the D_hat_T matrix. This is the transpose of the D_hat matrix which is defined as
+!>   \f$ \hat{D}_{ij}=-\frac{\omega_i}{\omega_j} D_{ij} \f$ where \f$ D_{ij} \f$ is the standard polynomial derivative matrix.
+!> - Strong form: We integrate over the derivative of the transformed flux times the trial function. The derivative of the
+!>   flux is calculated using the transpose of the polynomial derivative matrix D_T.
+!>
+!> For the implementation this means we only have to decide between using the D_hat_T or D_T matrix in the volume integral at the
+!> the beginning of the routine to choose between weak or strong form.
+!==================================================================================================================================
+SUBROUTINE Lifting_VolInt_Conservative_GPU(dir,d_UPrim,d_gradU)
+! MODULES
+USE MOD_PreProc
+USE MOD_DG_Vars            ,ONLY: d_D_hat_T
+USE MOD_Mesh_Vars          ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde
+USE MOD_Mesh_Vars          ,ONLY: nElems
+USE MOD_Lifting_Vars       ,ONLY: d_UE_f,d_UE_g,d_UE_h
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)     :: dir       !< direction (x,y,z)
+REAL,DEVICE,INTENT(IN)       :: d_UPrim(PP_nVarPrim   ,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< solution
+REAL,DEVICE,INTENT(OUT)      :: d_gradU(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< solution gradient in direction dir
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+!REAL,DIMENSION(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ) :: UE_f,UE_g,UE_h ! transformed gradient flux (i.e. transformed solution)
+INTEGER                                              :: iElem,i,j,k,l
+!==================================================================================================================================
+
+! volume integral
+DO iElem=1,nElems
+  CALL Lifting_Metrics_GPU(dir,d_UPrim(:,:,:,:,iElem),&
+                           d_Metrics_fTilde(:,:,:,:,iElem,0),&
+                           d_Metrics_gTilde(:,:,:,:,iElem,0),&
+                           d_Metrics_hTilde(:,:,:,:,iElem,0),&
+                           d_UE_f,d_UE_g,d_UE_h)
+
+  !$cuf kernel do(3) <<< *, * >>>
+  DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
+    d_gradU(:,i,j,k,iElem)   =                        d_D_Hat_T(0,i)*d_UE_f(:,0,j,k)+&
+#if (PP_dim==3)
+                                                      d_D_hat_T(0,k)*d_UE_h(:,i,j,0)+&
+#endif
+                                                      d_D_hat_T(0,j)*d_UE_g(:,i,0,k)
+    DO l=1,PP_N
+      d_gradU(:,i,j,k,iElem) = d_gradU(:,i,j,k,iElem)+d_D_hat_T(l,i)*d_UE_f(:,l,j,k)+&
+#if (PP_dim==3)
+                                                      d_D_hat_T(l,k)*d_UE_h(:,i,j,l)+&
+#endif
+                                                      d_D_hat_T(l,j)*d_UE_g(:,i,l,k)
+    END DO ! l
+  END DO; END DO; END DO ! i,j,k
+
+END DO ! iElem=1,nElems
+END SUBROUTINE Lifting_VolInt_Conservative_GPU
+
+
+!==================================================================================================================================
 !> \brief Compute the tranformed gradient fluxes
 !>
 !> Transform the gradient terms by multiplying them with the metrics terms
@@ -237,5 +299,39 @@ DO i=1,nDOFElem
 #endif
 END DO ! i
 END SUBROUTINE Lifting_Metrics
+
+!==================================================================================================================================
+!> \brief Compute the tranformed gradient fluxes
+!>
+!> Transform the gradient terms by multiplying them with the metrics terms
+!> For the direction \f$ d \f$ the transformed gradient flux is \f$ \sum_{n=1}^3 Ja^d_n U \f$.
+!==================================================================================================================================
+SUBROUTINE Lifting_Metrics_GPU(dir,d_UPrim,d_Mf,d_Mg,d_Mh,d_UPrim_f,d_UPrim_g,d_UPrim_h)
+! MODULES
+USE MOD_DG_Vars,ONLY:nDOFElem
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN) :: dir                                 !< direction (x,y,z)
+REAL,DEVICE,INTENT(IN)   :: d_Mf(3,nDOFElem)                    !< metrics in xi
+REAL,DEVICE,INTENT(IN)   :: d_Mg(3,nDOFElem)                    !< metrics in eta
+REAL,DEVICE,INTENT(IN)   :: d_Mh(3,nDOFElem)                    !< metrics in zeta
+REAL,DEVICE,INTENT(IN)   :: d_UPrim  (PP_nVarPrim   ,nDOFElem)  !< solution ("flux")
+REAL,DEVICE,INTENT(OUT)  :: d_UPrim_f(PP_nVarLifting,nDOFElem)  !< gradient flux xi
+REAL,DEVICE,INTENT(OUT)  :: d_UPrim_g(PP_nVarLifting,nDOFElem)  !< gradient flux eta
+REAL,DEVICE,INTENT(OUT)  :: d_UPrim_h(PP_nVarLifting,nDOFElem)  !< gradient flux zeta
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER            :: i
+!==================================================================================================================================
+!$cuf kernel do <<< *, * >>>
+DO i=1,nDOFElem
+  d_UPrim_f(:,i) = d_Mf(dir,i)*d_UPrim(PRIM_LIFT,i)
+  d_UPrim_g(:,i) = d_Mg(dir,i)*d_UPrim(PRIM_LIFT,i)
+#if (PP_dim==3)
+  d_UPrim_h(:,i) = d_Mh(dir,i)*d_UPrim(PRIM_LIFT,i)
+#endif
+END DO ! i
+END SUBROUTINE Lifting_Metrics_GPU
 
 #endif /*PARABOLIC*/

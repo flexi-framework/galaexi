@@ -156,7 +156,7 @@ DO iElem=1,nElems,nElems_Block_volInt
                                                                    d_Metrics_fTilde(:,:,:,:,iElem:lastElem,0), &
                                                                    d_Metrics_gTilde(:,:,:,:,iElem:lastElem,0), &
                                                                    d_Metrics_hTilde(:,:,:,:,iElem:lastElem,0))
-  !$cuf kernel do(4) <<< *, * ,0>>>
+  !$cuf kernel do(4) <<< *, * >>>
   DO iiElem=1,nElems_myBlock
     DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
         ! Update the time derivative with the spatial derivatives of the transformed fluxes
@@ -345,7 +345,7 @@ IF (i.LE.nDOFs) THEN
   gTilde=g(:,i)
 #if PP_dim==3
   hTilde=h(:,i)
-  
+
   ! Compute the transformed fluxes with the metric terms
   ! Attention 1: we store the transformed fluxes in f,g,h again
   f(:,i) = fTilde(:)*Mf(1,i) + &

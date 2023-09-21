@@ -30,6 +30,12 @@ REAL,ALLOCATABLE :: gradUz_slave(:,:,:,:)         !< slave side gradients in x-d
 REAL,ALLOCATABLE :: gradUx_master(:,:,:,:)        !< master side gradients in x-dir
 REAL,ALLOCATABLE :: gradUy_master(:,:,:,:)        !< master side gradients in x-dir
 REAL,ALLOCATABLE :: gradUz_master(:,:,:,:)        !< master side gradients in x-dir
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_gradUx_slave(:,:,:,:)  !< slave side gradients in x-dir
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_gradUy_slave(:,:,:,:)  !< slave side gradients in x-dir
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_gradUz_slave(:,:,:,:)  !< slave side gradients in x-dir
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_gradUx_master(:,:,:,:) !< master side gradients in x-dir
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_gradUy_master(:,:,:,:) !< master side gradients in x-dir
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_gradUz_master(:,:,:,:) !< master side gradients in x-dir
 REAL,ALLOCATABLE :: FluxX(:,:,:,:)                !< gradient flux in x-dir
 REAL,ALLOCATABLE :: FluxY(:,:,:,:)                !< gradient flux in y-dir
 REAL,ALLOCATABLE :: FluxZ(:,:,:,:)                !< gradient flux in z-dir
@@ -37,6 +43,9 @@ REAL,ALLOCATABLE :: FluxZ(:,:,:,:)                !< gradient flux in z-dir
 REAL,ALLOCATABLE :: gradUx(:,:,:,:,:)             !< gradients in x-dir at degree N
 REAL,ALLOCATABLE :: gradUy(:,:,:,:,:)             !< gradients in y-dir at degree N
 REAL,ALLOCATABLE :: gradUz(:,:,:,:,:)             !< gradients in z-dir at degree N
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_gradUx(:,:,:,:,:)   !< gradients in x-dir at degree N
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_gradUy(:,:,:,:,:)   !< gradients in y-dir at degree N
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_gradUz(:,:,:,:,:)   !< gradients in z-dir at degree N
 ! Diffusive fluxes
 REAL,ALLOCATABLE :: diffFluxX_L(:,:,:)
 REAL,ALLOCATABLE :: diffFluxX_R(:,:,:)
@@ -44,6 +53,17 @@ REAL,ALLOCATABLE :: diffFluxY_L(:,:,:)
 REAL,ALLOCATABLE :: diffFluxY_R(:,:,:)
 REAL,ALLOCATABLE :: diffFluxZ_L(:,:,:)
 REAL,ALLOCATABLE :: diffFluxZ_R(:,:,:)
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_diffFluxX_L(:,:,:)
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_diffFluxX_R(:,:,:)
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_diffFluxY_L(:,:,:)
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_diffFluxY_R(:,:,:)
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_diffFluxZ_L(:,:,:)
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_diffFluxZ_R(:,:,:)
+
+! Tmp Arrays for VolInt
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_UE_f(:,:,:,:)
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_UE_g(:,:,:,:)
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_UE_h(:,:,:,:)
 
 REAL             :: etaBR2                        !< Lifting penalty for BR2. Increase improves stability
                                                   !< at the cost of performance and reduces jumps between two cells

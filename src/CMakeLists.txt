@@ -106,12 +106,11 @@ ADD_DEFINITIONS(-DPP_N=${FLEXI_POLYNOMIAL_DEGREE})
 # =========================================================================
 OPTION(FLEXI_PARABOLIC "Enable parabolic terms of equation-system" ON)
 IF (FLEXI_PARABOLIC)
-  MESSAGE(SEND_ERROR "Reduced FLEXI does not support parabolic terms.")
   ADD_DEFINITIONS(-DPARABOLIC=1)
 
   # Set the lifting
-  LIST(APPEND FLEXI_LIFTING_LIST  "br1"
-                                  "br2")
+  LIST(APPEND FLEXI_LIFTING_LIST  "br1")
+  #"br2")
   SET(FLEXI_LIFTING "br1" CACHE STRING "Lifting method used for PARABOLIC")
   SET_PROPERTY(CACHE FLEXI_LIFTING PROPERTY STRINGS ${FLEXI_LIFTING_LIST})
 
