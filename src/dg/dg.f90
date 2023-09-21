@@ -262,7 +262,7 @@ USE MOD_VolInt
 USE MOD_SurfIntCons         ,ONLY: SurfIntCons,SurfIntCons_GPU
 USE MOD_ProlongToFaceCons   ,ONLY: ProlongToFaceCons,ProlongToFaceCons_GPU
 USE MOD_FillFlux            ,ONLY: FillFlux
-USE MOD_ApplyJacobianCons   ,ONLY: ApplyJacobianCons,ApplyJacobianCons_GPU
+USE MOD_ApplyJacobianCons   ,ONLY: ApplyJacobianCons
 !@cuf USE MOD_Interpolation_Vars  ,ONLY: d_L_Minus,d_L_Plus
 USE MOD_Overintegration_Vars,ONLY: OverintegrationType
 USE MOD_Overintegration,     ONLY: Overintegration
@@ -292,7 +292,7 @@ IMPLICIT NONE
 REAL,INTENT(IN)                 :: t                      !< Current time
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER :: i,j,iSide
+INTEGER :: i,j,k,iSide,iElem
 !==================================================================================================================================
 
 ! -----------------------------------------------------------------------------
@@ -348,7 +348,12 @@ CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Flux )                       ! 
 CALL SurfIntCons_GPU(PP_N,d_Flux_master,d_Flux_slave,d_Ut,.FALSE.,d_L_HatMinus,d_L_hatPlus)
 
 ! 12. Swap to right sign :)
-!Ut=-Ut
+!$cuf kernel do(4) <<< *, * >>>
+DO iElem=1,nElems
+  DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
+    d_Ut(:,i,j,k,iElem) = -d_Ut(:,i,j,k,iElem)
+  END DO; END DO; END DO
+END DO
 
 ! 13. Compute source terms and sponge (in physical space, conversion to reference space inside routines)
 !IF(doCalcSource) CALL CalcSource(Ut,t)
@@ -356,11 +361,7 @@ CALL SurfIntCons_GPU(PP_N,d_Flux_master,d_Flux_slave,d_Ut,.FALSE.,d_L_HatMinus,d
 !IF(doTCSource)   CALL TestcaseSource(Ut)
 
 ! 14. apply Jacobian
-!CALL ApplyJacobianCons(Ut,toPhysical=.TRUE.)
-
-! ATTENTION: INCLUDES THE - Sign from 12.)
-CALL ApplyJacobianCons_GPU<<<nElems*nDOFElem/256+1,256>>>(nDOFElem*nElems,d_sJ,d_Ut,toPhysical=.TRUE.)
-!Ut = d_Ut
+CALL ApplyJacobianCons(d_Ut,toPhysical=.TRUE.)
 
 END SUBROUTINE DGTimeDerivative_weakForm
 
