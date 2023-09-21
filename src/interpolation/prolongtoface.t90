@@ -107,67 +107,145 @@ DO SideID=firstSideID,lastSideID
     END DO; END DO
   END IF
 END DO
-
 END SUBROUTINE ProlongToFace
 
 !==================================================================================================================================
-!> Interpolates the element volume data stored at Gauss points
+!> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
+!> integration points, using fast 1D Interpolation and store in global side structure
 !==================================================================================================================================
-ATTRIBUTES(DEVICE) SUBROUTINE EvalElemFaceG_GPU(&
+PPURE SUBROUTINE ProlongToFace_CUDA(&
 #ifdef WITHnVar
     TP_nVar,&
 #endif
-    Nloc,Uvol,Uface,L_Minus,L_Plus,locSide)
+    Nloc,d_Uvol,d_Uface_master,d_Uface_slave,d_L_Minus,d_L_Plus)
+! MODULES
+USE MOD_Mesh_Vars,          ONLY: nElems
+USE MOD_Mesh_Vars,          ONLY: firstMPISide_YOUR, lastMPISide_MINE, nSides
+USE MOD_Mesh_Vars,          ONLY: d_S2V2, d_ElemToSide
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+#ifdef WITHnVar
+INTEGER,VALUE,INTENT(IN)        :: TP_nVar
+#endif
+INTEGER,VALUE,INTENT(IN)        :: Nloc
+REAL,DEVICE,INTENT(IN)          :: d_Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)
+REAL,DEVICE,INTENT(INOUT)       :: d_Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+REAL,DEVICE,INTENT(INOUT)       :: d_Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+REAL,DEVICE,INTENT(IN)          :: d_L_Minus(0:Nloc),d_L_Plus(0:Nloc)
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER             :: nDOF
+INTEGER,PARAMETER   :: nThreads=128
+!==================================================================================================================================
+nDOF = nElems*6*(Nloc+1)**2
+CALL ProlongToFace_Device<<<nDOF/nThreads+1,nThreads>>>(&
+#ifdef WITHnVar
+             TP_nVar,&
+#endif
+             Nloc,nSides,nElems,d_Uvol,d_Uface_master,d_Uface_slave,d_L_Minus,d_L_Plus,d_ElemToSide,d_S2V2)
+END SUBROUTINE ProlongToFace_CUDA
+
+!==================================================================================================================================
+!> Interpolates the interior volume data (stored at the Gauss or Gauss-Lobatto points) to the surface
+!> integration points, using fast 1D Interpolation and store in global side structure
+!==================================================================================================================================
+PPURE ATTRIBUTES(GLOBAL) SUBROUTINE ProlongToFace_Device(&
+#ifdef WITHnVar
+             TP_nVar,&
+#endif
+             Nloc,nSides,nElems,Uvol,Uface_master,Uface_slave,L_Minus,L_Plus,ElemToSide,S2V2)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
 #ifdef WITHnVar
-INTEGER,VALUE,INTENT(IN)              :: TP_nVar
+INTEGER,VALUE,INTENT(IN)        :: TP_nVar
 #endif
-INTEGER,VALUE,INTENT(IN)              :: Nloc
-INTEGER,VALUE,INTENT(IN)              :: locSide
+INTEGER,VALUE,INTENT(IN)        :: Nloc
+INTEGER,VALUE,INTENT(IN)        :: nSides
+INTEGER,VALUE,INTENT(IN)        :: nElems
+REAL,INTENT(IN)                 :: Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)
+REAL,INTENT(INOUT)              :: Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
+REAL,INTENT(INOUT)              :: Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
 REAL,INTENT(IN)                 :: L_Minus(0:Nloc),L_Plus(0:Nloc)
-REAL,INTENT(IN)                 :: Uvol( TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc))
-REAL,INTENT(OUT)                :: Uface(TP_nVar,0:Nloc,0:ZDIM(Nloc))
-!@cuf ATTRIBUTES(DEVICE) :: L_Minus,L_Plus,UVol,Uface
+INTEGER,INTENT(IN)              :: ElemToSide(3,6,nElems)
+!INTEGER,INTENT(IN)              :: SideToElem(5,nSides)
+INTEGER,INTENT(IN)              :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER                         :: l
+INTEGER                         :: p,q
+INTEGER                         :: i,j,l,rest
+INTEGER                         :: ElemID,locSideID,SideID,flip,threadID
+REAL                            :: Uface(TP_nVar)
+LOGICAL                         :: isMaster
 !==================================================================================================================================
-SELECT CASE(locSide)
-CASE(XI_MINUS)
-  Uface=Uvol(:,0,:,:)*L_Minus(0)
-  DO l=1,Nloc
-    Uface=Uface+Uvol(:,l,:,:)*L_Minus(l)
-  END DO ! l
-CASE(ETA_MINUS)
-  Uface=Uvol(:,:,0,:)*L_Minus(0)
-  DO l=1,Nloc
-    Uface=Uface+Uvol(:,:,l,:)*L_Minus(l)
-  END DO ! l
-CASE(ZETA_MINUS)
-  Uface=Uvol(:,:,:,0)*L_Minus(0)
-  DO l=1,Nloc
-    Uface=Uface+Uvol(:,:,:,l)*L_Minus(l)
-  END DO ! l
-CASE(XI_PLUS)
-  Uface=Uvol(:,0,:,:)*L_Plus(0)
-  DO l=1,Nloc
-    Uface=Uface+Uvol(:,l,:,:)*L_Plus(l)
-  END DO ! l
-CASE(ETA_PLUS)
-  Uface=Uvol(:,:,0,:)*L_Plus(0)
-  DO l=1,Nloc
-    Uface=Uface+Uvol(:,:,l,:)*L_Plus(l)
-  END DO ! l
-CASE(ZETA_PLUS)
-  Uface=Uvol(:,:,:,0)*L_Plus(0)
-  DO l=1,Nloc
-    Uface=Uface+Uvol(:,:,:,l)*L_Plus(l)
-  END DO ! l
-END SELECT
-END SUBROUTINE EvalElemFaceG_GPU
+! Get thread indices
+threadID = (blockidx%x-1) * blockdim%x + threadidx%x
+! Get ElemID of current thread
+ElemID   =        (threadID-1)/((Nloc+1)**2*6)+1 ! Elems are 1-indexed
+rest     = threadID-(ElemID-1)*((Nloc+1)**2*6)
+! Get locSideID
+locSideID= (rest-1)            /(Nloc+1)**2+1 ! locSideID is 1-indexed
+rest     =  rest- (locSideID-1)*(Nloc+1)**2
+! Get pq indices of current thread
+p        = (rest-1)/(Nloc+1)!**1
+rest     =  rest- p*(Nloc+1)!**1
+q        = (rest-1)!/(Nloc+1)**0
+rest     =  rest- q!*(Nloc+1)**0
+
+IF (ElemID.LE.nElems) THEN
+  SideID   = ElemToSide(E2S_SIDE_ID  ,locSideID,ElemID)
+  flip     = ElemToSide(E2S_FLIP     ,locSideID,ElemID)
+  isMaster = flip.EQ.0 ! master side has flip=0, slave sides flip!=0
+
+  ! Get 2D position in the two non-prolongated dimensions in volume coords
+  i = S2V2(1,p,q,flip,locSideID) ! First  index to evaluate volume solution at
+  j = S2V2(2,p,q,flip,locSideID) ! Second index to evaluate volume solution at
+
+  ! Eval pointwise
+  SELECT CASE(locSideID)
+  CASE(XI_MINUS)
+    Uface=Uvol(:,0,i,j,ElemID)*L_Minus(0)
+    DO l=1,Nloc
+      Uface=Uface+Uvol(:,l,i,j,ElemID)*L_Minus(l)
+    END DO ! l
+  CASE(ETA_MINUS)
+    Uface=Uvol(:,i,0,j,ElemID)*L_Minus(0)
+    DO l=1,Nloc
+      Uface=Uface+Uvol(:,i,l,j,ElemID)*L_Minus(l)
+    END DO ! l
+  CASE(ZETA_MINUS)
+    Uface=Uvol(:,i,j,0,ElemID)*L_Minus(0)
+    DO l=1,Nloc
+      Uface=Uface+Uvol(:,i,j,l,ElemID)*L_Minus(l)
+    END DO ! l
+  CASE(XI_PLUS)
+    Uface=Uvol(:,0,i,j,ElemID)*L_Plus(0)
+    DO l=1,Nloc
+      Uface=Uface+Uvol(:,l,i,j,ElemID)*L_Plus(l)
+    END DO ! l
+  CASE(ETA_PLUS)
+    Uface=Uvol(:,i,0,j,ElemID)*L_Plus(0)
+    DO l=1,Nloc
+      Uface=Uface+Uvol(:,i,l,j,ElemID)*L_Plus(l)
+    END DO ! l
+  CASE(ZETA_PLUS)
+    Uface=Uvol(:,i,j,0,ElemID)*L_Plus(0)
+    DO l=1,Nloc
+      Uface=Uface+Uvol(:,i,j,l,ElemID)*L_Plus(l)
+    END DO ! l
+  END SELECT
+
+  ! Write to correct array
+  IF (isMaster) THEN
+    Uface_master(:,p,q,SideID)=Uface(:)
+  ELSE
+    Uface_slave( :,p,q,SideID)=Uface(:)
+  END IF
+END IF
+
+END SUBROUTINE ProlongToFace_Device
 
 
 !==================================================================================================================================

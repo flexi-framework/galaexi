@@ -13,47 +13,47 @@
 !==================================================================================================================================
 #include "flexi.h"
 
-!!==================================================================================================================================
-!!> Convert solution between physical <-> reference space, separate input and output variables
-!!==================================================================================================================================
-!PPURE SUBROUTINE ApplyJacobian(&
-!#ifdef WITHnVar
-!        TP_nVar, &
-!#endif
-!        U_in,U_out,toPhysical)
-!! MODULES
-!USE MOD_PreProc
-!USE MOD_Mesh_Vars,ONLY:sJ,nElems
-!#if FV_ENABLED
-!USE MOD_FV_Vars  ,ONLY: FV_Elems
-!#endif
-!IMPLICIT NONE
-!!----------------------------------------------------------------------------------------------------------------------------------
-!! INPUT/OUTPUT VARIABLES
-!#ifdef WITHnVar
-!INTEGER,INTENT(IN)  :: TP_nVar
-!#endif
-!REAL,INTENT(IN)     :: U_in( TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< Input: Solution to be transformed
-!REAL,INTENT(OUT)    :: U_out(TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< Output: transformed solution
-!LOGICAL,INTENT(IN)  :: toPhysical                                 !< Switch for physical<-->reference transformation
-!!----------------------------------------------------------------------------------------------------------------------------------
-!! LOCAL VARIABLES
-!INTEGER             :: i,j,k,iElem
-!!==================================================================================================================================
-!IF(toPhysical)THEN
-!  DO iElem=1,nElems
-!    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-!      U_out(:,i,j,k,iElem)=U_in(:,i,j,k,iElem)*sJ(i,j,k,iElem,FV_Elems(iElem))
-!    END DO; END DO; END DO
-!  END DO
-!ELSE
-!  DO iElem=1,nElems
-!    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-!      U_out(:,i,j,k,iElem)=U_in(:,i,j,k,iElem)/sJ(i,j,k,iElem,FV_Elems(iElem))
-!    END DO; END DO; END DO
-!  END DO
-!END IF
-!END SUBROUTINE ApplyJacobian
+!==================================================================================================================================
+!> Convert solution between physical <-> reference space, separate input and output variables
+!==================================================================================================================================
+PPURE SUBROUTINE ApplyJacobian(&
+#ifdef WITHnVar
+        TP_nVar, &
+#endif
+        U_in,U_out,toPhysical)
+! MODULES
+USE MOD_PreProc
+USE MOD_Mesh_Vars,ONLY:sJ,nElems
+#if FV_ENABLED
+USE MOD_FV_Vars  ,ONLY: FV_Elems
+#endif
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+#ifdef WITHnVar
+INTEGER,INTENT(IN)  :: TP_nVar
+#endif
+REAL,INTENT(IN)     :: U_in( TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< Input: Solution to be transformed
+REAL,INTENT(OUT)    :: U_out(TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< Output: transformed solution
+LOGICAL,INTENT(IN)  :: toPhysical                                 !< Switch for physical<-->reference transformation
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER             :: i,j,k,iElem
+!==================================================================================================================================
+IF(toPhysical)THEN
+  DO iElem=1,nElems
+    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
+      U_out(:,i,j,k,iElem)=U_in(:,i,j,k,iElem)*sJ(i,j,k,iElem,FV_Elems(iElem))
+    END DO; END DO; END DO
+  END DO
+ELSE
+  DO iElem=1,nElems
+    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
+      U_out(:,i,j,k,iElem)=U_in(:,i,j,k,iElem)/sJ(i,j,k,iElem,FV_Elems(iElem))
+    END DO; END DO; END DO
+  END DO
+END IF
+END SUBROUTINE ApplyJacobian
 
 !==================================================================================================================================
 !> Convert solution between physical <-> reference space (DG elements only), input will be overwritten with transformed solution
@@ -154,7 +154,7 @@ END SUBROUTINE ApplyJacobian_local
 !==================================================================================================================================
 !> Convert solution between physical <-> reference space, separate input and output variables
 !==================================================================================================================================
-PPURE SUBROUTINE ApplyJacobian(&
+PPURE SUBROUTINE ApplyJacobian_CUDA(&
 #ifdef WITHnVar
         TP_nVar, &
 #endif
@@ -181,7 +181,7 @@ CALL ApplyJacobian_Device<<<nDOF/nThreads+1,nThreads>>>(&
                                                         TP_nVar, &
 #endif
                                                         nDOF,d_sJ,d_U,toPhysical=.TRUE.)
-END SUBROUTINE ApplyJacobian
+END SUBROUTINE ApplyJacobian_CUDA
 
 !==================================================================================================================================
 !> Convert solution between physical <-> reference space, separate input and output variables

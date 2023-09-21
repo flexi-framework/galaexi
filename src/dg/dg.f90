@@ -260,7 +260,7 @@ USE MOD_DG_Vars             ,ONLY: UPrim,UPrim_master,UPrim_slave,nDOFElem,nDOFF
 !@cuf USE MOD_DG_Vars          ,ONLY: d_Flux_master,d_Flux_slave,d_UPrim_master,d_UPrim_Slave
 USE MOD_VolInt
 USE MOD_SurfIntCons         ,ONLY: SurfIntCons,SurfIntCons_GPU
-USE MOD_ProlongToFaceCons   ,ONLY: ProlongToFaceCons,ProlongToFaceCons_GPU
+USE MOD_ProlongToFaceCons   ,ONLY: ProlongToFaceCons
 USE MOD_FillFlux            ,ONLY: FillFlux
 USE MOD_ApplyJacobianCons   ,ONLY: ApplyJacobianCons
 !@cuf USE MOD_Interpolation_Vars  ,ONLY: d_L_Minus,d_L_Plus
@@ -319,8 +319,7 @@ INTEGER :: i,j,k,iSide,iElem
 
 ! 3. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
 CALL StartReceiveMPIData_GPU(d_U_slave,DataSizeSide,1,nSides,MPIRequest_U(:,SEND),SendID=2) ! Receive MINE / U_slave: slave -> master
-CALL ProlongToFaceCons_GPU(PP_N,d_U,d_U_master,d_U_slave,d_L_Minus,d_L_Plus,doMPISides=.FALSE.)
-!CALL ProlongToFaceCons_GPU(PP_N,d_U,d_U_master,d_U_slave,d_L_Minus,d_L_Plus,doMPISides=.TRUE.)
+CALL ProlongToFaceCons(PP_N,d_U,d_U_master,d_U_slave,d_L_Minus,d_L_Plus)
 CALL cudaDeviceSynchronize()
 CALL StartSendMPIData_GPU(   d_U_slave,DataSizeSide,1,nSides,MPIRequest_U(:,RECV),SendID=2) ! SEND YOUR / U_slave: slave -> master
 CALL ConsToPrim_GPU<<<nElems*nDOFElem/256+1,256,0>>>(nElems*nDOFElem,d_UPrim,d_U)

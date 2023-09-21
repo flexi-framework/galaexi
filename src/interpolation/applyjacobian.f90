@@ -31,6 +31,7 @@ INTERFACE ApplyJacobian
    MODULE PROCEDURE ApplyJacobian
    MODULE PROCEDURE ApplyJacobian_local
    MODULE PROCEDURE ApplyJacobian_select
+   MODULE PROCEDURE ApplyJacobian_CUDA
 END INTERFACE
 
 PUBLIC::ApplyJacobian
@@ -57,6 +58,7 @@ INTERFACE ApplyJacobianCons
    MODULE PROCEDURE ApplyJacobian
    MODULE PROCEDURE ApplyJacobian_local
    MODULE PROCEDURE ApplyJacobian_select
+   MODULE PROCEDURE ApplyJacobian_CUDA
 END INTERFACE
 
 PUBLIC::ApplyJacobianCons
@@ -83,6 +85,7 @@ INTERFACE ApplyJacobianPrim
    MODULE PROCEDURE ApplyJacobian
    MODULE PROCEDURE ApplyJacobian_local
    MODULE PROCEDURE ApplyJacobian_select
+   MODULE PROCEDURE ApplyJacobian_CUDA
 END INTERFACE
 
 PUBLIC::ApplyJacobianPrim
@@ -109,6 +112,7 @@ INTERFACE ApplyJacobianLifting
    MODULE PROCEDURE ApplyJacobian
    MODULE PROCEDURE ApplyJacobian_local
    MODULE PROCEDURE ApplyJacobian_select
+   MODULE PROCEDURE ApplyJacobian_CUDA
 END INTERFACE
 
 PUBLIC::ApplyJacobianLifting
