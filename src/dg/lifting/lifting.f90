@@ -189,6 +189,12 @@ diffFluxZ_R=0.
 !@cuf ALLOCATE(d_UE_g(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ))
 !@cuf ALLOCATE(d_UE_h(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ))
 
+! Compute mapping between primitive and lifting variables for GPU
+ALLOCATE(  LiftToPrim(PP_nVarLifting))
+ALLOCATE(d_LiftToPrim(PP_nVarLifting))
+  LiftToPrim=PRIM_LIFT
+d_LiftToPrim=LiftToPrim
+
 LiftingInitIsDone=.TRUE.
 SWRITE(UNIT_stdOut,'(A)')' INIT LIFTING DONE!'
 SWRITE(UNIT_stdOut,'(132("-"))')
@@ -235,6 +241,8 @@ SDEALLOCATE(diffFluxZ_R)
 !@cuf SDEALLOCATE(d_UE_f)
 !@cuf SDEALLOCATE(d_UE_g)
 !@cuf SDEALLOCATE(d_UE_h)
+SDEALLOCATE(  LiftToPrim)
+SDEALLOCATE(d_LiftToPrim)
 LiftingInitIsDone = .FALSE.
 END SUBROUTINE FinalizeLifting
 

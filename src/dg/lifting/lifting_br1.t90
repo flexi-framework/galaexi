@@ -66,7 +66,7 @@ REAL,DEVICE,INTENT(IN)    :: d_UPrim(       PP_nVarPrim,0:PP_N,0:PP_N,0:PP_NZ,nE
                                                                                       !> will be computed
 REAL,DEVICE,INTENT(INOUT) :: d_UPrim_master(PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides)      !< solution on the master sides
 REAL,DEVICE,INTENT(INOUT) :: d_UPrim_slave( PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides)      !< solution on the slave sides
-REAL,INTENT(IN)    :: t                                                        !< current simulation time
+REAL,VALUE,INTENT(IN)     :: t                                                        !< current simulation time
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 !==================================================================================================================================
@@ -100,26 +100,17 @@ CALL Lifting_VolInt(2,d_UPrim,d_GradUy)
 #if (PP_dim==3)
 CALL Lifting_VolInt(3,d_UPrim,d_GradUz)
 #endif
-WRITE(*,*) 'Hier1'
-CALL cudaDeviceSynchronize()
-WRITE(*,*) 'Hier15'
 
 ! fill the all surface fluxes on this proc
 !CALL Lifting_FillFlux_BC(t,UPrim_master,             Flux=gradUz_slave)
 CALL Lifting_FillFlux(d_UPrim_master,d_UPrim_slave,d_gradUz_slave,doMPISides=.FALSE.)
 ! at this point BC, inner and MPI MINE are filled
-CALL cudaDeviceSynchronize()
-WRITE(*,*) 'Hier21'
 CALL Lifting_FillFlux_NormVec(d_gradUz_slave,d_gradUx_master,d_gradUy_master,d_gradUz_master,doMPISides=.FALSE.)
-WRITE(*,*) 'Hier2'
-CALL cudaDeviceSynchronize()
 
 ! compute surface integral contribution and add to ut
 CALL SurfIntLifting(PP_N,d_gradUx_master,d_gradUx_master,d_gradUx,d_L_hatMinus,d_L_hatPlus)
 CALL SurfIntLifting(PP_N,d_gradUy_master,d_gradUy_master,d_gradUy,d_L_hatMinus,d_L_hatPlus)
 CALL SurfIntLifting(PP_N,d_gradUz_master,d_gradUz_master,d_gradUz,d_L_hatMinus,d_L_hatPlus)
-WRITE(*,*) 'Hier3'
-CALL cudaDeviceSynchronize()
 !#if USE_MPI
 !! Complete send / receive
 !CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Flux)
@@ -140,8 +131,6 @@ CALL ApplyJacobianLifting(d_gradUy,toPhysical=.TRUE.)
 #if (PP_dim==3)
 CALL ApplyJacobianLifting(d_gradUz,toPhysical=.TRUE.)
 #endif
-WRITE(*,*) 'Hier4'
-CALL cudaDeviceSynchronize()
 
 !! We need the gradients at the face of the grid cells
 !#if USE_MPI
@@ -172,7 +161,6 @@ CALL ProlongToFaceLifting(PP_N,d_gradUy,d_gradUy_master,d_gradUy_slave,d_L_Minus
 #if (PP_dim==3)
 CALL ProlongToFaceLifting(PP_N,d_gradUz,d_gradUz_master,d_gradUz_slave,d_L_Minus,d_L_Plus)
 #endif
-SWRITE(*,*) 'Smth'
 
 END SUBROUTINE Lifting_BR1
 

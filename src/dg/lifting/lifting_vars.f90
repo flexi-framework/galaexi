@@ -65,6 +65,10 @@ REAL,ALLOCATABLE :: diffFluxZ_R(:,:,:)
 !@cuf REAL,DEVICE,ALLOCATABLE :: d_UE_g(:,:,:,:)
 !@cuf REAL,DEVICE,ALLOCATABLE :: d_UE_h(:,:,:,:)
 
+! Mapping Arrays for reduced lifting for GPU
+INTEGER,ALLOCATABLE        ::   LiftToPrim(:)
+INTEGER,ALLOCATABLE,DEVICE :: d_LiftToPrim(:)
+
 REAL             :: etaBR2                        !< Lifting penalty for BR2. Increase improves stability
                                                   !< at the cost of performance and reduces jumps between two cells
 REAL             :: etaBR2_wall                   !< Lifting penalty for BR2 at the wall. Can be choosen different from etaBR2

@@ -308,7 +308,8 @@ END SUBROUTINE Lifting_Metrics
 !==================================================================================================================================
 SUBROUTINE Lifting_Metrics_GPU(dir,d_UPrim,d_Mf,d_Mg,d_Mh,d_UPrim_f,d_UPrim_g,d_UPrim_h)
 ! MODULES
-USE MOD_DG_Vars,ONLY:nDOFElem
+USE MOD_DG_Vars      ,ONLY:nDOFElem
+USE MOD_Lifting_Vars ,ONLY:d_LiftToPrim
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -322,15 +323,17 @@ REAL,DEVICE,INTENT(OUT)  :: d_UPrim_g(PP_nVarLifting,nDOFElem)  !< gradient flux
 REAL,DEVICE,INTENT(OUT)  :: d_UPrim_h(PP_nVarLifting,nDOFElem)  !< gradient flux zeta
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER            :: i
+INTEGER            :: i,iVar
 !==================================================================================================================================
 !$cuf kernel do <<< *, * >>>
 DO i=1,nDOFElem
-  d_UPrim_f(:,i) = d_Mf(dir,i)*d_UPrim(PRIM_LIFT,i)
-  d_UPrim_g(:,i) = d_Mg(dir,i)*d_UPrim(PRIM_LIFT,i)
+  DO iVar=1,PP_nVarLifting
+    d_UPrim_f(iVar,i) = d_Mf(dir,i)*d_UPrim(d_LiftToPrim(iVar),i)
+    d_UPrim_g(iVar,i) = d_Mg(dir,i)*d_UPrim(d_LiftToPrim(iVar),i)
 #if (PP_dim==3)
-  d_UPrim_h(:,i) = d_Mh(dir,i)*d_UPrim(PRIM_LIFT,i)
+    d_UPrim_h(iVar,i) = d_Mh(dir,i)*d_UPrim(d_LiftToPrim(iVar),i)
 #endif
+  END DO ! iVar
 END DO ! i
 END SUBROUTINE Lifting_Metrics_GPU
 

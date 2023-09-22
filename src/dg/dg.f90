@@ -340,8 +340,6 @@ CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_slave
 ! Compute the gradients using Lifting (BR1 scheme,BR2 scheme ...)
 ! The communication of the gradients is initialized within the lifting routines
 CALL Lifting(d_UPrim,d_UPrim_master,d_UPrim_slave,t)
-SWRITE(*,*) 'Smth2'
-!STOP
 #endif /* PARABOLIC */
 
 ! 8. Compute volume integral contribution and add to Ut

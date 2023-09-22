@@ -39,6 +39,7 @@
 PPURE SUBROUTINE Lifting_FillFlux(d_UPrimface_master,d_UPrimface_slave,d_Flux,doMPISides)
 ! MODULES
 USE MOD_PreProc
+USE MOD_Lifting_Vars,    ONLY: d_LiftToPrim
 USE MOD_Mesh_Vars,       ONLY: d_SurfElem
 USE MOD_Mesh_Vars,       ONLY: nSides
 USE MOD_Mesh_Vars,       ONLY: firstInnerSide,lastInnerSide
@@ -52,7 +53,7 @@ REAL,DEVICE,INTENT(INOUT) :: d_UPrimface_slave( PP_nVarPrim   ,0:PP_N,0:PP_NZ,nS
 REAL,DEVICE,INTENT(INOUT) :: d_Flux(            PP_nVarLifting,0:PP_N,0:PP_NZ,nSides) !< Untransformed lifting flux
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER            :: SideID,p,q,firstSideID,lastSideID
+INTEGER            :: SideID,p,q,firstSideID,lastSideID,iVar
 !==================================================================================================================================
 ! fill flux for sides ranging between firstSideID and lastSideID using Riemann solver
 IF(doMPISides)THEN
@@ -70,12 +71,10 @@ DO SideID=firstSideID,lastSideID
   ! BR1 uses arithmetic mean value of states for the Riemann flux
   ! Transformation with NormVec is applied in separate routine
   DO q=0,PP_NZ; DO p=0,PP_N
-    !d_Flux(1,p,q,SideID) = 0.5*(d_UPrimface_master(1,p,q,SideID) + d_UPrimface_slave(1,p,q,SideID))*d_SurfElem(p,q,0,SideID)
-    !d_Flux(2,p,q,SideID) = 0.5*(d_UPrimface_master(2,p,q,SideID) + d_UPrimface_slave(2,p,q,SideID))*d_SurfElem(p,q,0,SideID)
-    !d_Flux(3,p,q,SideID) = 0.5*(d_UPrimface_master(3,p,q,SideID) + d_UPrimface_slave(3,p,q,SideID))*d_SurfElem(p,q,0,SideID)
-    !d_Flux(4,p,q,SideID) = 0.5*(d_UPrimface_master(4,p,q,SideID) + d_UPrimface_slave(4,p,q,SideID))*d_SurfElem(p,q,0,SideID)
-    !d_Flux(5,p,q,SideID) = 0.5*(d_UPrimface_master(6,p,q,SideID) + d_UPrimface_slave(6,p,q,SideID))*d_SurfElem(p,q,0,SideID)
-    !d_Flux(:,p,q,SideID) = 0.
+    DO iVar=1,PP_nVarLifting
+      d_Flux(iVar,p,q,SideID) = 0.5*d_SurfElem(p,q,0,SideID)*&
+                             (d_UPrimface_master(d_LiftToPrim(iVar),p,q,SideID) + d_UPrimface_slave(d_LiftToPrim(iVar),p,q,SideID))
+    END DO
   END DO; END DO
 END DO ! SideID
 
