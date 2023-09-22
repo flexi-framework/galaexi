@@ -61,9 +61,10 @@ REAL,ALLOCATABLE :: diffFluxZ_R(:,:,:)
 !@cuf REAL,DEVICE,ALLOCATABLE :: d_diffFluxZ_R(:,:,:)
 
 ! Tmp Arrays for VolInt
-!@cuf REAL,DEVICE,ALLOCATABLE :: d_UE_f(:,:,:,:)
-!@cuf REAL,DEVICE,ALLOCATABLE :: d_UE_g(:,:,:,:)
-!@cuf REAL,DEVICE,ALLOCATABLE :: d_UE_h(:,:,:,:)
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_UE_f(:,:,:,:,:)
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_UE_g(:,:,:,:,:)
+!@cuf REAL,DEVICE,ALLOCATABLE :: d_UE_h(:,:,:,:,:)
+INTEGER,PARAMETER :: nElems_Block_volIntLift = 64
 
 ! Mapping Arrays for reduced lifting for GPU
 INTEGER,ALLOCATABLE        ::   LiftToPrim(:)

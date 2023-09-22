@@ -185,9 +185,9 @@ diffFluxZ_R=0.
 !@cuf ALLOCATE(d_diffFluxZ_L(PP_nVar,0:PP_N,0:PP_NZ))
 !@cuf ALLOCATE(d_diffFluxZ_R(PP_nVar,0:PP_N,0:PP_NZ))
 
-!@cuf ALLOCATE(d_UE_f(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ))
-!@cuf ALLOCATE(d_UE_g(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ))
-!@cuf ALLOCATE(d_UE_h(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ))
+!@cuf ALLOCATE(d_UE_f(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volIntLift))
+!@cuf ALLOCATE(d_UE_g(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volIntLift))
+!@cuf ALLOCATE(d_UE_h(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volIntLift))
 
 ! Compute mapping between primitive and lifting variables for GPU
 ALLOCATE(  LiftToPrim(PP_nVarLifting))

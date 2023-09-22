@@ -226,7 +226,7 @@ USE MOD_PreProc
 USE MOD_DG_Vars            ,ONLY: d_D_hat_T
 USE MOD_Mesh_Vars          ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde
 USE MOD_Mesh_Vars          ,ONLY: nElems
-USE MOD_Lifting_Vars       ,ONLY: d_UE_f,d_UE_g,d_UE_h
+USE MOD_Lifting_Vars       ,ONLY: d_UE_f,d_UE_g,d_UE_h,nElems_Block_volIntLift
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -237,31 +237,37 @@ REAL,DEVICE,INTENT(OUT)      :: d_gradU(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ,1:n
 ! LOCAL VARIABLES
 !REAL,DIMENSION(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ) :: UE_f,UE_g,UE_h ! transformed gradient flux (i.e. transformed solution)
 INTEGER                                              :: iElem,i,j,k,l
+INTEGER                                              :: lastElem,iiElem,nElems_myBlock
 !==================================================================================================================================
 
 ! volume integral
-DO iElem=1,nElems
-  CALL Lifting_Metrics_GPU(dir,d_UPrim(:,:,:,:,iElem),&
-                           d_Metrics_fTilde(:,:,:,:,iElem,0),&
-                           d_Metrics_gTilde(:,:,:,:,iElem,0),&
-                           d_Metrics_hTilde(:,:,:,:,iElem,0),&
+DO iElem=1,nElems,nElems_Block_volIntLift
+  lastElem    = MIN(nElems,iElem+nElems_Block_volIntLift-1)
+  nElems_myBlock = lastElem-iElem+1
+
+  CALL Lifting_Metrics_GPU(dir,     d_UPrim(:,:,:,:,iElem:lastElem),&
+                           d_Metrics_fTilde(:,:,:,:,iElem:lastElem,0),&
+                           d_Metrics_gTilde(:,:,:,:,iElem:lastElem,0),&
+                           d_Metrics_hTilde(:,:,:,:,iElem:lastElem,0),&
                            d_UE_f,d_UE_g,d_UE_h)
 
   !$cuf kernel do(3) <<< *, * >>>
-  DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-    d_gradU(:,i,j,k,iElem)   =                        d_D_Hat_T(0,i)*d_UE_f(:,0,j,k)+&
+  DO iiElem=1,nElems_myBlock
+    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
+      d_gradU(:,i,j,k,iElem+iiElem-1)   =     d_D_Hat_T(0,i)*d_UE_f(:,0,j,k,iiElem)+&
 #if (PP_dim==3)
-                                                      d_D_hat_T(0,k)*d_UE_h(:,i,j,0)+&
+                                              d_D_hat_T(0,k)*d_UE_h(:,i,j,0,iiElem)+&
 #endif
-                                                      d_D_hat_T(0,j)*d_UE_g(:,i,0,k)
-    DO l=1,PP_N
-      d_gradU(:,i,j,k,iElem) = d_gradU(:,i,j,k,iElem)+d_D_hat_T(l,i)*d_UE_f(:,l,j,k)+&
+                                              d_D_hat_T(0,j)*d_UE_g(:,i,0,k,iiElem)
+      DO l=1,PP_N
+        d_gradU(:,i,j,k,iElem+iiElem-1) = d_gradU(:,i,j,k,iElem+iiElem-1)+d_D_hat_T(l,i)*d_UE_f(:,l,j,k,iiElem)+&
 #if (PP_dim==3)
-                                                      d_D_hat_T(l,k)*d_UE_h(:,i,j,l)+&
+                                                                          d_D_hat_T(l,k)*d_UE_h(:,i,j,l,iiElem)+&
 #endif
-                                                      d_D_hat_T(l,j)*d_UE_g(:,i,l,k)
-    END DO ! l
-  END DO; END DO; END DO ! i,j,k
+                                                                          d_D_hat_T(l,j)*d_UE_g(:,i,l,k,iiElem)
+      END DO ! l
+    END DO; END DO; END DO ! i,j,k
+  END DO
 
 END DO ! iElem=1,nElems
 END SUBROUTINE Lifting_VolInt_Conservative_GPU
