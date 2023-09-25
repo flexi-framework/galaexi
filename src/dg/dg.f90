@@ -271,7 +271,6 @@ USE MOD_TestCase            ,ONLY: TestcaseSource
 USE MOD_TestCase_Vars       ,ONLY: doTCSource
 USE MOD_Equation            ,ONLY: GetPrimitiveStateSurface,GetConservativeStateSurface
 USE MOD_EOS                 ,ONLY: ConsToPrim
-USE MOD_EOS                 ,ONLY: ConsToPrim_GPU
 USE MOD_Exactfunc           ,ONLY: CalcSource
 USE MOD_Equation_Vars       ,ONLY: doCalcSource
 USE MOD_Sponge              ,ONLY: Sponge
@@ -325,7 +324,7 @@ CALL StartSendMPIData_GPU(   d_U_slave,DataSizeSide,1,nSides,MPIRequest_U(:,RECV
 #endif
 
 ! 3. Convert Volume solution to primitive for latency hiding
-CALL ConsToPrim_GPU<<<nElems*nDOFElem/256+1,256,0>>>(nElems*nDOFElem,d_UPrim,d_U)
+CALL ConsToPrim(PP_N,d_UPrim,d_U)
 
 #if USE_MPI
 ! 4. Finish communication of face solution
@@ -336,8 +335,8 @@ CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_U)        ! U_slave: slave -> m
 !    Attention: For FV with 2nd order reconstruction U_master/slave and therewith UPrim_master/slave are still only 1st order
 ! TODO: Linadv?
 !CALL GetPrimitiveStateSurface(U_master,U_slave,UPrim_master,UPrim_slave)
-CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_master,d_U_master)
-CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_slave ,d_U_slave )
+CALL ConsToPrim(PP_N,nSides,d_UPrim_master,d_U_master) ! TODO: Skip non-filled MPI sides
+CALL ConsToPrim(PP_N,nSides,d_UPrim_slave ,d_U_slave )
 
 #if PARABOLIC
 ! 6. Lifting
