@@ -146,10 +146,23 @@ DO iElem=1,nElems,nElems_Block_volInt
 
   ! Cut out the local DG solution for a grid cell iElem and all Gauss points from the global field
   ! Compute for all Gauss point values the Cartesian flux components
-  !CALL EvalFlux3D(PP_N,U(:,:,:,:,iElem),UPrim(:,:,:,:,iElem),f,g,h)
-  CALL EvalFlux3D_Volume<<<(nDOFElem*nElems_myBlock)/256+1,256,0>>>(nDOFElem*nElems_myBlock,d_U(    :,:,:,:,iElem:lastElem) &
-                                                                                         ,d_UPrim(:,:,:,:,iElem:lastElem) &
-                                                                                         ,d_f,d_g,d_h)
+  CALL EvalFlux3D(PP_N,nElems_myBlock,d_U(    :,:,:,:,iElem:lastElem) &
+                                     ,d_UPrim(:,:,:,:,iElem:lastElem) &
+                                     ,d_f,d_g,d_h)
+#if PARABOLIC
+  CALL EvalDiffFlux3D( UPrim(:,:,:,:,iElem:lastElem),&
+                      gradUx(:,:,:,:,iElem:lastElem),&
+                      gradUy(:,:,:,:,iElem:lastElem),&
+                      gradUz(:,:,:,:,iElem:lastElem),&
+                      fv,gv,hv,iElem)
+
+  f=f+fv
+  g=g+gv
+#if PP_dim==3
+  h=h+hv
+#endif
+#endif
+
 
   CALL VolInt_Metrics_GPU<<<(nDOFElem*nElems_myBlock)/256+1,256,0>>>(nDOFElem*nElems_myBlock, &
                                                                    d_f,d_g,d_h,             &
