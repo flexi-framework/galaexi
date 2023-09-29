@@ -271,7 +271,6 @@ USE MOD_TestCase            ,ONLY: TestcaseSource
 USE MOD_TestCase_Vars       ,ONLY: doTCSource
 USE MOD_Equation            ,ONLY: GetPrimitiveStateSurface,GetConservativeStateSurface
 USE MOD_EOS                 ,ONLY: ConsToPrim
-USE MOD_EOS                 ,ONLY: ConsToPrim_GPU
 USE MOD_Exactfunc           ,ONLY: CalcSource
 USE MOD_Equation_Vars       ,ONLY: doCalcSource
 USE MOD_Sponge              ,ONLY: Sponge
@@ -302,10 +301,10 @@ INTEGER :: i,j,k,iSide,iElem
 ! MAIN STEPS        []=FV only
 ! -----------------------------------------------------------------------------
 ! 1.   Filter solution vector
-! 2.   Convert volume solution to primitive
-! 3.   Prolong to face (fill U_master/slave)
-! 4.   ConsToPrim of face data (U_master/slave)
-![5. ] Second order reconstruction for FV
+! 2.   Prolong to face (fill U_master/slave)
+! 3.   Convert volume solution to primitive
+! 4.   Finish communication of prolongated face data (2.)
+! 5.   ConsToPrim of face data (U_master/slave)
 ! 6.   Lifting
 ! 7.   IF EDDYVISCOSITY: Prolong muSGS to face and send from slave to master
 ! 8.   Volume integral (DG only)
@@ -317,23 +316,37 @@ INTEGER :: i,j,k,iSide,iElem
 ! 14.  Perform overintegration and apply Jacobian
 ! -----------------------------------------------------------------------------
 
-! 2. Convert Volume solution to primitive
-!CALL ConsToPrim_GPU<<<nElems*nDOFElem/256+1,256,0>>>(nElems*nDOFElem,d_UPrim,d_U)
-
-! 3. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
+! 2. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
+#if USE_MPI
 CALL StartReceiveMPIData_GPU(d_U_slave,DataSizeSide,1,nSides,MPIRequest_U(:,SEND),SendID=2) ! Receive MINE / U_slave: slave -> master
+#endif
 CALL ProlongToFaceCons(PP_N,d_U,d_U_master,d_U_slave,d_L_Minus,d_L_Plus)
-CALL cudaDeviceSynchronize()
+#if USE_MPI
+CALL cudaDeviceSynchronize() ! TODO: Move CudaSynchronize into MPI send
 CALL StartSendMPIData_GPU(   d_U_slave,DataSizeSide,1,nSides,MPIRequest_U(:,RECV),SendID=2) ! SEND YOUR / U_slave: slave -> master
-CALL ConsToPrim_GPU<<<nElems*nDOFElem/256+1,256,0>>>(nElems*nDOFElem,d_UPrim,d_U)
-CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_U)        ! U_slave: slave -> master
+#endif
 
-! 4. Convert face data from conservative to primitive variables
+! 3. Convert Volume solution to primitive for latency hiding
+CALL ConsToPrim(PP_N,d_UPrim,d_U)
+
+#if USE_MPI
+! 4. Finish communication of face solution
+CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_U)        ! U_slave: slave -> master
+#endif
+
+! 5. Convert face data from conservative to primitive variables
 !    Attention: For FV with 2nd order reconstruction U_master/slave and therewith UPrim_master/slave are still only 1st order
 ! TODO: Linadv?
 !CALL GetPrimitiveStateSurface(U_master,U_slave,UPrim_master,UPrim_slave)
-CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_master,d_U_master)
-CALL ConsToPrim_GPU<<<nSides*nDOFFace/256+1,256>>>(nSides*nDOFFace,d_UPrim_slave ,d_U_slave )
+CALL ConsToPrim(PP_N,nSides,d_UPrim_master,d_U_master) ! TODO: Skip non-filled MPI sides
+CALL ConsToPrim(PP_N,nSides,d_UPrim_slave ,d_U_slave )
+
+#if PARABOLIC
+! 6. Lifting
+! Compute the gradients using Lifting (BR1 scheme,BR2 scheme ...)
+! The communication of the gradients is initialized within the lifting routines
+CALL Lifting(d_UPrim,d_UPrim_master,d_UPrim_slave,t)
+#endif
 
 #if PARABOLIC
 ! 6. Lifting
@@ -346,12 +359,16 @@ CALL Lifting(d_UPrim,d_UPrim_master,d_UPrim_slave,t)
 CALL VolInt(d_Ut)
 
 ! 11. Fill flux and Surface integral
+#if USE_MPI
 CALL StartReceiveMPIData_GPU(d_Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,SEND),SendID=1)
 CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.TRUE.)
-CALL cudaDeviceSynchronize()
+CALL cudaDeviceSynchronize() ! TODO: Move CudaSynchronize into MPI send
 CALL StartSendMPIData_GPU(   d_Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,RECV),SendID=1)
+#endif
 CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.)
+#if USE_MPI
 CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Flux )                       ! Flux_slave: master -> slave
+#endif
 
 ! 11.5)
 CALL SurfIntCons(PP_N,d_Flux_master,d_Flux_slave,d_Ut,d_L_HatMinus,d_L_hatPlus)

@@ -58,7 +58,7 @@ USE MOD_Mesh_Vars,       ONLY: d_NormVec, d_TangVec1, d_TangVec2, d_SurfElem, Fa
 USE MOD_Mesh_Vars,       ONLY: firstInnerSide,lastInnerSide,firstMPISide_MINE,lastMPISide_MINE
 USE MOD_Mesh_Vars,       ONLY: nSides,firstBCSide
 USE MOD_ChangeBasisByDim,ONLY: ChangeBasisSurf
-USE MOD_Riemann,         ONLY: Riemann,Riemann_CPU
+USE MOD_Riemann,         ONLY: Riemann
 USE MOD_GetBoundaryFlux, ONLY: GetBoundaryFlux
 USE MOD_EOS,             ONLY: ConsToPrim
 USE MOD_Mesh_Vars,       ONLY: nBCSides
@@ -78,10 +78,8 @@ REAL,INTENT(IN)    :: d_UPrim_slave( PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< p
 !@cuf ATTRIBUTES(DEVICE) :: d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,d_Flux_master,d_Flux_slave
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER,PARAMETER  :: nBlockSides=128
-INTEGER            :: firstBlockSide,lastBlockSide,nMyBlockSides
-INTEGER :: SideID,p,q,firstSideID_wo_BC,firstSideID ,lastSideID,FVEM
-INTEGER :: FV_Elems_Max(1:nSides) ! 0 if both sides DG, 1 else
+INTEGER :: firstSideID_wo_BC,firstSideID,lastSideID
+INTEGER :: SideID,p,q
 !==================================================================================================================================
 ! fill flux for sides ranging between firstSideID and lastSideID using Riemann solver for advection and viscous terms
 ! Set the side range according to MPI or no MPI
@@ -105,35 +103,24 @@ END IF
 !  1.2) viscous flux
 !  1.3) add up viscous flux to Flux_master
 !  2.  compute flux for BC sides
-!  3.  multiply by SurfElem
-!  4.  copy flux from Flux_master to Flux_slave
-!  5.  convert FV flux to DG flux at mixed interfaces
+!  3.  multiply by SurfElem and copy flux from master side to slave side
 !==============================
-
-! 1. compute flux for non-BC sides
-DO firstBlockSide=firstSideID_wo_BC,lastSideID,nBlockSides
-  lastBlockSide = MIN(lastSideID,firstBlockSide+nBlockSides-1)
-  nMyBlockSides = lastBlockSide-firstBlockSide+1
-  ! 1.1) advective part of flux
-  !CALL Riemann_CPU(PP_N,Flux_master(:,:,:,SideID),&
-  !    U_master    (:,:,:,SideID),U_slave    (:,:,:,SideID),       &
-  !    UPrim_master(:,:,:,SideID),UPrim_slave(:,:,:,SideID),       &
-  !    NormVec (:,:,:,FV_Elems_Max(SideID),SideID), &
-  !    TangVec1(:,:,:,FV_Elems_Max(SideID),SideID), &
-  !    TangVec2(:,:,:,FV_Elems_Max(SideID),SideID),doBC=.FALSE.)
-  CALL Riemann<<<(nDOFFace*nMyBlockSides/256+1),256,0>>>(   &
-      (nDOFFace*nMyBlockSides),                           &
-      d_Flux_master( :,:,:,firstBlockSide:lastBlockSide), &
-      d_U_master(    :,:,:,firstBlockSide:lastBlockSide), &
-      d_U_slave(     :,:,:,firstBlockSide:lastBlockSide), &
-      d_UPrim_master(:,:,:,firstBlockSide:lastBlockSide), &
-      d_UPrim_slave( :,:,:,firstBlockSide:lastBlockSide), &
-      d_NormVec (  :,:,:,:,firstBlockSide:lastBlockSide), &
-      d_TangVec1(  :,:,:,:,firstBlockSide:lastBlockSide), &
-      d_TangVec2(  :,:,:,:,firstBlockSide:lastBlockSide))!,doBC=.FALSE.)
-END DO ! SideID
-
-!Flux_master(:,:,:,firstSideID_wo_BC:lastSideID) = d_Flux_master(:,:,:,firstSideID_wo_BC:lastSideID)
+! 1.  compute flux for non-BC sides
+IF (firstSideID_wo_BC.LE.lastSideID) THEN
+  ! 1.1) advective flux
+  CALL Riemann(PP_N, &
+               lastSideID-firstSideID_wo_BC+1, & ! Number of sides in array
+               d_Flux_master (:,:,:,firstSideID_wo_BC:lastSideID), &
+               d_U_master    (:,:,:,firstSideID_wo_BC:lastSideID), &
+               d_U_slave     (:,:,:,firstSideID_wo_BC:lastSideID), &
+               d_UPrim_master(:,:,:,firstSideID_wo_BC:lastSideID), &
+               d_UPrim_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
+               d_NormVec   (:,:,:,:,firstSideID_wo_BC:lastSideID), &
+               d_TangVec1  (:,:,:,:,firstSideID_wo_BC:lastSideID), &
+               d_TangVec2  (:,:,:,:,firstSideID_wo_BC:lastSideID))
+  ! 1.2) viscous flux
+  ! TODO:
+END IF
 
 ! 2. Compute the fluxes at the boundary conditions: 1..nBCSides
 IF(.NOT.doMPISides)THEN
@@ -156,19 +143,16 @@ IF(.NOT.doMPISides)THEN
 END IF ! .NOT. MPISIDES
 
 
-! 3. multiply by SurfElem
+! 3. multiply by SurfElem and copy flux from master side to slave side
 !$cuf kernel do(3) <<< *, 256, 0 >>>
 DO SideID=firstSideID,lastSideID
-  ! multiply with SurfElem
   DO q=0,PP_NZ; DO p=0,PP_N
+    ! multiply with SurfElem
     d_Flux_master(:,p,q,SideID) = d_Flux_master(:,p,q,SideID) * d_SurfElem(p,q,0,SideID)
+    ! copy master to slave
     d_Flux_slave( :,p,q,SideID) = d_Flux_master(:,p,q,SideID)
   END DO; END DO
 END DO ! SideID
-
-!! 4. copy flux from master side to slave side
-!d_Flux_slave(:,:,:,firstSideID:lastSideID) = d_Flux_master(:,:,:,firstSideID:lastSideID)
-
 
 END SUBROUTINE FillFlux
 
