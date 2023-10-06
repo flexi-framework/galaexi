@@ -252,7 +252,7 @@ SUBROUTINE DGTimeDerivative_weakForm(t)
 USE MOD_Globals
 USE MOD_Preproc
 USE MOD_Vector
-USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave,L_HatMinus,L_HatPlus
+USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave,L_HatMinus,L_HatPlus,nTotalU
 !@cuf USE MOD_DG_Vars          ,ONLY: d_L_HatPlus,d_L_HatMinus
 USE MOD_DG_Vars             ,ONLY: UPrim,UPrim_master,UPrim_slave,nDOFElem,nDOFFace
 !@cuf USE MOD_DG_Vars          ,ONLY: d_U,d_UPrim,d_Ut
@@ -364,12 +364,7 @@ CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Flux )                       ! 
 CALL SurfIntCons(PP_N,d_Flux_master,d_Flux_slave,d_Ut,d_L_HatMinus,d_L_hatPlus)
 
 ! 12. Swap to right sign :)
-!$cuf kernel do(4) <<< *, * >>>
-DO iElem=1,nElems
-  DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-    d_Ut(:,i,j,k,iElem) = -d_Ut(:,i,j,k,iElem)
-  END DO; END DO; END DO
-END DO
+CALL VAX_GPU(nTotalU,d_Ut,-1.) ! Multiply array by -1
 
 ! 13. Compute source terms and sponge (in physical space, conversion to reference space inside routines)
 !IF(doCalcSource) CALL CalcSource(Ut,t)
