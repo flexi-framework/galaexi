@@ -128,10 +128,10 @@ IF (firstSideID_wo_BC.LE.lastSideID) THEN
                    d_UPrim_master (:,:,:,firstSideID_wo_BC:lastSideID), &
                    d_UPrim_slave  (:,:,:,firstSideID_wo_BC:lastSideID), &
                    d_gradUx_master(:,:,:,firstSideID_wo_BC:lastSideID), &
-                   d_gradUx_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
                    d_gradUy_master(:,:,:,firstSideID_wo_BC:lastSideID), &
-                   d_gradUy_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
                    d_gradUz_master(:,:,:,firstSideID_wo_BC:lastSideID), &
+                   d_gradUx_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
+                   d_gradUy_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
                    d_gradUz_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
                    d_NormVec    (:,:,:,:,firstSideID_wo_BC:lastSideID))
 #endif
