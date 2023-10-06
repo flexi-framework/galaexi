@@ -223,7 +223,7 @@ END SUBROUTINE Lifting_VolInt_Conservative
 SUBROUTINE Lifting_VolInt_Conservative_GPU(dir,d_UPrim,d_gradU)
 ! MODULES
 USE MOD_PreProc
-USE MOD_DG_Vars            ,ONLY: d_D_hat_T
+USE MOD_DG_Vars            ,ONLY: d_D_hat_T,nDOFElem
 USE MOD_Mesh_Vars          ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde
 USE MOD_Mesh_Vars          ,ONLY: nElems
 USE MOD_Lifting_Vars       ,ONLY: d_UE_f,d_UE_g,d_UE_h,nElems_Block_volIntLift
@@ -245,13 +245,14 @@ DO iElem=1,nElems,nElems_Block_volIntLift
   lastElem    = MIN(nElems,iElem+nElems_Block_volIntLift-1)
   nElems_myBlock = lastElem-iElem+1
 
-  CALL Lifting_Metrics_GPU(dir,     d_UPrim(:,:,:,:,iElem:lastElem),&
+  CALL Lifting_Metrics_GPU(dir,nDOFElem*nElems_myBlock, &
+                                    d_UPrim(:,:,:,:,iElem:lastElem  ),&
                            d_Metrics_fTilde(:,:,:,:,iElem:lastElem,0),&
                            d_Metrics_gTilde(:,:,:,:,iElem:lastElem,0),&
                            d_Metrics_hTilde(:,:,:,:,iElem:lastElem,0),&
                            d_UE_f,d_UE_g,d_UE_h)
 
-  !$cuf kernel do(3) <<< *, * >>>
+  !$cuf kernel do(4) <<< *, * >>>
   DO iiElem=1,nElems_myBlock
     DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
       d_gradU(:,i,j,k,iElem+iiElem-1)   =     d_D_Hat_T(0,i)*d_UE_f(:,0,j,k,iiElem)+&
@@ -312,27 +313,27 @@ END SUBROUTINE Lifting_Metrics
 !> Transform the gradient terms by multiplying them with the metrics terms
 !> For the direction \f$ d \f$ the transformed gradient flux is \f$ \sum_{n=1}^3 Ja^d_n U \f$.
 !==================================================================================================================================
-SUBROUTINE Lifting_Metrics_GPU(dir,d_UPrim,d_Mf,d_Mg,d_Mh,d_UPrim_f,d_UPrim_g,d_UPrim_h)
+SUBROUTINE Lifting_Metrics_GPU(dir,nDOF,d_UPrim,d_Mf,d_Mg,d_Mh,d_UPrim_f,d_UPrim_g,d_UPrim_h)
 ! MODULES
-USE MOD_DG_Vars      ,ONLY:nDOFElem
 USE MOD_Lifting_Vars ,ONLY:d_LiftToPrim
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
-INTEGER,VALUE,INTENT(IN) :: dir                                 !< direction (x,y,z)
-REAL,DEVICE,INTENT(IN)   :: d_Mf(3,nDOFElem)                    !< metrics in xi
-REAL,DEVICE,INTENT(IN)   :: d_Mg(3,nDOFElem)                    !< metrics in eta
-REAL,DEVICE,INTENT(IN)   :: d_Mh(3,nDOFElem)                    !< metrics in zeta
-REAL,DEVICE,INTENT(IN)   :: d_UPrim  (PP_nVarPrim   ,nDOFElem)  !< solution ("flux")
-REAL,DEVICE,INTENT(OUT)  :: d_UPrim_f(PP_nVarLifting,nDOFElem)  !< gradient flux xi
-REAL,DEVICE,INTENT(OUT)  :: d_UPrim_g(PP_nVarLifting,nDOFElem)  !< gradient flux eta
-REAL,DEVICE,INTENT(OUT)  :: d_UPrim_h(PP_nVarLifting,nDOFElem)  !< gradient flux zeta
+INTEGER,VALUE,INTENT(IN) :: dir                             !< direction (x,y,z)
+INTEGER,VALUE,INTENT(IN) :: nDOF                            !< direction (x,y,z)
+REAL,DEVICE,INTENT(IN)   :: d_Mf(3,nDOF)                    !< metrics in xi
+REAL,DEVICE,INTENT(IN)   :: d_Mg(3,nDOF)                    !< metrics in eta
+REAL,DEVICE,INTENT(IN)   :: d_Mh(3,nDOF)                    !< metrics in zeta
+REAL,DEVICE,INTENT(IN)   :: d_UPrim  (PP_nVarPrim   ,nDOF)  !< solution ("flux")
+REAL,DEVICE,INTENT(OUT)  :: d_UPrim_f(PP_nVarLifting,nDOF)  !< gradient flux xi
+REAL,DEVICE,INTENT(OUT)  :: d_UPrim_g(PP_nVarLifting,nDOF)  !< gradient flux eta
+REAL,DEVICE,INTENT(OUT)  :: d_UPrim_h(PP_nVarLifting,nDOF)  !< gradient flux zeta
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER            :: i,iVar
 !==================================================================================================================================
 !$cuf kernel do <<< *, * >>>
-DO i=1,nDOFElem
+DO i=1,nDOF
   DO iVar=1,PP_nVarLifting
     d_UPrim_f(iVar,i) = d_Mf(dir,i)*d_UPrim(d_LiftToPrim(iVar),i)
     d_UPrim_g(iVar,i) = d_Mg(dir,i)*d_UPrim(d_LiftToPrim(iVar),i)

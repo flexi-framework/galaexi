@@ -152,6 +152,11 @@ d_Flux_slave =Flux_slave
 ALLOCATE(d_f (PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volInt))
 ALLOCATE(d_g (PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volInt))
 ALLOCATE(d_h (PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volInt))
+#if PARABOLIC
+ALLOCATE(d_fv(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volInt))
+ALLOCATE(d_gv(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volInt))
+ALLOCATE(d_hv(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volInt))
+#endif
 
 
 ! variables for performance tricks
@@ -357,6 +362,11 @@ CALL Lifting(d_UPrim,d_UPrim_master,d_UPrim_slave,t)
 
 ! 8. Compute volume integral contribution and add to Ut
 CALL VolInt(d_Ut)
+
+#if PARABOLIC && USE_MPI
+! Complete send / receive for gradUx, gradUy, gradUz, started in the lifting routines
+CALL FinishExchangeMPIData(6*nNbProcs,MPIRequest_gradU) ! gradUx,y,z: slave -> master
+#endif /*PARABOLIC && USE_MPI*/
 
 ! 11. Fill flux and Surface integral
 #if USE_MPI

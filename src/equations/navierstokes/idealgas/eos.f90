@@ -100,7 +100,6 @@ USE MOD_PreProc
 USE MOD_Globals
 USE MOD_ReadInTools
 USE MOD_EOS_Vars      ,ONLY: Kappa,KappaM1,KappaP1,cp,cv
-!@cuf USE MOD_EOS_Vars,ONLY: d_Kappa
 USE MOD_EOS_Vars      ,ONLY: R,sKappaM1,sKappaP1
 #if PARABOLIC
 USE MOD_EOS_Vars      ,ONLY: mu0,Pr,KappaSpr
@@ -133,7 +132,6 @@ END IF
 
 ! Gas constants
 Kappa    = GETREAL('kappa')
-!@cuf d_Kappa = Kappa
 KappaM1  = Kappa-1.
 sKappaM1 = 1./KappaM1
 KappaP1  = Kappa+1.

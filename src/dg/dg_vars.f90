@@ -87,6 +87,9 @@ REAL,ALLOCATABLE                      :: Flux_master(:,:,:,:)   !< Fluxes on fac
 REAL,ALLOCATABLE                      :: Flux_slave (:,:,:,:)   !< Fluxes on face, size [1..NVar,0..N,0..NZ,allsides].
 !@cuf REAL,ALLOCATABLE,DEVICE         :: d_Flux_slave(:,:,:,:)
 REAL,DEVICE,ALLOCATABLE,DIMENSION(:,:,:,:,:) :: d_f, d_g, d_h
+#if PARABOLIC
+REAL,DEVICE,ALLOCATABLE,DIMENSION(:,:,:,:,:) :: d_fv, d_gv, d_hv
+#endif
 INTEGER,PARAMETER  :: nElems_Block_volInt=64
 !----------------------------------------------------------------------------------------------------------------------------------
 ! Variables in case of primitive lifting

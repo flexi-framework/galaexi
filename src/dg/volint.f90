@@ -118,14 +118,15 @@ SUBROUTINE VolInt_weakForm(d_Ut)
 ! MODULES
 USE CUDAFOR
 USE MOD_PreProc
-USE MOD_DG_Vars      ,ONLY: nDOFElem,UPrim,U,d_f,d_g,d_h,nElems_Block_volInt
+USE MOD_DG_Vars      ,ONLY: nDOFElem,UPrim,nElems_Block_volInt
+USE MOD_DG_Vars      ,ONLY: d_f,d_g,d_h,d_fv,d_gv,d_hv
 !@cuf USE MOD_DG_Vars      ,ONLY: d_U,d_UPrim,d_D_Hat_T
 USE MOD_Mesh_Vars    ,ONLY: Metrics_fTilde,Metrics_gTilde,Metrics_hTilde,nElems
 !@cuf USE MOD_Mesh_Vars    ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,nElems
 USE MOD_Flux         ,ONLY: EvalFlux3D      ! computes volume fluxes in local coordinates
 #if VOLINT_VISC
 USE MOD_Flux         ,ONLY: EvalDiffFlux3D  ! computes volume fluxes in local coordinates
-USE MOD_Lifting_Vars ,ONLY: gradUx,gradUy,gradUz
+USE MOD_Lifting_Vars ,ONLY: d_gradUx,d_gradUy,d_gradUz
 #endif
 #if FV_ENABLED
 USE MOD_FV_Vars      ,ONLY: FV_Elems
@@ -150,17 +151,23 @@ DO iElem=1,nElems,nElems_Block_volInt
                                      ,d_UPrim(:,:,:,:,iElem:lastElem) &
                                      ,d_f,d_g,d_h)
 #if PARABOLIC
-  CALL EvalDiffFlux3D( UPrim(:,:,:,:,iElem:lastElem),&
-                      gradUx(:,:,:,:,iElem:lastElem),&
-                      gradUy(:,:,:,:,iElem:lastElem),&
-                      gradUz(:,:,:,:,iElem:lastElem),&
-                      fv,gv,hv,iElem)
+  CALL EvalDiffFlux3D( nElems_myBlock, &
+                       d_UPrim(:,:,:,:,iElem:lastElem),&
+                      d_gradUx(:,:,:,:,iElem:lastElem),&
+                      d_gradUy(:,:,:,:,iElem:lastElem),&
+                      d_gradUz(:,:,:,:,iElem:lastElem),&
+                      d_fv,d_gv,d_hv)
 
-  f=f+fv
-  g=g+gv
+  !$cuf kernel do(4) <<< *, * >>>
+  DO iiElem=1,nElems_myBlock
+    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
+      d_f(:,i,j,k,iiElem)=d_f(:,i,j,k,iiElem)+d_fv(:,i,j,k,iiElem)
+      d_g(:,i,j,k,iiElem)=d_g(:,i,j,k,iiElem)+d_gv(:,i,j,k,iiElem)
 #if PP_dim==3
-  h=h+hv
+      d_h(:,i,j,k,iiElem)=d_h(:,i,j,k,iiElem)+d_hv(:,i,j,k,iiElem)
 #endif
+    END DO; END DO; END DO
+  END DO
 #endif
 
 

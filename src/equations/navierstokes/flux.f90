@@ -53,9 +53,13 @@ END INTERFACE
 #if PARABOLIC
 INTERFACE EvalDiffFlux3D
   MODULE PROCEDURE EvalDiffFlux3D
-  !MODULE PROCEDURE EvalDiffFlux3D_Point
+  MODULE PROCEDURE EvalDiffFlux3D_Point
   MODULE PROCEDURE EvalDiffFlux3D_Surface
-  MODULE PROCEDURE EvalDiffFlux3D_Volume
+  MODULE PROCEDURE EvalDiffFlux3D_Elem
+  MODULE PROCEDURE EvalDiffFlux3D_Surface_CUDA
+  MODULE PROCEDURE EvalDiffFlux3D_Sides_CUDA
+  MODULE PROCEDURE EvalDiffFlux3D_Elem_CUDA
+  MODULE PROCEDURE EvalDiffFlux3D_Elems_CUDA
 END INTERFACE
 #endif /*PARABOLIC*/
 
@@ -212,7 +216,7 @@ END SUBROUTINE EvalFlux3D_Elems_CUDA
 !==================================================================================================================================
 !> Compute Navier-Stokes diffusive flux using the primitive variables and derivatives.
 !==================================================================================================================================
-PPURE SUBROUTINE ATTRIBUTES(DEVICE,HOST) EvalDiffFlux3D(UPrim,gradUx,gradUy,gradUz,f,g,h,mu,lambda)
+PPURE ATTRIBUTES(DEVICE,HOST) SUBROUTINE EvalDiffFlux3D(UPrim,gradUx,gradUy,gradUz,f,g,h,mu,lambda)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -220,8 +224,8 @@ IMPLICIT NONE
 REAL,DIMENSION(PP_nVarPrim   ),INTENT(IN)  :: UPrim                 !< Solution vector
 REAL,DIMENSION(PP_nVarLifting),INTENT(IN)  :: gradUx,gradUy,gradUz  !> Gradients in x,y,z directions
 REAL,DIMENSION(PP_nVar       ),INTENT(OUT) :: f,g,h                 !> Physical fluxes in x,y,z directions
-REAL,INTENT(IN)  :: mu  !< viscosity of fluid
-REAL,INTENT(IN)  :: mu  !< thermal conductivity of fluid
+REAL,INTENT(IN)  :: mu      !< viscosity of fluid
+REAL,INTENT(IN)  :: lambda  !< thermal conductivity of fluid
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 REAL                :: tau_xx,tau_yy,tau_xy
@@ -241,94 +245,91 @@ REAL,PARAMETER      :: s43=4./3.
 !#endif
 
 #if PP_dim==3
-! gradients of primitive variables are directly available gradU = (/ drho, dv1, dv2, dv3, dT /)
+! Precompute entries of shear-stress tensor
+tau_xx = mu * ( s43 * gradUx(LIFT_VEL1) - s23 * gradUy(LIFT_VEL2) - s23 * gradUz(LIFT_VEL3)) ! 4/3*mu*u_x-2/3*mu*v_y -2/3*mu*w*z
+tau_yy = mu * (-s23 * gradUx(LIFT_VEL1) + s43 * gradUy(LIFT_VEL2) - s23 * gradUz(LIFT_VEL3)) !-2/3*mu*u_x+4/3*mu*v_y -2/3*mu*w*z
+tau_zz = mu * (-s23 * gradUx(LIFT_VEL1) - s23 * gradUy(LIFT_VEL2) + s43 * gradUz(LIFT_VEL3)) !-2/3*mu*u_x-2/3*mu*v_y +4/3*mu*w*z
+tau_xy = mu * (gradUy(LIFT_VEL1) + gradUx(LIFT_VEL2))  ! mu*(u_y+v_x)
+tau_xz = mu * (gradUz(LIFT_VEL1) + gradUx(LIFT_VEL3))  ! mu*(u_z+w_x)
+tau_yz = mu * (gradUz(LIFT_VEL2) + gradUy(LIFT_VEL3))  ! mu*(y_z+w_y)
 
 ! viscous fluxes in x-direction
-tau_xx = muS * ( s43 * gradUx(LIFT_VEL1) - s23 * gradUy(LIFT_VEL2) - s23 * gradUz(LIFT_VEL3)) ! 4/3*mu*u_x-2/3*mu*v_y -2/3*mu*w*z
-tau_yy = muS * (-s23 * gradUx(LIFT_VEL1) + s43 * gradUy(LIFT_VEL2) - s23 * gradUz(LIFT_VEL3)) !-2/3*mu*u_x+4/3*mu*v_y -2/3*mu*w*z
-tau_zz = muS * (-s23 * gradUx(LIFT_VEL1) - s23 * gradUy(LIFT_VEL2) + s43 * gradUz(LIFT_VEL3)) !-2/3*mu*u_x-2/3*mu*v_y +4/3*mu*w*z
-tau_xy = muS * (gradUy(LIFT_VEL1) + gradUx(LIFT_VEL2))  ! mu*(u_y+v_x)
-tau_xz = muS * (gradUz(LIFT_VEL1) + gradUx(LIFT_VEL3))  ! mu*(u_z+w_x)
-tau_yz = muS * (gradUz(LIFT_VEL2) + gradUy(LIFT_VEL3))  ! mu*(y_z+w_y)
-
 f(DENS) = 0.
 f(MOM1) = -tau_xx                                       ! F_euler-4/3*mu*u_x+2/3*mu*(v_y+w_z)
 f(MOM2) = -tau_xy                                       ! F_euler-mu*(u_y+v_x)
 f(MOM3) = -tau_xz                                       ! F_euler-mu*(u_z+w_x)
 f(ENER) = -tau_xx*UPrim(VEL1)-tau_xy*UPrim(VEL2)-tau_xz*UPrim(VEL3) &
-          -lambda*gradUx(LIFT_TEMP)                     ! F_euler-(tau_xx*u+tau_xy*v+tau_xz*w-q_x) q_x=-lambda*T_x
+          -lambda*gradUx(LIFT_TEMP)                     ! F_euler-(tau_xx*u+tau_xy*v+tau_xz*w-q_x) with q_x=-lambda*T_x
 ! viscous fluxes in y-direction
 g(DENS) = 0.
 g(MOM1) = -tau_xy                                       ! F_euler-mu*(u_y+v_x)
 g(MOM2) = -tau_yy                                       ! F_euler-4/3*mu*v_y+2/3*mu*(u_x+w_z)
 g(MOM3) = -tau_yz                                       ! F_euler-mu*(y_z+w_y)
 g(ENER) = -tau_xy*UPrim(VEL1)-tau_yy*UPrim(VEL2)-tau_yz*UPrim(VEL3) &
-          -lambda*gradUy(LIFT_TEMP)                     ! F_euler-(tau_yx*u+tau_yy*v+tau_yz*w-q_y) q_y=-lambda*T_y
+          -lambda*gradUy(LIFT_TEMP)                     ! F_euler-(tau_yx*u+tau_yy*v+tau_yz*w-q_y) with q_y=-lambda*T_y
 ! viscous fluxes in z-direction
 h(DENS) = 0.
 h(MOM1) = -tau_xz                                       ! F_euler-mu*(u_z+w_x)
 h(MOM2) = -tau_yz                                       ! F_euler-mu*(y_z+w_y)
 h(MOM3) = -tau_zz                                       ! F_euler-4/3*mu*w_z+2/3*mu*(u_x+v_y)
 h(ENER) = -tau_xz*UPrim(VEL1)-tau_yz*UPrim(VEL2)-tau_zz*UPrim(VEL3) &
-          -lambda*gradT3                                ! F_euler-(tau_zx*u+tau_zy*v+tau_zz*w-q_z) q_z=-lambda*T_z
+          -lambda*gradUz(LIFT_TEMP)                     ! F_euler-(tau_zx*u+tau_zy*v+tau_zz*w-q_z) with q_z=-lambda*T_z
 #else
-! gradients of primitive variables are directly available gradU = (/ drho, dv1, dv2, dv3, dT /)
+! Precompute entries of shear-stress tensor
+tau_xx = mu * ( s43 * gradUx(LIFT_VEL1) - s23 * gradUy(LIFT_VEL2))  ! 4/3*mu*u_x-2/3*mu*v_y -2/3*mu*w*z
+tau_yy = mu * (-s23 * gradUx(LIFT_VEL1) + s43 * gradUy(LIFT_VEL2))  !-2/3*mu*u_x+4/3*mu*v_y -2/3*mu*w*z
+tau_xy = mu * (gradUy(LIFT_VEL1) + gradUx(LIFT_VEL2))               ! mu*(u_y+v_x)
 
 ! viscous fluxes in x-direction
-tau_xx = muS * ( s43 * gradUx(LIFT_VEL1) - s23 * gradUy(LIFT_VEL2))  ! 4/3*mu*u_x-2/3*mu*v_y -2/3*mu*w*z
-tau_yy = muS * (-s23 * gradUx(LIFT_VEL1) + s43 * gradUy(LIFT_VEL2))  !-2/3*mu*u_x+4/3*mu*v_y -2/3*mu*w*z
-tau_xy = muS * (gradUy(LIFT_VEL1) + gradUx(LIFT_VEL2))               ! mu*(u_y+v_x)
-
 f(DENS) = 0.
-f(MOM1) = -tau_xx                                                         ! F_euler-4/3*mu*u_x+2/3*mu*(v_y+w_z)
-f(MOM2) = -tau_xy                                                         ! F_euler-mu*(u_y+v_x)
+f(MOM1) = -tau_xx                                    ! F_euler-4/3*mu*u_x+2/3*mu*(v_y+w_z)
+f(MOM2) = -tau_xy                                    ! F_euler-mu*(u_y+v_x)
 f(MOM3) = 0.
-f(ENER) = -tau_xx*UPrim(VEL1)-tau_xy*UPrim(VEL2)-lambda*gradUx(LIFT_TEMP) ! F_euler-(tau_xx*u+tau_xy*v+tau_xz*w-q_x) q_x=-lambda*T_x
+f(ENER) = -tau_xx*UPrim(VEL1)-tau_xy*UPrim(VEL2) &   ! F_euler-(tau_xx*u+tau_xy*v+tau_xz*w-q_x) with q_x=-lambda*T_x
+          -lambda*gradUx(LIFT_TEMP)
 ! viscous fluxes in y-direction
 g(DENS) = 0.
-g(MOM1) = -tau_xy                                                         ! F_euler-mu*(u_y+v_x)
-g(MOM2) = -tau_yy                                                         ! F_euler-4/3*mu*v_y+2/3*mu*(u_x+w_z)
+g(MOM1) = -tau_xy                                    ! F_euler-mu*(u_y+v_x)
+g(MOM2) = -tau_yy                                    ! F_euler-4/3*mu*v_y+2/3*mu*(u_x+w_z)
 g(MOM3) = 0.
-g(ENER) = -tau_xy*UPrim(VEL1)-tau_yy*UPrim(VEL2)-lambda*gradUy(LIFT_TEMP) ! F_euler-(tau_yx*u+tau_yy*v+tau_yz*w-q_y) q_y=-lambda*T_y
+g(ENER) = -tau_xy*UPrim(VEL1)-tau_yy*UPrim(VEL2) &   ! F_euler-(tau_yx*u+tau_yy*v+tau_yz*w-q_y) with q_y=-lambda*T_y
+          -lambda*gradUy(LIFT_TEMP)
 ! viscous fluxes in z-direction
 h    = 0.
 #endif
 END SUBROUTINE EvalDiffFlux3D
 
 !==================================================================================================================================
-!> Wrapper routine to compute the diffusive part of the Navier-Stokes fluxes for a single volume cell
+!> Wrapper routine to compute the diffusive part of the Navier-Stokes fluxes for a single side
 !==================================================================================================================================
-SUBROUTINE EvalDiffFlux3D_Volume(UPrim,gradUx,gradUy,gradUz,f,g,h,iElem)
+PPURE SUBROUTINE EvalDiffFlux3D_Point(UPrim,gradUx,gradUy,gradUz,f,g,h)
 ! MODULES
-USE MOD_PreProc
-#if EDDYVISCOSITY
-USE MOD_EddyVisc_Vars,ONLY: muSGS
-#endif
+USE MOD_EOS_Vars,ONLY:mu0,cp,Pr
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
-REAL,DIMENSION(PP_nVarPrim   ,0:PP_N,0:PP_N,0:PP_NZ),INTENT(IN)   :: UPrim                !< Solution vector
-REAL,DIMENSION(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ),INTENT(IN)   :: gradUx,gradUy,gradUz !> Gradients in x,y,z directions
-REAL,DIMENSION(PP_nVar       ,0:PP_N,0:PP_N,0:PP_NZ),INTENT(OUT)  :: f,g,h                !> Physical fluxes in x,y,z directions
-INTEGER,INTENT(IN)      :: iElem                !< element index in global array
+REAL,DIMENSION(PP_nVarPrim   ),INTENT(IN)  :: UPrim                !< Solution vector
+REAL,DIMENSION(PP_nVarLifting),INTENT(IN)  :: gradUx,gradUy,gradUz !> Gradients in x,y,z directions
+REAL,DIMENSION(PP_nVar       ),INTENT(OUT) :: f,g,h                !> Physical fluxes in x,y,z directions
+#if EDDYVISCOSITY
+REAL,DIMENSION(1             ),INTENT(IN)  :: muSGS                !< SGS viscosity
+#endif
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER             :: i,j,k
+INTEGER             :: i,j
+REAL                :: mu,lambda
 !==================================================================================================================================
-DO k=0,PP_NZ;  DO j=0,PP_N; DO i=0,PP_N
-  CALL EvalDiffFlux3D_Point(Uprim(:,i,j,k),gradUx(:,i,j,k),gradUy(:,i,j,k),gradUz(:,i,j,k), &
-                                                f(:,i,j,k),     g(:,i,j,k),     h(:,i,j,k)  &
-                           )
-END DO; END DO; END DO ! i,j,k
-END SUBROUTINE EvalDiffFlux3D_Volume
+mu     = VISCOSITY_PRIM(UPrim)
+lambda = THERMAL_CONDUCTIVITY_H(mu)
+CALL EvalDiffFlux3D(UPrim,gradUx,gradUy,gradUz,f,g,h,mu,lambda)
+END SUBROUTINE EvalDiffFlux3D_Point
 
 !==================================================================================================================================
 !> Wrapper routine to compute the diffusive part of the Navier-Stokes fluxes for a single side
 !==================================================================================================================================
-PPURE SUBROUTINE EvalDiffFlux3D_Surface(Nloc,UPrim,gradUx,gradUy,gradUz,f,g,h &
-                                 )
+PPURE SUBROUTINE EvalDiffFlux3D_Surface(Nloc,UPrim,gradUx,gradUy,gradUz,f,g,h)
 ! MODULES
-USE MOD_PreProc
+USE MOD_EOS_Vars,ONLY:mu0,cp,Pr
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -342,13 +343,189 @@ REAL,DIMENSION(1             ,0:Nloc,0:ZDIM(Nloc)),INTENT(IN)  :: muSGS         
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER             :: i,j
+REAL                :: mu,lambda
 !==================================================================================================================================
-DO j=0,ZDIM(Nloc); DO i=0,PP_N
-  CALL EvalDiffFlux3D_Point(Uprim(:,i,j),gradUx(:,i,j),gradUy(:,i,j),gradUz(:,i,j), &
-                                              f(:,i,j),     g(:,i,j),     h(:,i,j)  &
-                           )
+DO j=0,ZDIM(Nloc); DO i=0,Nloc
+  mu     = VISCOSITY_PRIM(UPrim(:,i,j))
+  lambda = THERMAL_CONDUCTIVITY_H(mu)
+  CALL EvalDiffFlux3D(UPrim(:,i,j),gradUx(:,i,j),gradUy(:,i,j),gradUz(:,i,j), &
+                                        f(:,i,j),     g(:,i,j),     h(:,i,j), &
+                                        mu, lambda)
 END DO; END DO ! i,j
 END SUBROUTINE EvalDiffFlux3D_Surface
+
+!==================================================================================================================================
+!> Wrapper routine to compute the diffusive part of the Navier-Stokes fluxes for a single volume cell
+!==================================================================================================================================
+PPURE SUBROUTINE EvalDiffFlux3D_Elem(UPrim,gradUx,gradUy,gradUz,f,g,h)
+! MODULES
+USE MOD_PreProc
+USE MOD_EOS_Vars,ONLY:mu0,cp,Pr
+#if EDDYVISCOSITY
+USE MOD_EddyVisc_Vars,ONLY: muSGS
+#endif
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+REAL,DIMENSION(PP_nVarPrim   ,0:PP_N,0:PP_N,0:PP_NZ),INTENT(IN)   :: UPrim                !< Solution vector
+REAL,DIMENSION(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ),INTENT(IN)   :: gradUx,gradUy,gradUz !> Gradients in x,y,z directions
+REAL,DIMENSION(PP_nVar       ,0:PP_N,0:PP_N,0:PP_NZ),INTENT(OUT)  :: f,g,h                !> Physical fluxes in x,y,z directions
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER             :: i,j,k
+REAL                :: mu,lambda
+!==================================================================================================================================
+DO k=0,PP_NZ;  DO j=0,PP_N; DO i=0,PP_N
+  mu     = VISCOSITY_PRIM(UPrim(:,i,j,k))
+  lambda = THERMAL_CONDUCTIVITY_H(mu)
+  CALL EvalDiffFlux3D(UPrim(:,i,j,k),gradUx(:,i,j,k),gradUy(:,i,j,k),gradUz(:,i,j,k), &
+                                          f(:,i,j,k),     g(:,i,j,k),     h(:,i,j,k), &
+                                          mu, lambda)
+END DO; END DO; END DO ! i,j,k
+END SUBROUTINE EvalDiffFlux3D_Elem
+
+!==================================================================================================================================
+!> Wrapper routine to compute the diffusive part of the Navier-Stokes fluxes for a single side
+!==================================================================================================================================
+PPURE ATTRIBUTES(GLOBAL) SUBROUTINE EvalDiffFlux3D_CUDA_Kernel(nDOF,UPrim,gradUx,gradUy,gradUz,f,g,h,mu,lambda)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)   :: nDOF    !< Polynomial degree of input solution
+REAL,VALUE,INTENT(IN)      :: mu      !< viscosity of fluid
+REAL,VALUE,INTENT(IN)      :: lambda  !< thermal conductivity of fluid
+REAL,DEVICE,DIMENSION(PP_nVarPrim   ,nDOF),INTENT(IN)  :: UPrim                !< Solution vector
+REAL,DEVICE,DIMENSION(PP_nVarLifting,nDOF),INTENT(IN)  :: gradUx,gradUy,gradUz !> Gradients in x,y,z directions
+REAL,DEVICE,DIMENSION(PP_nVar       ,nDOF),INTENT(OUT) :: f,g,h                !> Physical fluxes in x,y,z directions
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER             :: i
+!==================================================================================================================================
+i = (blockidx%x-1) * blockdim%x + threadidx%x
+IF(i.LE.nDOF) CALL EvalDiffFlux3D(UPrim(:,i),gradUx(:,i),gradUy(:,i),gradUz(:,i), &
+                                                  f(:,i),     g(:,i),     h(:,i), &
+                                                  mu, lambda)
+END SUBROUTINE EvalDiffFlux3D_CUDA_Kernel
+
+!==================================================================================================================================
+!> Wrapper routine to compute the diffusive part of the Navier-Stokes fluxes for a single side
+!==================================================================================================================================
+PPURE SUBROUTINE EvalDiffFlux3D_Surface_CUDA(Nloc,UPrim,gradUx,gradUy,gradUz,f,g,h)
+! MODULES
+USE MOD_EOS_Vars,ONLY:mu0,cp,Pr
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,INTENT(IN)   :: Nloc  !< Polynomial degree of input solution
+REAL,DEVICE,DIMENSION(PP_nVarPrim   ,0:Nloc,0:ZDIM(Nloc)),INTENT(IN)  :: UPrim                !< Solution vector
+REAL,DEVICE,DIMENSION(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc)),INTENT(IN)  :: gradUx,gradUy,gradUz !> Gradients in x,y,z directions
+REAL,DEVICE,DIMENSION(PP_nVar       ,0:Nloc,0:ZDIM(Nloc)),INTENT(OUT) :: f,g,h                !> Physical fluxes in x,y,z directions
+#if EDDYVISCOSITY
+REAL,DIMENSION(1             ,0:Nloc,0:ZDIM(Nloc)),INTENT(IN)  :: muSGS                !< SGS viscosity
+#endif
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+REAL              :: mu,lambda
+INTEGER           :: nDOF
+INTEGER,PARAMETER :: nThreads=256
+!==================================================================================================================================
+!TODO: Implement cleanly!
+mu     = VISCOSITY_PRIM(UPrim(:,i,j))
+lambda = THERMAL_CONDUCTIVITY_H(mu)
+
+nDOF=(Nloc+1)*(ZDIM(Nloc)+1)
+CALL EvalDiffFlux3D_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,UPrim,gradUx,gradUy,gradUz,f,g,h,mu,lambda)
+END SUBROUTINE EvalDiffFlux3D_Surface_CUDA
+
+!==================================================================================================================================
+!> Wrapper routine to compute the diffusive part of the Navier-Stokes fluxes for a single side
+!==================================================================================================================================
+PPURE SUBROUTINE EvalDiffFlux3D_Sides_CUDA(Nloc,nSides,UPrim,gradUx,gradUy,gradUz,f,g,h)
+! MODULES
+USE MOD_EOS_Vars,ONLY:mu0,cp,Pr
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,INTENT(IN)   :: Nloc  !< Polynomial degree of input solution
+INTEGER,INTENT(IN)   :: nSides  !< Polynomial degree of input solution
+REAL,DEVICE,DIMENSION(PP_nVarPrim   ,0:Nloc,0:ZDIM(Nloc),nSides),INTENT(IN)  :: UPrim                !< Solution vector
+REAL,DEVICE,DIMENSION(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc),nSides),INTENT(IN)  :: gradUx,gradUy,gradUz !> Gradients in x,y,z directions
+REAL,DEVICE,DIMENSION(PP_nVar       ,0:Nloc,0:ZDIM(Nloc),nSides),INTENT(OUT) :: f,g,h                !> Physical fluxes in x,y,z directions
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+REAL              :: mu,lambda
+INTEGER           :: nDOF
+INTEGER,PARAMETER :: nThreads=256
+!==================================================================================================================================
+!TODO: Implement cleanly!
+mu     = VISCOSITY_PRIM(UPrim(:,i,j,1))
+lambda = THERMAL_CONDUCTIVITY_H(mu)
+
+nDOF=(Nloc+1)*(ZDIM(Nloc)+1)*nSides
+CALL EvalDiffFlux3D_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,UPrim,gradUx,gradUy,gradUz,f,g,h,mu,lambda)
+END SUBROUTINE EvalDiffFlux3D_Sides_CUDA
+
+!==================================================================================================================================
+!> Wrapper routine to compute the diffusive part of the Navier-Stokes fluxes for a single volume cell
+!==================================================================================================================================
+SUBROUTINE EvalDiffFlux3D_Elem_CUDA(UPrim,gradUx,gradUy,gradUz,f,g,h)
+! MODULES
+USE MOD_PreProc
+USE MOD_EOS_Vars,ONLY:mu0,cp,Pr
+#if EDDYVISCOSITY
+USE MOD_EddyVisc_Vars,ONLY: muSGS
+#endif
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+REAL,DEVICE,DIMENSION(PP_nVarPrim   ,0:PP_N,0:PP_N,0:PP_NZ),INTENT(IN)   :: UPrim                !< Solution vector
+REAL,DEVICE,DIMENSION(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ),INTENT(IN)   :: gradUx,gradUy,gradUz !> Gradients in x,y,z directions
+REAL,DEVICE,DIMENSION(PP_nVar       ,0:PP_N,0:PP_N,0:PP_NZ),INTENT(OUT)  :: f,g,h                !> Physical fluxes in x,y,z directions
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+REAL              :: mu,lambda
+INTEGER           :: nDOF
+INTEGER,PARAMETER :: nThreads=256
+!==================================================================================================================================
+!TODO: Implement cleanly!
+mu     = VISCOSITY_PRIM(UPrim(:,i,j))
+lambda = THERMAL_CONDUCTIVITY_H(mu)
+
+nDOF=(PP_N+1)*(PP_N+1)*(ZDIM(PP_N)+1)
+CALL EvalDiffFlux3D_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,UPrim,gradUx,gradUy,gradUz,f,g,h,mu,lambda)
+END SUBROUTINE EvalDiffFlux3D_Elem_CUDA
+
+!==================================================================================================================================
+!> Wrapper routine to compute the diffusive part of the Navier-Stokes fluxes for a number of elements
+!==================================================================================================================================
+SUBROUTINE EvalDiffFlux3D_Elems_CUDA(nElems,UPrim,gradUx,gradUy,gradUz,f,g,h)
+! MODULES
+USE MOD_PreProc
+USE MOD_EOS_Vars,ONLY:mu0,cp,Pr
+#if EDDYVISCOSITY
+USE MOD_EddyVisc_Vars,ONLY: muSGS
+#endif
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)   :: nElems
+REAL,DEVICE,DIMENSION(PP_nVarPrim   ,0:PP_N,0:PP_N,0:PP_NZ,nElems),INTENT(IN)   :: UPrim                !< Solution vector
+REAL,DEVICE,DIMENSION(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ,nElems),INTENT(IN)   :: gradUx,gradUy,gradUz !> Gradients in x,y,z directions
+REAL,DEVICE,DIMENSION(PP_nVar       ,0:PP_N,0:PP_N,0:PP_NZ,nElems),INTENT(OUT)  :: f,g,h                !> Physical fluxes in x,y,z directions
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+REAL              :: mu,lambda
+INTEGER           :: nDOF
+INTEGER,PARAMETER :: nThreads=256
+!==================================================================================================================================
+!TODO: Implement cleanly!
+mu     = VISCOSITY_PRIM(UPrim(:,i,j))
+lambda = THERMAL_CONDUCTIVITY_H(mu)
+
+nDOF=(PP_N+1)*(PP_N+1)*(ZDIM(PP_N)+1)*nElems
+CALL EvalDiffFlux3D_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,UPrim,gradUx,gradUy,gradUz,f,g,h,mu,lambda)
+END SUBROUTINE EvalDiffFlux3D_Elems_CUDA
 #endif /*PARABOLIC*/
 
 !==================================================================================================================================

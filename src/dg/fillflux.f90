@@ -53,16 +53,18 @@ SUBROUTINE FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_ma
 ! MODULES
 USE MOD_PreProc
 USE MOD_Globals
-USE MOD_DG_Vars,         ONLY: nDOFFace
+USE MOD_DG_Vars,         ONLY: nDOFFace,Flux_master
 USE MOD_Mesh_Vars,       ONLY: d_NormVec, d_TangVec1, d_TangVec2, d_SurfElem, Face_xGP
 USE MOD_Mesh_Vars,       ONLY: firstInnerSide,lastInnerSide,firstMPISide_MINE,lastMPISide_MINE
 USE MOD_Mesh_Vars,       ONLY: nSides,firstBCSide
-USE MOD_ChangeBasisByDim,ONLY: ChangeBasisSurf
 USE MOD_Riemann,         ONLY: Riemann
 USE MOD_GetBoundaryFlux, ONLY: GetBoundaryFlux
-USE MOD_EOS,             ONLY: ConsToPrim
 USE MOD_Mesh_Vars,       ONLY: nBCSides
-USE MOD_EOS,             ONLY: PrimToCons
+#if PARABOLIC
+USE MOD_Riemann,         ONLY: ViscousFlux
+USE MOD_Lifting_Vars,    ONLY: d_gradUx_master,d_gradUy_master,d_gradUz_master
+USE MOD_Lifting_Vars,    ONLY: d_gradUx_slave ,d_gradUy_slave ,d_gradUz_slave
+#endif
 ! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -118,8 +120,21 @@ IF (firstSideID_wo_BC.LE.lastSideID) THEN
                d_NormVec   (:,:,:,:,firstSideID_wo_BC:lastSideID), &
                d_TangVec1  (:,:,:,:,firstSideID_wo_BC:lastSideID), &
                d_TangVec2  (:,:,:,:,firstSideID_wo_BC:lastSideID))
+#if PARABOLIC
   ! 1.2) viscous flux
-  ! TODO:
+  CALL ViscousFlux(PP_N, &
+                   lastSideID-firstSideID_wo_BC+1, & ! Number of sides in array
+                   d_Flux_master  (:,:,:,firstSideID_wo_BC:lastSideID), &
+                   d_UPrim_master (:,:,:,firstSideID_wo_BC:lastSideID), &
+                   d_UPrim_slave  (:,:,:,firstSideID_wo_BC:lastSideID), &
+                   d_gradUx_master(:,:,:,firstSideID_wo_BC:lastSideID), &
+                   d_gradUx_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
+                   d_gradUy_master(:,:,:,firstSideID_wo_BC:lastSideID), &
+                   d_gradUy_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
+                   d_gradUz_master(:,:,:,firstSideID_wo_BC:lastSideID), &
+                   d_gradUz_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
+                   d_NormVec    (:,:,:,:,firstSideID_wo_BC:lastSideID))
+#endif
 END IF
 
 ! 2. Compute the fluxes at the boundary conditions: 1..nBCSides
@@ -155,7 +170,5 @@ DO SideID=firstSideID,lastSideID
 END DO ! SideID
 
 END SUBROUTINE FillFlux
-
-
 
 END MODULE MOD_FillFlux

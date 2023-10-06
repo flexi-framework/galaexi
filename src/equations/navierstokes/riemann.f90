@@ -67,8 +67,10 @@ END INTERFACE
 
 #if PARABOLIC
 INTERFACE ViscousFlux
-  MODULE PROCEDURE ViscousFlux_Point
+  MODULE PROCEDURE ViscousFlux
+  !MODULE PROCEDURE ViscousFlux_Point
   MODULE PROCEDURE ViscousFlux_Side
+  MODULE PROCEDURE ViscousFlux_Sides_CUDA
 END INTERFACE
 #endif
 
@@ -413,62 +415,7 @@ END SUBROUTINE Riemann_Sides_CUDA
 !> Computes the viscous NSE diffusion fluxes in all directions to approximate the numerical flux
 !> Actually not a Riemann solver, only here for coding reasons
 !==================================================================================================================================
-SUBROUTINE ViscousFlux_Side(Nloc,F,UPrim_L,UPrim_R, &
-                            gradUx_L,gradUy_L,gradUz_L,gradUx_R,gradUy_R,gradUz_R,nv &
-#if EDDYVISCOSITY
-                           ,muSGS_L,muSGS_R &
-#endif
-                           )
-! MODULES
-USE MOD_Flux         ,ONLY: EvalDiffFlux3D
-USE MOD_Lifting_Vars ,ONLY: diffFluxX_L,diffFluxY_L,diffFluxZ_L
-USE MOD_Lifting_Vars ,ONLY: diffFluxX_R,diffFluxY_R,diffFluxZ_R
-IMPLICIT NONE
-!----------------------------------------------------------------------------------------------------------------------------------
-! INPUT / OUTPUT VARIABLES
-INTEGER,INTENT(IN)                                             :: Nloc     !< local polynomial degree
-                                                               !> solution in primitive variables at left/right side of interface
-REAL,DIMENSION(PP_nVarPrim   ,0:Nloc,0:ZDIM(Nloc)),INTENT(IN)  :: UPrim_L,UPrim_R
-                                                               !> solution gradients in x/y/z-direction left/right of interface
-REAL,DIMENSION(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc)),INTENT(IN)  :: gradUx_L,gradUx_R,gradUy_L,gradUy_R,gradUz_L,gradUz_R
-REAL,DIMENSION(3             ,0:Nloc,0:ZDIM(Nloc)),INTENT(IN)  :: nv  !< normal vector
-REAL,DIMENSION(PP_nVar       ,0:Nloc,0:ZDIM(Nloc)),INTENT(OUT) :: F   !< viscous flux
-#if EDDYVISCOSITY
-REAL,DIMENSION(1             ,0:Nloc,0:ZDIM(Nloc)),INTENT(IN)  :: muSGS_L,muSGS_R   !> eddy viscosity left/right of the interface
-#endif
-!----------------------------------------------------------------------------------------------------------------------------------
-! INPUT / OUTPUT VARIABLES
-!----------------------------------------------------------------------------------------------------------------------------------
-! LOCAL VARIABLES
-INTEGER                                                       :: p,q
-!==================================================================================================================================
-! Don't forget the diffusion contribution, my young padawan
-! Compute NSE Diffusion flux
-CALL EvalDiffFlux3D(Nloc,UPrim_L,   gradUx_L,   gradUy_L,   gradUz_L  &
-                                ,diffFluxX_L,diffFluxY_L,diffFluxZ_L  &
-#if EDDYVISCOSITY
-                   ,muSGS_L &
-#endif
-      )
-CALL EvalDiffFlux3D(Nloc,UPrim_R,   gradUx_R,   gradUy_R,   gradUz_R  &
-                                ,diffFluxX_R,diffFluxY_R,diffFluxZ_R  &
-#if EDDYVISCOSITY
-                   ,muSGS_R&
-#endif
-      )
-! Arithmetic mean of the fluxes
-DO q=0,ZDIM(Nloc); DO p=0,Nloc
-  F(:,p,q)=0.5*(nv(1,p,q)*(diffFluxX_L(:,p,q)+diffFluxX_R(:,p,q)) &
-               +nv(2,p,q)*(diffFluxY_L(:,p,q)+diffFluxY_R(:,p,q)) &
-               +nv(3,p,q)*(diffFluxZ_L(:,p,q)+diffFluxZ_R(:,p,q)))
-END DO; END DO
-END SUBROUTINE ViscousFlux_Side
-
-!==================================================================================================================================
-!> Computes the viscous NSE diffusion fluxes in all directions to approximate the numerical flux
-!> Actually not a Riemann solver, only here for coding reasons
-!==================================================================================================================================
-SUBROUTINE ViscousFlux_Point(F,UPrim_L,UPrim_R, &
+PPURE SUBROUTINE ViscousFlux(F,UPrim_L,UPrim_R, &
                              gradUx_L,gradUy_L,gradUz_L,gradUx_R,gradUy_R,gradUz_R,nv &
 #if EDDYVISCOSITY
                             ,muSGS_L,muSGS_R &
@@ -513,7 +460,117 @@ CALL EvalDiffFlux3D(UPrim_R,   gradUx_R,   gradUy_R,   gradUz_R  &
 F(:)=0.5*(nv(1)*(diffFluxX_L(:)+diffFluxX_R(:)) &
          +nv(2)*(diffFluxY_L(:)+diffFluxY_R(:)) &
          +nv(3)*(diffFluxZ_L(:)+diffFluxZ_R(:)))
-END SUBROUTINE ViscousFlux_Point
+END SUBROUTINE ViscousFlux
+
+!==================================================================================================================================
+!> Computes the viscous NSE diffusion fluxes in all directions to approximate the numerical flux
+!> Actually not a Riemann solver, only here for coding reasons
+!==================================================================================================================================
+SUBROUTINE ViscousFlux_Side(Nloc,F,UPrim_L,UPrim_R, &
+                            gradUx_L,gradUy_L,gradUz_L,gradUx_R,gradUy_R,gradUz_R,nv &
+#if EDDYVISCOSITY
+                           ,muSGS_L,muSGS_R &
+#endif
+                           )
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,INTENT(IN)                                             :: Nloc     !< local polynomial degree
+                                                               !> solution in primitive variables at left/right side of interface
+REAL,DIMENSION(PP_nVarPrim   ,0:Nloc,0:ZDIM(Nloc)),INTENT(IN)  :: UPrim_L,UPrim_R
+                                                               !> solution gradients in x/y/z-direction left/right of interface
+REAL,DIMENSION(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc)),INTENT(IN)  :: gradUx_L,gradUx_R,gradUy_L,gradUy_R,gradUz_L,gradUz_R
+REAL,DIMENSION(3             ,0:Nloc,0:ZDIM(Nloc)),INTENT(IN)  :: nv  !< normal vector
+REAL,DIMENSION(PP_nVar       ,0:Nloc,0:ZDIM(Nloc)),INTENT(OUT) :: F   !< viscous flux
+#if EDDYVISCOSITY
+REAL,DIMENSION(1             ,0:Nloc,0:ZDIM(Nloc)),INTENT(IN)  :: muSGS_L,muSGS_R   !> eddy viscosity left/right of the interface
+#endif
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER   :: p,q
+!==================================================================================================================================
+DO q=0,ZDIM(Nloc); DO p=0,Nloc
+  CALL ViscousFlux(F(:,p,q),UPrim_L(:,p,q),UPrim_R(:,p,q), &
+                   gradUx_L(:,p,q),gradUy_L(:,p,q),gradUz_L(:,p,q),gradUx_R(:,p,q),gradUy_R(:,p,q),gradUz_R(:,p,q),nv(:,p,q) &
+#if EDDYVISCOSITY
+                   ,muSGS_L(:,p,q),muSGS_R(:,p,q) &
+#endif
+                   )
+END DO; END DO
+END SUBROUTINE ViscousFlux_Side
+
+!==================================================================================================================================
+!> Computes the viscous NSE diffusion fluxes in all directions to approximate the numerical flux and add to input flux array
+!> Actually not a Riemann solver, only here for coding reasons
+!==================================================================================================================================
+SUBROUTINE ViscousFlux_Sides_CUDA(Nloc,nSides,F,UPrim_L,UPrim_R, &
+                                  gradUx_L,gradUy_L,gradUz_L,gradUx_R,gradUy_R,gradUz_R,nv &
+                                 )
+! MODULES
+USE MOD_Flux, ONLY: EvalDiffFlux3D
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,INTENT(IN)                  :: Nloc     !< local polynomial degree
+INTEGER,INTENT(IN)                  :: nSides   !< number of sides in array
+                                                                               !> solution in primitive variables at left/right side of interface
+REAL,DEVICE,DIMENSION(PP_nVarPrim   ,0:Nloc,0:ZDIM(Nloc),  nSides),INTENT(IN)    :: UPrim_L,UPrim_R
+                                                                                 !> solution gradients in x/y/z-direction left/right of interface
+REAL,DEVICE,DIMENSION(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc),  nSides),INTENT(IN)    :: gradUx_L,gradUx_R,gradUy_L,gradUy_R,gradUz_L,gradUz_R
+REAL,DEVICE,DIMENSION(3             ,0:Nloc,0:ZDIM(Nloc),1,nSides),INTENT(IN)    :: nv  !< normal vector
+REAL,DEVICE,DIMENSION(PP_nVar       ,0:Nloc,0:ZDIM(Nloc),  nSides),INTENT(INOUT) :: F   !< viscous flux
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER,PARAMETER :: nBlockSides = 1
+INTEGER           :: iSide,iiSide,nSides_myBlock,lastSide
+INTEGER           :: p,q
+REAL,DEVICE,DIMENSION(PP_nVar,0:Nloc,0:ZDIM(Nloc),nBlockSides)  :: diffFluxX_L,diffFluxY_L,diffFluxZ_L
+REAL,DEVICE,DIMENSION(PP_nVar,0:Nloc,0:ZDIM(Nloc),nBlockSides)  :: diffFluxX_R,diffFluxY_R,diffFluxZ_R
+!==================================================================================================================================
+! Don't forget the diffusion contribution, my young padawan
+! Compute NSE Diffusion flux
+DO iSide=1,nSides,nBlockSides
+  lastSide       = MIN(nSides,iSide+nBlockSides-1)
+  nSides_myBlock = lastSide-iSide+1
+
+  ! Left flux
+  CALL EvalDiffFlux3D(Nloc,nSides_myBlock, &
+                          UPrim_L(:,:,:,iSide:lastSide      ), &
+                         gradUx_L(:,:,:,iSide:lastSide      ), &
+                         gradUy_L(:,:,:,iSide:lastSide      ), &
+                         gradUz_L(:,:,:,iSide:lastSide      ), &
+                      diffFluxX_L(:,:,:,    1:nSides_myBlock), &
+                      diffFluxY_L(:,:,:,    1:nSides_myBlock), &
+                      diffFluxZ_L(:,:,:,    1:nSides_myBlock)  )
+  ! Right flux
+  CALL EvalDiffFlux3D(Nloc,nSides_myBlock, &
+                          UPrim_R(:,:,:,iSide:lastSide      ), &
+                         gradUx_R(:,:,:,iSide:lastSide      ), &
+                         gradUy_R(:,:,:,iSide:lastSide      ), &
+                         gradUz_R(:,:,:,iSide:lastSide      ), &
+                      diffFluxX_R(:,:,:,    1:nSides_myBlock), &
+                      diffFluxY_R(:,:,:,    1:nSides_myBlock), &
+                      diffFluxZ_R(:,:,:,    1:nSides_myBlock)  )
+  ! Arithmetic mean of the fluxes
+  !$cuf kernel do(3) <<< *, * >>>
+  DO iiSide=1,nSides_myBlock
+    DO q=0,ZDIM(Nloc); DO p=0,Nloc
+      F(:,p,q,iSide+iiSide-1) = F(:,p,q,iSide+iiSide-1) &
+                              + 0.5*( &
+                                      nv(1,p,q,1,iSide+iiSide-1)*(diffFluxX_L(:,p,q,iiSide)+diffFluxX_R(:,p,q,iiSide)) &
+                                     +nv(2,p,q,1,iSide+iiSide-1)*(diffFluxY_L(:,p,q,iiSide)+diffFluxY_R(:,p,q,iiSide)) &
+                                     +nv(3,p,q,1,iSide+iiSide-1)*(diffFluxZ_L(:,p,q,iiSide)+diffFluxZ_R(:,p,q,iiSide)) &
+                                    )
+    END DO; END DO
+  END DO
+END DO
+END SUBROUTINE ViscousFlux_Sides_CUDA
+
 #endif /* PARABOLIC */
 
 !==================================================================================================================================

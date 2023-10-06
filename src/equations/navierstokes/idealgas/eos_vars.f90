@@ -26,7 +26,6 @@ REAL              :: Tref,ExpoSuth     !< Parameters used in muSuth and power la
 REAL              :: cp                !< specific heat at constant pressure
 REAL              :: cv                !< specific heat at constant volume
 REAL              :: Kappa             !< heat capacity ratio / isentropic exponent
-!@cuf REAL              :: d_Kappa             !< heat capacity ratio / isentropic exponent
 REAL              :: KappaM1           !< = \f$\kappa - 1\f$
 REAL              :: sKappaM1          !< = \f$1/(\kappa -1)\f$
 REAL              :: KappaP1           !< = \f$\kappa + 1\f$
