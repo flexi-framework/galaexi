@@ -511,6 +511,7 @@ SUBROUTINE ViscousFlux_Sides_CUDA(Nloc,nSides,F,UPrim_L,UPrim_R, &
                                  )
 ! MODULES
 USE MOD_Flux, ONLY: EvalDiffFlux3D
+USE MOD_EOS_Vars,ONLY:mu0,cp,Pr
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -526,50 +527,84 @@ REAL,DEVICE,DIMENSION(PP_nVar       ,0:Nloc,0:ZDIM(Nloc),  nSides),INTENT(INOUT)
 ! INPUT / OUTPUT VARIABLES
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER,PARAMETER :: nBlockSides = 1
-INTEGER           :: iSide,iiSide,nSides_myBlock,lastSide
-INTEGER           :: p,q
-REAL,DEVICE,DIMENSION(PP_nVar,0:Nloc,0:ZDIM(Nloc),nBlockSides)  :: diffFluxX_L,diffFluxY_L,diffFluxZ_L
-REAL,DEVICE,DIMENSION(PP_nVar,0:Nloc,0:ZDIM(Nloc),nBlockSides)  :: diffFluxX_R,diffFluxY_R,diffFluxZ_R
+REAL              :: mu,lambda
+INTEGER           :: nDOF
+INTEGER,PARAMETER :: nThreads=256
+!==================================================================================================================================
+! Don't forget the diffusion contribution, my young padawan
+! TODO : Fix this!
+mu     = VISCOSITY_PRIM(UPrim(:,i,j,1))
+lambda = THERMAL_CONDUCTIVITY_H(mu)
+
+nDOF = (Nloc+1)*(ZDIM(Nloc)+1)*nSides
+
+! Compute NSE Diffusion flux
+CALL ViscousFlux_Kernel_CUDA<<<nDOF/nThreads+1,nThreads>>>(nDOF,F,UPrim_L,UPrim_R, &
+                             gradUx_L,gradUy_L,gradUz_L,gradUx_R,gradUy_R,gradUz_R,nv &
+                             ,mu,lambda)
+END SUBROUTINE ViscousFlux_Sides_CUDA
+
+!==================================================================================================================================
+!> Computes the viscous NSE diffusion fluxes in all directions to approximate the numerical flux and add to input flux array
+!> Actually not a Riemann solver, only here for coding reasons
+!==================================================================================================================================
+PPURE ATTRIBUTES(GLOBAL) SUBROUTINE ViscousFlux_Kernel_CUDA(nDOF,F,UPrim_L,UPrim_R, &
+                                    gradUx_L,gradUy_L,gradUz_L,gradUx_R,gradUy_R,gradUz_R,nv &
+                                    ,mu,lambda)
+! MODULES
+USE MOD_Flux, ONLY: EvalDiffFlux3D
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)  :: nDOF     !< local polynomial degree
+                                                                               !> solution in primitive variables at left/right side of interface
+REAL,DEVICE,DIMENSION(PP_nVarPrim   ,nDOF),INTENT(IN)    :: UPrim_L,UPrim_R
+                                                         !> solution gradients in x/y/z-direction left/right of interface
+REAL,DEVICE,DIMENSION(PP_nVarLifting,nDOF),INTENT(IN)    :: gradUx_L,gradUx_R,gradUy_L,gradUy_R,gradUz_L,gradUz_R
+REAL,DEVICE,DIMENSION(3             ,nDOF),INTENT(IN)    :: nv  !< normal vector
+REAL,DEVICE,DIMENSION(PP_nVar       ,nDOF),INTENT(INOUT) :: F   !< viscous flux
+REAL,VALUE,INTENT(IN)    :: mu,lambda  !< normal vector
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER :: i
+REAL,DEVICE,DIMENSION(PP_nVar)  :: diffFluxX_L,diffFluxY_L,diffFluxZ_L
+REAL,DEVICE,DIMENSION(PP_nVar)  :: diffFluxX_R,diffFluxY_R,diffFluxZ_R
 !==================================================================================================================================
 ! Don't forget the diffusion contribution, my young padawan
 ! Compute NSE Diffusion flux
-DO iSide=1,nSides,nBlockSides
-  lastSide       = MIN(nSides,iSide+nBlockSides-1)
-  nSides_myBlock = lastSide-iSide+1
 
+i = (blockidx%x-1) * blockdim%x + threadidx%x
+IF (i.LE.nDOF) THEN
   ! Left flux
-  CALL EvalDiffFlux3D(Nloc,nSides_myBlock, &
-                          UPrim_L(:,:,:,iSide:lastSide      ), &
-                         gradUx_L(:,:,:,iSide:lastSide      ), &
-                         gradUy_L(:,:,:,iSide:lastSide      ), &
-                         gradUz_L(:,:,:,iSide:lastSide      ), &
-                      diffFluxX_L(:,:,:,    1:nSides_myBlock), &
-                      diffFluxY_L(:,:,:,    1:nSides_myBlock), &
-                      diffFluxZ_L(:,:,:,    1:nSides_myBlock)  )
+  CALL EvalDiffFlux3D(    UPrim_L(:,i), &
+                         gradUx_L(:,i), &
+                         gradUy_L(:,i), &
+                         gradUz_L(:,i), &
+                      diffFluxX_L(:  ), &
+                      diffFluxY_L(:  ), &
+                      diffFluxZ_L(:  ), &
+                      mu,lambda         &
+                      )
   ! Right flux
-  CALL EvalDiffFlux3D(Nloc,nSides_myBlock, &
-                          UPrim_R(:,:,:,iSide:lastSide      ), &
-                         gradUx_R(:,:,:,iSide:lastSide      ), &
-                         gradUy_R(:,:,:,iSide:lastSide      ), &
-                         gradUz_R(:,:,:,iSide:lastSide      ), &
-                      diffFluxX_R(:,:,:,    1:nSides_myBlock), &
-                      diffFluxY_R(:,:,:,    1:nSides_myBlock), &
-                      diffFluxZ_R(:,:,:,    1:nSides_myBlock)  )
+  CALL EvalDiffFlux3D(    UPrim_R(:,i), &
+                         gradUx_R(:,i), &
+                         gradUy_R(:,i), &
+                         gradUz_R(:,i), &
+                      diffFluxX_R(:  ), &
+                      diffFluxY_R(:  ), &
+                      diffFluxZ_R(:  ), &
+                      mu,lambda         &
+                      )
+
   ! Arithmetic mean of the fluxes
-  !$cuf kernel do(3) <<< *, * >>>
-  DO iiSide=1,nSides_myBlock
-    DO q=0,ZDIM(Nloc); DO p=0,Nloc
-      F(:,p,q,iSide+iiSide-1) = F(:,p,q,iSide+iiSide-1) &
-                              + 0.5*( &
-                                      nv(1,p,q,1,iSide+iiSide-1)*(diffFluxX_L(:,p,q,iiSide)+diffFluxX_R(:,p,q,iiSide)) &
-                                     +nv(2,p,q,1,iSide+iiSide-1)*(diffFluxY_L(:,p,q,iiSide)+diffFluxY_R(:,p,q,iiSide)) &
-                                     +nv(3,p,q,1,iSide+iiSide-1)*(diffFluxZ_L(:,p,q,iiSide)+diffFluxZ_R(:,p,q,iiSide)) &
-                                    )
-    END DO; END DO
-  END DO
-END DO
-END SUBROUTINE ViscousFlux_Sides_CUDA
+  F(:,i) = F(:,i) + 0.5*( nv(1,i)*(diffFluxX_L(:)+diffFluxX_R(:)) &
+                         +nv(2,i)*(diffFluxY_L(:)+diffFluxY_R(:)) &
+                         +nv(3,i)*(diffFluxZ_L(:)+diffFluxZ_R(:)) &
+                         )
+END IF
+END SUBROUTINE ViscousFlux_Kernel_CUDA
 
 #endif /* PARABOLIC */
 
