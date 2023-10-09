@@ -177,6 +177,26 @@ IF (i.LE.nTotal) THEN
 END IF
 END SUBROUTINE VAXPB_IN_GPU
 
+!==================================================================================================================================
+!> Y=AY+BX
+!==================================================================================================================================
+PPURE SUBROUTINE VAX_GPU(nTotal,Vec,Const)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,INTENT(IN)          :: nTotal                 !< vector length
+REAL,DEVICE,INTENT(INOUT)   :: Vec(nTotal)            !< input vector
+REAL,INTENT(IN)             :: Const                  !< constant to multiply with input vec
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER               :: i
+!==================================================================================================================================
+!$cuf kernel do <<< *, * >>>
+DO i=1,nTotal
+  Vec(i)=Vec(i)*Const
+END DO
+END SUBROUTINE VAX_GPU
 
 
 END MODULE MOD_Vector

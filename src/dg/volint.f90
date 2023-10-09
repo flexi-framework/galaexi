@@ -116,20 +116,14 @@ END SUBROUTINE VolInt_weakForm_Visc
 SUBROUTINE VolInt_weakForm(d_Ut)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
-USE CUDAFOR
 USE MOD_PreProc
-USE MOD_DG_Vars      ,ONLY: nDOFElem,UPrim,nElems_Block_volInt
-USE MOD_DG_Vars      ,ONLY: d_f,d_g,d_h,d_fv,d_gv,d_hv
-!@cuf USE MOD_DG_Vars      ,ONLY: d_U,d_UPrim,d_D_Hat_T
-USE MOD_Mesh_Vars    ,ONLY: Metrics_fTilde,Metrics_gTilde,Metrics_hTilde,nElems
-!@cuf USE MOD_Mesh_Vars    ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,nElems
+USE MOD_DG_Vars      ,ONLY: nDOFElem,d_f,d_g,d_h,nElems_Block_volInt
+USE MOD_DG_Vars      ,ONLY: d_U,d_UPrim,d_D_Hat_T
+USE MOD_Mesh_Vars    ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,nElems
 USE MOD_Flux         ,ONLY: EvalFlux3D      ! computes volume fluxes in local coordinates
 #if VOLINT_VISC
 USE MOD_Flux         ,ONLY: EvalDiffFlux3D  ! computes volume fluxes in local coordinates
 USE MOD_Lifting_Vars ,ONLY: d_gradUx,d_gradUy,d_gradUz
-#endif
-#if FV_ENABLED
-USE MOD_FV_Vars      ,ONLY: FV_Elems
 #endif
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -137,19 +131,16 @@ IMPLICIT NONE
 REAL,DEVICE,INTENT(OUT)   :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER            :: i,j,k,l,iElem,iiElem,nElems_myBlock
-INTEGER            :: lastElem
+INTEGER            :: iElem,lastElem,nElems_myBlock
+INTEGER            :: nDOF
+INTEGER,PARAMETER  :: nThreads=256
 !==================================================================================================================================
 ! Diffusive part
 DO iElem=1,nElems,nElems_Block_volInt
   lastElem    = MIN(nElems,iElem+nElems_Block_volInt-1)
   nElems_myBlock = lastElem-iElem+1
+  nDOF = nDOFElem*nElems_myBlock
 
-  ! Cut out the local DG solution for a grid cell iElem and all Gauss points from the global field
-  ! Compute for all Gauss point values the Cartesian flux components
-  CALL EvalFlux3D(PP_N,nElems_myBlock,d_U(    :,:,:,:,iElem:lastElem) &
-                                     ,d_UPrim(:,:,:,:,iElem:lastElem) &
-                                     ,d_f,d_g,d_h)
 #if PARABOLIC
   CALL EvalDiffFlux3D( nElems_myBlock, &
                        d_UPrim(:,:,:,:,iElem:lastElem),&
@@ -157,47 +148,79 @@ DO iElem=1,nElems,nElems_Block_volInt
                       d_gradUy(:,:,:,:,iElem:lastElem),&
                       d_gradUz(:,:,:,:,iElem:lastElem),&
                       d_fv,d_gv,d_hv)
-
-  !$cuf kernel do(4) <<< *, * >>>
-  DO iiElem=1,nElems_myBlock
-    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      d_f(:,i,j,k,iiElem)=d_f(:,i,j,k,iiElem)+d_fv(:,i,j,k,iiElem)
-      d_g(:,i,j,k,iiElem)=d_g(:,i,j,k,iiElem)+d_gv(:,i,j,k,iiElem)
-#if PP_dim==3
-      d_h(:,i,j,k,iiElem)=d_h(:,i,j,k,iiElem)+d_hv(:,i,j,k,iiElem)
-#endif
-    END DO; END DO; END DO
-  END DO
 #endif
 
+  CALL EvalTransformedFlux3D_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF &
+                                                                 ,d_U(    :,:,:,:,iElem:lastElem) &
+                                                                 ,d_UPrim(:,:,:,:,iElem:lastElem) &
+                                                                 ,d_f( :,:,:,:,1:nElems_myBlock)  &
+                                                                 ,d_g( :,:,:,:,1:nElems_myBlock)  &
+                                                                 ,d_h( :,:,:,:,1:nElems_myBlock)  &
+                                                                 ,d_Metrics_fTilde(:,:,:,:,iElem:lastElem,0) &
+                                                                 ,d_Metrics_gTilde(:,:,:,:,iElem:lastElem,0) &
+                                                                 ,d_Metrics_hTilde(:,:,:,:,iElem:lastElem,0))
 
-  CALL VolInt_Metrics_GPU<<<(nDOFElem*nElems_myBlock)/256+1,256,0>>>(nDOFElem*nElems_myBlock, &
-                                                                   d_f,d_g,d_h,             &
-                                                                   d_Metrics_fTilde(:,:,:,:,iElem:lastElem,0), &
-                                                                   d_Metrics_gTilde(:,:,:,:,iElem:lastElem,0), &
-                                                                   d_Metrics_hTilde(:,:,:,:,iElem:lastElem,0))
-  !$cuf kernel do(4) <<< *, * >>>
-  DO iiElem=1,nElems_myBlock
-    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-        ! Update the time derivative with the spatial derivatives of the transformed fluxes
-        d_Ut(:,i,j,k,iElem+iiElem-1) =         d_D_Hat_T(0,i)*d_f(:,0,j,k,iiElem) + &
-#if PP_dim==3
-                                               d_D_Hat_T(0,k)*d_h(:,i,j,0,iiElem) + &
-#endif
-                                               d_D_Hat_T(0,j)*d_g(:,i,0,k,iiElem)
-        DO l=1,PP_N
-          ! Update the time derivative with the spatial derivatives of the transformed fluxes
-          d_Ut(:,i,j,k,iElem+iiElem-1) = d_Ut(:,i,j,k,iElem+iiElem-1) + d_D_Hat_T(l,i)*d_f(:,l,j,k,iiElem) + &
-#if PP_dim==3
-                                                                        d_D_Hat_T(l,k)*d_h(:,i,j,l,iiElem) + &
-#endif
-                                                                        d_D_Hat_T(l,j)*d_g(:,i,l,k,iiElem)
-      END DO ! l
-    END DO; END DO; END DO !i,j,k
-  END DO !iiElem
-
+  CALL ApplyDerMatrix<<<nDOF/nThreads+1,nThreads>>>(PP_N,nElems_myBlock &
+                                                   ,d_Ut(:,:,:,:,iElem:lastElem) &
+                                                   ,d_f( :,:,:,:,1:nElems_myBlock) &
+                                                   ,d_g( :,:,:,:,1:nElems_myBlock) &
+                                                   ,d_h( :,:,:,:,1:nElems_myBlock) &
+                                                   ,d_D_Hat_T &
+                                                   )
 END DO ! iElem
 END SUBROUTINE VolInt_weakForm
+
+!==================================================================================================================================
+!> Apply the derivative matrix linewise to the fluxes and add to Ut
+!==================================================================================================================================
+PPURE ATTRIBUTES(GLOBAL) SUBROUTINE ApplyDerMatrix(Nloc,nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T)
+!----------------------------------------------------------------------------------------------------------------------------------
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)  :: Nloc   !< Number of elements
+INTEGER,VALUE,INTENT(IN)  :: nElems !< Number of elements
+REAL,DEVICE,INTENT(INOUT) :: d_Ut(PP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< time update
+REAL,DEVICE,INTENT(IN)    :: d_f( PP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< flux in x
+REAL,DEVICE,INTENT(IN)    :: d_g( PP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< flux in y
+REAL,DEVICE,INTENT(IN)    :: d_h( PP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< flux in z
+REAL,DEVICE,INTENT(IN)    :: d_D_Hat_T(   0:Nloc,0:Nloc)                  !< Dervative matrix
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER            :: i,j,k,l,ElemID,rest,threadID
+!==================================================================================================================================
+! Get thread indices
+threadID = (blockidx%x-1) * blockdim%x + threadidx%x
+! Get ElemID of current thread
+ElemID   =        (threadID-1)/(Nloc+1)**3+1 ! Elems are 1-indexed
+rest     = threadID-(ElemID-1)*(Nloc+1)**3
+! Get ijk indices of current thread
+k        = (rest-1)/(Nloc+1)**2
+rest     =  rest- k*(Nloc+1)**2
+j        = (rest-1)/(Nloc+1)!**1
+rest     =  rest- j*(Nloc+1)!**1
+i        = (rest-1)!/(Nloc+1)**0
+rest     =  rest- j!*(Nloc+1)**0
+
+! Only compute if within array bounds
+IF (ElemID.LE.nElems) THEN
+  ! Update the time derivative with the spatial derivatives of the transformed fluxes
+  d_Ut(:,i,j,k,ElemID) =         d_D_Hat_T(0,i)*d_f(:,0,j,k,ElemID) + &
+#if PP_dim==3
+                                 d_D_Hat_T(0,k)*d_h(:,i,j,0,ElemID) + &
+#endif
+                                 d_D_Hat_T(0,j)*d_g(:,i,0,k,ElemID)
+  DO l=1,Nloc
+    ! Update the time derivative with the spatial derivatives of the transformed fluxes
+    d_Ut(:,i,j,k,ElemID) = d_Ut(:,i,j,k,ElemID) + d_D_Hat_T(l,i)*d_f(:,l,j,k,ElemID) &
+#if PP_dim==3
+                                                + d_D_Hat_T(l,k)*d_h(:,i,j,l,ElemID) &
+#endif
+                                                + d_D_Hat_T(l,j)*d_g(:,i,l,k,ElemID)
+  END DO ! l
+END IF
+END SUBROUTINE ApplyDerMatrix
 #endif
 
 #ifdef SPLIT_DG

@@ -90,7 +90,7 @@ REAL,DEVICE,ALLOCATABLE,DIMENSION(:,:,:,:,:) :: d_f, d_g, d_h
 #if PARABOLIC
 REAL,DEVICE,ALLOCATABLE,DIMENSION(:,:,:,:,:) :: d_fv, d_gv, d_hv
 #endif
-INTEGER,PARAMETER  :: nElems_Block_volInt=64
+INTEGER,PARAMETER  :: nElems_Block_volInt=256
 !----------------------------------------------------------------------------------------------------------------------------------
 ! Variables in case of primitive lifting
 REAL,ALLOCATABLE                      :: UPrim(:,:,:,:,:)       !< Solution in primitive variables per equation, node and element,
