@@ -64,7 +64,7 @@ REAL,ALLOCATABLE :: diffFluxZ_R(:,:,:)
 !@cuf REAL,DEVICE,ALLOCATABLE :: d_UE_f(:,:,:,:,:)
 !@cuf REAL,DEVICE,ALLOCATABLE :: d_UE_g(:,:,:,:,:)
 !@cuf REAL,DEVICE,ALLOCATABLE :: d_UE_h(:,:,:,:,:)
-INTEGER,PARAMETER :: nElems_Block_volIntLift = 64
+INTEGER,PARAMETER :: nElems_Block_volIntLift = 256
 
 ! Mapping Arrays for reduced lifting for GPU
 INTEGER,ALLOCATABLE        ::   LiftToPrim(:)
