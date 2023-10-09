@@ -290,7 +290,6 @@ USE MOD_Lifting             ,ONLY: Lifting
 #if USE_MPI
 USE MOD_MPI_Vars
 USE MOD_MPI                 ,ONLY: StartReceiveMPIData_GPU,StartSendMPIData_GPU,FinishExchangeMPIData
-USE MOD_MPI                 ,ONLY: StartReceiveMPIData,StartSendMPIData
 #endif /*USE_MPI*/
 !@cuf USE MOD_Mesh_Vars     ,ONLY: d_sJ
 IMPLICIT NONE
@@ -345,13 +344,6 @@ CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_U)        ! U_slave: slave -> m
 !CALL GetPrimitiveStateSurface(U_master,U_slave,UPrim_master,UPrim_slave)
 CALL ConsToPrim(PP_N,nSides,d_UPrim_master,d_U_master) ! TODO: Skip non-filled MPI sides
 CALL ConsToPrim(PP_N,nSides,d_UPrim_slave ,d_U_slave )
-
-#if PARABOLIC
-! 6. Lifting
-! Compute the gradients using Lifting (BR1 scheme,BR2 scheme ...)
-! The communication of the gradients is initialized within the lifting routines
-CALL Lifting(d_UPrim,d_UPrim_master,d_UPrim_slave,t)
-#endif
 
 #if PARABOLIC
 ! 6. Lifting

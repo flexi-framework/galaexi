@@ -174,7 +174,6 @@ errType=INT(-TimeStep(3))
 #endif /*USE_MPI*/
 ViscousTimeStep=(TimeStep(2) .LT. TimeStep(1))
 CalcTimeStep=MINVAL(TimeStep(1:2))
-!WRITE(*,*) myRank,CalcTimeStep
 END FUNCTION CALCTIMESTEP
 
 

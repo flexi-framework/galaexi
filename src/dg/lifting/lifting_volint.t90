@@ -235,11 +235,9 @@ REAL,DEVICE,INTENT(IN)       :: d_UPrim(PP_nVarPrim   ,0:PP_N,0:PP_N,0:PP_NZ,1:n
 REAL,DEVICE,INTENT(OUT)      :: d_gradU(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< solution gradient in direction dir
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-!REAL,DIMENSION(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ) :: UE_f,UE_g,UE_h ! transformed gradient flux (i.e. transformed solution)
 INTEGER                                              :: iElem,i,j,k,l
 INTEGER                                              :: lastElem,iiElem,nElems_myBlock
 !==================================================================================================================================
-
 ! volume integral
 DO iElem=1,nElems,nElems_Block_volIntLift
   lastElem    = MIN(nElems,iElem+nElems_Block_volIntLift-1)
@@ -332,7 +330,7 @@ REAL,DEVICE,INTENT(OUT)  :: d_UPrim_h(PP_nVarLifting,nDOF)  !< gradient flux zet
 ! LOCAL VARIABLES
 INTEGER            :: i,iVar
 !==================================================================================================================================
-!$cuf kernel do <<< *, * >>>
+!$cuf kernel do(2) <<< *, * >>>
 DO i=1,nDOF
   DO iVar=1,PP_nVarLifting
     d_UPrim_f(iVar,i) = d_Mf(dir,i)*d_UPrim(d_LiftToPrim(iVar),i)
