@@ -356,7 +356,6 @@ REAL,DEVICE,DIMENSION(PP_nVarLifting,1:nDOF),INTENT(IN)  :: gradUx,gradUy,gradUz
 #endif
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER             :: i
 INTEGER,PARAMETER   :: nThreads=256
 #if PARABOLIC
 REAL                :: mu,lambda
@@ -364,7 +363,7 @@ REAL                :: mu,lambda
 !==================================================================================================================================
 ! TODO: Impelment cleanly!
 #if PARABOLIC
-mu     = VISCOSITY_PRIM(UPrim(:,i,j,k))
+mu     = VISCOSITY_PRIM(UPrim(:,1))
 lambda = THERMAL_CONDUCTIVITY_H(mu)
 #endif
 CALL EvalTransformedFlux3D_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,U,UPrim &
@@ -451,9 +450,9 @@ tau_xz = mu * (gradUz(LIFT_VEL1) + gradUx(LIFT_VEL3))  ! mu*(u_z+w_x)
 tau_yz = mu * (gradUz(LIFT_VEL2) + gradUy(LIFT_VEL3))  ! mu*(y_z+w_y)
 
 ! Precompute tau*Vel+q (shear stress tensor times velocity vector plus heat flux vector)
-tauXVelPlusQ = tau_xx*UPrim(VEL1)-tau_xy*UPrim(VEL2)-tau_xz*UPrim(VEL3)
-tauYVelPlusQ = tau_xy*UPrim(VEL1)-tau_yy*UPrim(VEL2)-tau_yz*UPrim(VEL3)
-tauZVelPlusQ = tau_xz*UPrim(VEL1)-tau_yz*UPrim(VEL2)-tau_zz*UPrim(VEL3)
+tauXVelPlusQ = tau_xx*UPrim(VEL1)+tau_xy*UPrim(VEL2)+tau_xz*UPrim(VEL3)+lambda*gradUx(LIFT_TEMP)
+tauYVelPlusQ = tau_xy*UPrim(VEL1)+tau_yy*UPrim(VEL2)+tau_yz*UPrim(VEL3)+lambda*gradUy(LIFT_TEMP)
+tauZVelPlusQ = tau_xz*UPrim(VEL1)+tau_yz*UPrim(VEL2)+tau_zz*UPrim(VEL3)+lambda*gradUz(LIFT_TEMP)
 
 ! viscous fluxes in x-direction
 !f(DENS) = 0.
