@@ -121,6 +121,7 @@ USE MOD_DG_Vars      ,ONLY: nDOFElem,d_f,d_g,d_h,nElems_Block_volInt
 USE MOD_DG_Vars      ,ONLY: d_U,d_UPrim,d_D_Hat_T
 USE MOD_Mesh_Vars    ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,nElems
 USE MOD_Flux         ,ONLY: EvalFlux3D      ! computes volume fluxes in local coordinates
+USE MOD_Flux         ,ONLY: EvalTransformedFlux3D
 #if VOLINT_VISC
 USE MOD_Flux         ,ONLY: EvalDiffFlux3D  ! computes volume fluxes in local coordinates
 USE MOD_Lifting_Vars ,ONLY: d_gradUx,d_gradUy,d_gradUz
@@ -141,24 +142,20 @@ DO iElem=1,nElems,nElems_Block_volInt
   nElems_myBlock = lastElem-iElem+1
   nDOF = nDOFElem*nElems_myBlock
 
+  CALL EvalTransformedFlux3D(nDOF &
+                            ,d_U(    :,:,:,:,iElem:lastElem) &
+                            ,d_UPrim(:,:,:,:,iElem:lastElem) &
 #if PARABOLIC
-  CALL EvalDiffFlux3D( nElems_myBlock, &
-                       d_UPrim(:,:,:,:,iElem:lastElem),&
-                      d_gradUx(:,:,:,:,iElem:lastElem),&
-                      d_gradUy(:,:,:,:,iElem:lastElem),&
-                      d_gradUz(:,:,:,:,iElem:lastElem),&
-                      d_fv,d_gv,d_hv)
+                            ,d_gradUx(:,:,:,:,iElem:lastElem) &
+                            ,d_gradUy(:,:,:,:,iElem:lastElem) &
+                            ,d_gradUz(:,:,:,:,iElem:lastElem) &
 #endif
-
-  CALL EvalTransformedFlux3D_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF &
-                                                                 ,d_U(    :,:,:,:,iElem:lastElem) &
-                                                                 ,d_UPrim(:,:,:,:,iElem:lastElem) &
-                                                                 ,d_f( :,:,:,:,1:nElems_myBlock)  &
-                                                                 ,d_g( :,:,:,:,1:nElems_myBlock)  &
-                                                                 ,d_h( :,:,:,:,1:nElems_myBlock)  &
-                                                                 ,d_Metrics_fTilde(:,:,:,:,iElem:lastElem,0) &
-                                                                 ,d_Metrics_gTilde(:,:,:,:,iElem:lastElem,0) &
-                                                                 ,d_Metrics_hTilde(:,:,:,:,iElem:lastElem,0))
+                            ,d_f( :,:,:,:,1:nElems_myBlock)  &
+                            ,d_g( :,:,:,:,1:nElems_myBlock)  &
+                            ,d_h( :,:,:,:,1:nElems_myBlock)  &
+                            ,d_Metrics_fTilde(:,:,:,:,iElem:lastElem,0) &
+                            ,d_Metrics_gTilde(:,:,:,:,iElem:lastElem,0) &
+                            ,d_Metrics_hTilde(:,:,:,:,iElem:lastElem,0))
 
   CALL ApplyDerMatrix<<<nDOF/nThreads+1,nThreads>>>(PP_N,nElems_myBlock &
                                                    ,d_Ut(:,:,:,:,iElem:lastElem) &
