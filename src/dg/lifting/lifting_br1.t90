@@ -102,10 +102,10 @@ CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Flux)
 CALL Lifting_FillFlux_NormVec(d_gradUz_slave,d_gradUx_master,d_gradUy_master,d_gradUz_master,doMPISides=.TRUE.)
 #endif /*USE_MPI*/
 
-! compute surface integral contribution and add to ut
-CALL SurfIntLifting(PP_N,d_gradUx_master,d_gradUx_master,d_gradUx,d_L_hatMinus,d_L_hatPlus)
-CALL SurfIntLifting(PP_N,d_gradUy_master,d_gradUy_master,d_gradUy,d_L_hatMinus,d_L_hatPlus)
-CALL SurfIntLifting(PP_N,d_gradUz_master,d_gradUz_master,d_gradUz,d_L_hatMinus,d_L_hatPlus)
+! Compute surface integral contribution and add to ut
+CALL SurfIntLifting(PP_N,d_gradUx_master,d_gradUx,d_L_hatMinus,d_L_hatPlus)
+CALL SurfIntLifting(PP_N,d_gradUy_master,d_gradUy,d_L_hatMinus,d_L_hatPlus)
+CALL SurfIntLifting(PP_N,d_gradUz_master,d_gradUz,d_L_hatMinus,d_L_hatPlus)
 
 ! Account for the jacobian
 ! The Lifting already has the right sign
