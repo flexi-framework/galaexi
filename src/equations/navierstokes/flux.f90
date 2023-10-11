@@ -323,10 +323,11 @@ INTEGER             :: i
 !==================================================================================================================================
 i = (blockidx%x-1) * blockdim%x + threadidx%x
 IF (i.LE.nDOF) THEN
-  CALL EvalTransformedEulerFlux3D_fast(U(:,i),UPrim(:,i),f(:,i),g(:,i),h(:,i),Mf(:,i),Mg(:,i),Mh(:,i))
 #if PARABOLIC
-  CALL EvalTransformedDiffFlux3D(UPrim(:,i),gradUx(:,i),gradUy(:,i),gradUz(:,i) &
-                                ,f(:,i),g(:,i),h(:,i),Mf(:,i),Mg(:,i),Mh(:,i),mu,lambda)
+  CALL EvalTransformedEulerDiffFlux3D(U(:,i),UPrim(:,i),gradUx(:,i),gradUy(:,i),gradUz(:,i) &
+                                     ,f(:,i),g(:,i),h(:,i),Mf(:,i),Mg(:,i),Mh(:,i),mu,lambda)
+#else
+  CALL EvalTransformedEulerFlux3D_fast(U(:,i),UPrim(:,i),f(:,i),g(:,i),h(:,i),Mf(:,i),Mg(:,i),Mh(:,i))
 #endif
 END IF
 END SUBROUTINE EvalTransformedFlux3D_Kernel
@@ -417,6 +418,116 @@ CALL EvalFlux3D_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,U,UPrim,f,g,h)
 END SUBROUTINE EvalFlux3D_Elems_CUDA
 
 #if PARABOLIC
+!==================================================================================================================================
+!> Compute Navier-Stokes diffusive flux using the primitive variables and derivatives.
+!==================================================================================================================================
+PPURE ATTRIBUTES(DEVICE,HOST) SUBROUTINE EvalTransformedEulerDiffFlux3D(U,UPrim,gradUx,gradUy,gradUz,f,g,h,Mf,Mg,Mh,mu,lambda)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+REAL,DIMENSION(PP_nVar       ),INTENT(IN)  :: U                     !< Solution vector in conservative variables
+REAL,DIMENSION(PP_nVarPrim   ),INTENT(IN)  :: UPrim                 !< Solution vector in primitive variables
+REAL,DIMENSION(PP_nVarLifting),INTENT(IN)  :: gradUx,gradUy,gradUz  !> Gradients in x,y,z directions
+REAL,DIMENSION(PP_nVar       ),INTENT(OUT) :: f,g,h                 !> Physical fluxes in x,y,z directions
+REAL,DIMENSION(3             ),INTENT(IN)  :: Mf,Mg,Mh              !> Metrics in x/y/z direction
+REAL,INTENT(IN)  :: mu      !< viscosity of fluid
+REAL,INTENT(IN)  :: lambda  !< thermal conductivity of fluid
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+REAL                :: Ep,Mmom
+REAL                :: tau_xx,tau_yy,tau_xy
+#if PP_dim==3
+REAL                :: tau_zz,tau_xz,tau_yz
+#endif
+REAL                :: tauXVelPlusQ,tauYVelPlusQ,tauZVelPlusQ
+REAL,PARAMETER      :: s23=2./3.
+REAL,PARAMETER      :: s43=4./3.
+!==================================================================================================================================
+! auxiliary variables
+Ep = (U(ENER) + UPrim(PRES))/U(DENS)
+! Precompute entries of shear-stress tensor
+tau_xx = mu * ( s43 * gradUx(LIFT_VEL1) - s23 * gradUy(LIFT_VEL2) - s23 * gradUz(LIFT_VEL3)) ! 4/3*mu*u_x-2/3*mu*v_y -2/3*mu*w*z
+tau_yy = mu * (-s23 * gradUx(LIFT_VEL1) + s43 * gradUy(LIFT_VEL2) - s23 * gradUz(LIFT_VEL3)) !-2/3*mu*u_x+4/3*mu*v_y -2/3*mu*w*z
+tau_zz = mu * (-s23 * gradUx(LIFT_VEL1) - s23 * gradUy(LIFT_VEL2) + s43 * gradUz(LIFT_VEL3)) !-2/3*mu*u_x-2/3*mu*v_y +4/3*mu*w*z
+tau_xy = mu * (gradUy(LIFT_VEL1) + gradUx(LIFT_VEL2))  ! mu*(u_y+v_x)
+tau_xz = mu * (gradUz(LIFT_VEL1) + gradUx(LIFT_VEL3))  ! mu*(u_z+w_x)
+tau_yz = mu * (gradUz(LIFT_VEL2) + gradUy(LIFT_VEL3))  ! mu*(y_z+w_y)
+! Precompute tau*Vel+q (shear stress tensor times velocity vector plus heat flux vector)
+tauXVelPlusQ = tau_xx*UPrim(VEL1)+tau_xy*UPrim(VEL2)+tau_xz*UPrim(VEL3)+lambda*gradUx(LIFT_TEMP)
+tauYVelPlusQ = tau_xy*UPrim(VEL1)+tau_yy*UPrim(VEL2)+tau_yz*UPrim(VEL3)+lambda*gradUy(LIFT_TEMP)
+tauZVelPlusQ = tau_xz*UPrim(VEL1)+tau_yz*UPrim(VEL2)+tau_zz*UPrim(VEL3)+lambda*gradUz(LIFT_TEMP)
+
+! viscous fluxes in x-direction
+Mmom    = DOT_PRODUCT(Mf(:),U(MOMV)) ! metrics times momentum vector
+f(DENS) =  Mmom
+f(MOM1) =  Mmom*UPrim(VEL1)  &
+        + Mf(1)*UPrim(PRES)  &
+        - Mf(1)*tau_xx       &
+        - Mf(2)*tau_xy       &
+        - Mf(3)*tau_xz
+f(MOM2) =  Mmom*UPrim(VEL2)  &
+        + Mf(2)*UPrim(PRES)  &
+        - Mf(1)*tau_xy       &
+        - Mf(2)*tau_yy       &
+        - Mf(3)*tau_yz
+f(MOM3) =  Mmom*UPrim(VEL3)  &
+        + Mf(3)*UPrim(PRES)  &
+        - Mf(1)*tau_xz       &
+        - Mf(2)*tau_yz       &
+        - Mf(3)*tau_zz
+f(ENER) =  Mmom*Ep           &
+        - Mf(1)*tauXVelPlusQ &
+        - Mf(2)*tauYVelPlusQ &
+        - Mf(3)*tauZVelPlusQ
+
+! viscous fluxes in y-direction
+Mmom    = DOT_PRODUCT(Mg(:),U(MOMV)) ! metrics times momentum vector
+g(DENS) =  Mmom
+g(MOM1) =  Mmom*UPrim(VEL1)  &
+        + Mg(1)*UPrim(PRES)  &
+        - Mg(1)*tau_xx       &
+        - Mg(2)*tau_xy       &
+        - Mg(3)*tau_xz
+g(MOM2) =  Mmom*UPrim(VEL2)  &
+        + Mg(2)*UPrim(PRES)  &
+        - Mg(1)*tau_xy       &
+        - Mg(2)*tau_yy       &
+        - Mg(3)*tau_yz
+g(MOM3) =  Mmom*UPrim(VEL3)  &
+        + Mg(3)*UPrim(PRES)  &
+        - Mg(1)*tau_xz       &
+        - Mg(2)*tau_yz       &
+        - Mg(3)*tau_zz
+g(ENER) =  Mmom*Ep           &
+        - Mg(1)*tauXVelPlusQ &
+        - Mg(2)*tauYVelPlusQ &
+        - Mg(3)*tauZVelPlusQ
+
+! viscous fluxes in z-direction
+Mmom    = DOT_PRODUCT(Mh(:),U(MOMV)) ! metrics times momentum vector
+h(DENS) =  Mmom
+h(MOM1) =  Mmom*UPrim(VEL1)  &
+        + Mh(1)*UPrim(PRES)  &
+        - Mh(1)*tau_xx       &
+        - Mh(2)*tau_xy       &
+        - Mh(3)*tau_xz
+h(MOM2) =  Mmom*UPrim(VEL2)  &
+        + Mh(2)*UPrim(PRES)  &
+        - Mh(1)*tau_xy       &
+        - Mh(2)*tau_yy       &
+        - Mh(3)*tau_yz
+h(MOM3) =  Mmom*UPrim(VEL3)  &
+        + Mh(3)*UPrim(PRES)  &
+        - Mh(1)*tau_xz       &
+        - Mh(2)*tau_yz       &
+        - Mh(3)*tau_zz
+h(ENER) =  Mmom*Ep           &
+        - Mh(1)*tauXVelPlusQ &
+        - Mh(2)*tauYVelPlusQ &
+        - Mh(3)*tauZVelPlusQ
+END SUBROUTINE EvalTransformedEulerDiffFlux3D
+
 !==================================================================================================================================
 !> Compute Navier-Stokes diffusive flux using the primitive variables and derivatives.
 !==================================================================================================================================
