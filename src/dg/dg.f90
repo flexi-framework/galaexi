@@ -149,14 +149,10 @@ Flux_slave =0.
 d_Flux_master=Flux_master
 d_Flux_slave =Flux_slave
 
+nElems_Block_volInt=nElems
 ALLOCATE(d_f (PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volInt))
 ALLOCATE(d_g (PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volInt))
 ALLOCATE(d_h (PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volInt))
-#if PARABOLIC
-ALLOCATE(d_fv(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volInt))
-ALLOCATE(d_gv(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volInt))
-ALLOCATE(d_hv(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems_Block_volInt))
-#endif
 
 
 ! variables for performance tricks
