@@ -94,11 +94,13 @@ SWRITE(UNIT_stdOut,'(A)') ' INIT DG...'
 CALL InitDGBasis(PP_N, xGP,wGP,L_minus,L_plus,D ,D_T ,D_Hat ,D_Hat_T ,L_HatMinus ,L_HatPlus)
 
 ! Copy LHat Vectors to GPU
+!@cuf ALLOCATE(d_D_T(0:PP_N,0:PP_N))
 !@cuf ALLOCATE(d_D_Hat_T(0:PP_N,0:PP_N))
 !@cuf ALLOCATE(d_L_HatMinus(0:PP_N),d_L_HatPlus(0:PP_N))
 !@cuf d_L_HatPlus  = L_HatPlus
 !@cuf d_L_HatMinus = L_HatMinus
 !@cuf d_D_Hat_T    = D_Hat_T
+!@cuf d_D_T        = D_T
 
 ! Allocate the local DG solution (JU or U): element-based
 ALLOCATE(U(        PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))

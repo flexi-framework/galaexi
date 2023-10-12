@@ -34,6 +34,7 @@ END INTERFACE
 INTERFACE Lifting_VolInt
   MODULE PROCEDURE Lifting_VolInt_Conservative_GPU
   MODULE PROCEDURE Lifting_VolInt_Conservative
+  MODULE PROCEDURE Lifting_VolInt_Nonconservative_GPU
   MODULE PROCEDURE Lifting_VolInt_Nonconservative
 END INTERFACE
 !==================================================================================================================================
@@ -134,6 +135,10 @@ END IF
 
 SWRITE(UNIT_stdOut,'(132("-"))')
 SWRITE(UNIT_stdOut,'(A)') ' INIT LIFTING WITH BR1...'
+
+doWeakLifting         = GETLOGICAL('doWeakLifting')
+IF(.NOT.doWeakLifting)&
+  doConservativeLifting = GETLOGICAL('doConservativeLifting')
 
 ! We store the interior gradients at the each element face
 ALLOCATE(gradUx_slave (PP_nVarLifting,0:PP_N,0:PP_NZ,1:nSides))

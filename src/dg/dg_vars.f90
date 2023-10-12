@@ -32,6 +32,8 @@ REAL,ALLOCATABLE                      :: D(:,:)                 !< Differentiati
 
 REAL,ALLOCATABLE                      :: D_T(:,:)               !< Transpose of differentiation matrix, size [0..N,0..N].
 
+!@cuf REAL,DEVICE,ALLOCATABLE         :: d_D_T(:,:)
+
 REAL,ALLOCATABLE                      :: D_Hat(:,:)             !< Differentiation matrix premultiplied by
                                                                 !< mass matrix, \f$ \hat{D} = M^{-1} D^T M \f$, size [0..N,0..N].
 

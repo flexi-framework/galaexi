@@ -90,11 +90,15 @@ CALL Lifting_FillFlux(d_UPrim_master,d_UPrim_slave,d_gradUz_slave,doMPISides=.FA
 CALL Lifting_FillFlux_NormVec(d_gradUz_slave,d_gradUx_master,d_gradUy_master,d_gradUz_master,doMPISides=.FALSE.)
 
 ! compute volume integral contribution and add to ut
-CALL Lifting_VolInt(1,d_UPrim,d_GradUx)
-CALL Lifting_VolInt(2,d_UPrim,d_GradUy)
+IF(doWeakLifting.OR.doConservativeLifting)THEN
+  CALL Lifting_VolInt(1,d_UPrim,d_GradUx)
+  CALL Lifting_VolInt(2,d_UPrim,d_GradUy)
 #if (PP_dim==3)
-CALL Lifting_VolInt(3,d_UPrim,d_GradUz)
+  CALL Lifting_VolInt(3,d_UPrim,d_GradUz)
 #endif
+ELSE
+  CALL Lifting_VolInt(d_UPrim,d_GradUx,d_GradUy,d_GradUz)
+END IF
 
 #if USE_MPI
 ! Complete send / receive
@@ -103,9 +107,9 @@ CALL Lifting_FillFlux_NormVec(d_gradUz_slave,d_gradUx_master,d_gradUy_master,d_g
 #endif /*USE_MPI*/
 
 ! Compute surface integral contribution and add to ut
-CALL SurfIntLifting(PP_N,d_gradUx_master,d_gradUx,d_L_hatMinus,d_L_hatPlus)
-CALL SurfIntLifting(PP_N,d_gradUy_master,d_gradUy,d_L_hatMinus,d_L_hatPlus)
-CALL SurfIntLifting(PP_N,d_gradUz_master,d_gradUz,d_L_hatMinus,d_L_hatPlus)
+CALL SurfIntLifting(PP_N,d_gradUx_master,d_gradUx,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting)
+CALL SurfIntLifting(PP_N,d_gradUy_master,d_gradUy,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting)
+CALL SurfIntLifting(PP_N,d_gradUz_master,d_gradUz,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting)
 
 ! Account for the jacobian
 ! The Lifting already has the right sign
