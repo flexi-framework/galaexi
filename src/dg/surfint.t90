@@ -336,6 +336,8 @@ INTEGER            :: ElemID,locSideID,SideID,p,q,flip,rest
 INTEGER            :: i,j,k,threadID
 INTEGER            :: firstSideID,lastSideID
 LOGICAL            :: isMaster
+!REAL               :: sig
+REAL               :: Ut_loc(TP_nVar)
 !==================================================================================================================================
 ! Get thread indices
 threadID = (blockidx%x-1) * blockdim%x + threadidx%x
@@ -348,9 +350,70 @@ rest     =  rest- k*(Nloc+1)**2
 j        = (rest-1)/(Nloc+1)!**1
 rest     =  rest- j*(Nloc+1)!**1
 i        = (rest-1)!/(Nloc+1)**0
-rest     =  rest- j!*(Nloc+1)**0
 
 IF (ElemID.LE.nElems) THEN
+  ! Nullify local Ut
+  ! TODO: This could be avoided by setting the first value directly instead of adding it.
+  Ut_loc(:) = 0.
+
+  ! ----------------------------------------------
+  ! TODO: Variant 1:
+  ! Use master information to compute factor to multiply the fluxes such that on a master side Flux_master is multiplied with 1
+  ! and Flux_slave with 0 and in case of a slave side vice versa. This avoids any branching in the GPU case.
+  !
+  !DO locSideID=1,6
+  !  SideID   = ElemToSide(E2S_SIDE_ID  ,locSideID,ElemID)
+  !  flip     = ElemToSide(E2S_FLIP     ,locSideID,ElemID)
+  !
+  !  ! ATTENTION: Use master information to directly compute the correct sign for flux to avoid branching and increase performance.
+  !  !            For this use the following mapping:
+  !  !              Side is SLAVE : E2S_IS_MASTER==0  ->  sig= 0.  -> Multiply MASTER with  0., SLAVE with -1.
+  !  !              Side is MASTER: E2S_IS_MASTER==1  ->  sig= 1.  -> Multiply MASTER with +1., SLAVE with  0.
+  !  !sig = 2.*REAL(ElemToSide(E2S_IS_MASTER,locSideID,ElemID))-1.
+  !
+  !  !isMaster=1 : sigmaster=1 sigslave=0
+  !  !isMaster=0 : sigmaster=0 sigslave=-1
+  !  sig=REAL(ElemToSide(E2S_IS_MASTER     ,locSideID,ElemID))
+  !
+  !  ! Get indices of pointwise flux on locside and add
+  !  SELECT CASE(locSideID)
+  !  CASE(XI_MINUS)
+  !    p=S2V2(1,j,k,flip,locSideID)
+  !    q=S2V2(2,j,k,flip,locSideID)
+  !    Ut_loc(:) = Ut_loc(:) + sig    *Flux_master(:,p,q,SideID)*L_hatMinus(i) &
+  !                          +(sig-1.)*Flux_slave( :,p,q,SideID)*L_hatMinus(i)
+  !  CASE(ETA_MINUS)
+  !    p=S2V2(1,i,k,flip,locSideID)
+  !    q=S2V2(2,i,k,flip,locSideID)
+  !    Ut_loc(:) = Ut_loc(:) + sig    *Flux_master(:,p,q,SideID)*L_hatMinus(j) &
+  !                          +(sig-1.)*Flux_slave( :,p,q,SideID)*L_hatMinus(j)
+  !  CASE(ZETA_MINUS)
+  !    p=S2V2(1,i,j,flip,locSideID)
+  !    q=S2V2(2,i,j,flip,locSideID)
+  !    Ut_loc(:) = Ut_loc(:) + sig    *Flux_master(:,p,q,SideID)*L_hatMinus(k) &
+  !                          +(sig-1.)*Flux_slave( :,p,q,SideID)*L_hatMinus(k)
+  !  CASE(XI_PLUS)
+  !    p=S2V2(1,j,k,flip,locSideID)
+  !    q=S2V2(2,j,k,flip,locSideID)
+  !    Ut_loc(:) = Ut_loc(:) + sig    *Flux_master(:,p,q,SideID)*L_hatPlus(i) &
+  !                          +(sig-1.)*Flux_slave( :,p,q,SideID)*L_hatPlus(i)
+  !  CASE(ETA_PLUS)
+  !    p=S2V2(1,i,k,flip,locSideID)
+  !    q=S2V2(2,i,k,flip,locSideID)
+  !    Ut_loc(:) = Ut_loc(:) + sig    *Flux_master(:,p,q,SideID)*L_hatPlus(j) &
+  !                          +(sig-1.)*Flux_slave( :,p,q,SideID)*L_hatPlus(j)
+  !  CASE(ZETA_PLUS)
+  !    p=S2V2(1,i,j,flip,locSideID)
+  !    q=S2V2(2,i,j,flip,locSideID)
+  !    Ut_loc(:) = Ut_loc(:) + sig    *Flux_master(:,p,q,SideID)*L_hatPlus(k) &
+  !                          +(sig-1.)*Flux_slave( :,p,q,SideID)*L_hatPlus(k)
+  !  END SELECT !locSideID
+  !END DO
+
+  ! ----------------------------------------------
+  ! TODO: Variant 2:
+  ! Use master information to compute factor to multiply the fluxes such that the Flux_master is multiplied with 1 and Flux_slave
+  !
   DO locSideID=1,6
     SideID   = ElemToSide(E2S_SIDE_ID  ,locSideID,ElemID)
     flip     = ElemToSide(E2S_FLIP     ,locSideID,ElemID)
@@ -362,52 +425,55 @@ IF (ElemID.LE.nElems) THEN
       p=S2V2(1,j,k,flip,locSideID)
       q=S2V2(2,j,k,flip,locSideID)
       IF(isMaster) THEN
-        Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   +Flux_master(:,p,q,SideID)*L_hatMinus(i)
+        Ut_loc(:) =Ut_loc(:) +Flux_master(:,p,q,SideID)*L_hatMinus(i)
       ELSE ! slave
-        Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   -Flux_slave( :,p,q,SideID)*L_hatMinus(i)
+        Ut_loc(:) =Ut_loc(:) -Flux_slave( :,p,q,SideID)*L_hatMinus(i)
       END IF
     CASE(ETA_MINUS)
       p=S2V2(1,i,k,flip,locSideID)
       q=S2V2(2,i,k,flip,locSideID)
       IF(isMaster) THEN
-        Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   +Flux_master(:,p,q,SideID)*L_hatMinus(j)
+        Ut_loc(:) =Ut_loc(:) +Flux_master(:,p,q,SideID)*L_hatMinus(j)
       ELSE ! slave
-        Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   -Flux_slave( :,p,q,SideID)*L_hatMinus(j)
+        Ut_loc(:) =Ut_loc(:) -Flux_slave( :,p,q,SideID)*L_hatMinus(j)
       END IF
     CASE(ZETA_MINUS)
       p=S2V2(1,i,j,flip,locSideID)
       q=S2V2(2,i,j,flip,locSideID)
       IF(isMaster) THEN
-        Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   +Flux_master(:,p,q,SideID)*L_hatMinus(k)
+        Ut_loc(:) =Ut_loc(:) +Flux_master(:,p,q,SideID)*L_hatMinus(k)
       ELSE ! slave
-        Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   -Flux_slave( :,p,q,SideID)*L_hatMinus(k)
+        Ut_loc(:) =Ut_loc(:) -Flux_slave( :,p,q,SideID)*L_hatMinus(k)
       END IF
     CASE(XI_PLUS)
       p=S2V2(1,j,k,flip,locSideID)
       q=S2V2(2,j,k,flip,locSideID)
       IF(isMaster) THEN
-        Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   +Flux_master(:,p,q,SideID)*L_hatPlus(i)
+        Ut_loc(:) =Ut_loc(:) +Flux_master(:,p,q,SideID)*L_hatPlus(i)
       ELSE ! slave
-        Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   -Flux_slave( :,p,q,SideID)*L_hatPlus(i)
+        Ut_loc(:) =Ut_loc(:) -Flux_slave( :,p,q,SideID)*L_hatPlus(i)
       END IF
     CASE(ETA_PLUS)
       p=S2V2(1,i,k,flip,locSideID)
       q=S2V2(2,i,k,flip,locSideID)
       IF(isMaster) THEN
-        Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   +Flux_master(:,p,q,SideID)*L_hatPlus(j)
+        Ut_loc(:) =Ut_loc(:) +Flux_master(:,p,q,SideID)*L_hatPlus(j)
       ELSE ! slave
-        Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   -Flux_slave( :,p,q,SideID)*L_hatPlus(j)
+        Ut_loc(:) =Ut_loc(:) -Flux_slave( :,p,q,SideID)*L_hatPlus(j)
       END IF
     CASE(ZETA_PLUS)
       p=S2V2(1,i,j,flip,locSideID)
       q=S2V2(2,i,j,flip,locSideID)
       IF(isMaster) THEN
-        Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   +Flux_master(:,p,q,SideID)*L_hatPlus(k)
+        Ut_loc(:) =Ut_loc(:) +Flux_master(:,p,q,SideID)*L_hatPlus(k)
       ELSE ! slave
-        Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   -Flux_slave( :,p,q,SideID)*L_hatPlus(k)
+        Ut_loc(:) =Ut_loc(:) -Flux_slave( :,p,q,SideID)*L_hatPlus(k)
       END IF
     END SELECT !locSideID
   END DO
+
+  ! Add local Ut for my DOF (i,j,k,ElemID) to global Ut
+  Ut(:,i,j,k,ElemID) = Ut(:,i,j,k,ElemID)+Ut_loc(:)
 ENDIF
 END SUBROUTINE SurfInt_Device
 
@@ -440,6 +506,7 @@ INTEGER            :: ElemID,locSideID,SideID,p,q,flip,rest
 INTEGER            :: i,j,k,threadID
 INTEGER            :: firstSideID,lastSideID
 REAL               :: sig
+REAL               :: Ut_loc(TP_nVar)
 !==================================================================================================================================
 ! Get thread indices
 threadID = (blockidx%x-1) * blockdim%x + threadidx%x
@@ -455,6 +522,10 @@ i        = (rest-1)!/(Nloc+1)**0
 rest     =  rest- j!*(Nloc+1)**0
 
 IF (ElemID.LE.nElems) THEN
+  ! Nullify local Ut
+  ! TODO: This could be avoided by setting the first value directly instead of adding it.
+  Ut_loc(:) = 0.
+
   DO locSideID=1,6
     SideID   = ElemToSide(E2S_SIDE_ID,locSideID,ElemID)
     flip     = ElemToSide(E2S_FLIP   ,locSideID,ElemID)
@@ -470,29 +541,31 @@ IF (ElemID.LE.nElems) THEN
     CASE(XI_MINUS)
       p=S2V2(1,j,k,flip,locSideID)
       q=S2V2(2,j,k,flip,locSideID)
-      Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   +sig*Flux(:,p,q,SideID)*L_hatMinus(i)
+      Ut_loc(:) = Ut_loc(:) +sig*Flux(:,p,q,SideID)*L_hatMinus(i)
     CASE(ETA_MINUS)
       p=S2V2(1,i,k,flip,locSideID)
       q=S2V2(2,i,k,flip,locSideID)
-      Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   +sig*Flux(:,p,q,SideID)*L_hatMinus(j)
+      Ut_loc(:) = Ut_loc(:) +sig*Flux(:,p,q,SideID)*L_hatMinus(j)
     CASE(ZETA_MINUS)
       p=S2V2(1,i,j,flip,locSideID)
       q=S2V2(2,i,j,flip,locSideID)
-      Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   +sig*Flux(:,p,q,SideID)*L_hatMinus(k)
+      Ut_loc(:) = Ut_loc(:) +sig*Flux(:,p,q,SideID)*L_hatMinus(k)
     CASE(XI_PLUS)
       p=S2V2(1,j,k,flip,locSideID)
       q=S2V2(2,j,k,flip,locSideID)
-      Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   +sig*Flux(:,p,q,SideID)*L_hatPlus(i)
+      Ut_loc(:) = Ut_loc(:) +sig*Flux(:,p,q,SideID)*L_hatPlus(i)
     CASE(ETA_PLUS)
       p=S2V2(1,i,k,flip,locSideID)
       q=S2V2(2,i,k,flip,locSideID)
-      Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   +sig*Flux(:,p,q,SideID)*L_hatPlus(j)
+      Ut_loc(:) = Ut_loc(:) +sig*Flux(:,p,q,SideID)*L_hatPlus(j)
     CASE(ZETA_PLUS)
       p=S2V2(1,i,j,flip,locSideID)
       q=S2V2(2,i,j,flip,locSideID)
-      Ut(:,i,j,k,ElemID) =Ut(:,i,j,k,ElemID)   +sig*Flux(:,p,q,SideID)*L_hatPlus(k)
+      Ut_loc(:) = Ut_loc(:) +sig*Flux(:,p,q,SideID)*L_hatPlus(k)
     END SELECT !locSideID
   END DO
+  ! Add local Ut for my DOF (i,j,k,ElemID) to global Ut
+  Ut(:,i,j,k,ElemID) = Ut(:,i,j,k,ElemID)+Ut_loc(:)
 ENDIF
 END SUBROUTINE SurfInt_Device_Single_Flux
 
