@@ -46,6 +46,7 @@
 !==================================================================================================================================
 SUBROUTINE Lifting_BR1(d_UPrim,d_UPrim_master,d_UPrim_slave,t)
 ! MODULES
+USE MOD_GPU
 USE MOD_Globals
 USE MOD_Preproc
 USE MOD_Lifting_Vars
@@ -107,17 +108,19 @@ CALL Lifting_FillFlux_NormVec(d_gradUz_slave,d_gradUx_master,d_gradUy_master,d_g
 #endif /*USE_MPI*/
 
 ! Compute surface integral contribution and add to ut
-CALL SurfIntLifting(PP_N,d_gradUx_master,d_gradUx,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting)
-CALL SurfIntLifting(PP_N,d_gradUy_master,d_gradUy,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting)
-CALL SurfIntLifting(PP_N,d_gradUz_master,d_gradUz,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting)
+CALL SurfIntLifting(PP_N,d_gradUx_master,d_gradUx,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,streamID=stream1)
+CALL SurfIntLifting(PP_N,d_gradUy_master,d_gradUy,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,streamID=stream2)
+#if (PP_dim==3)
+CALL SurfIntLifting(PP_N,d_gradUz_master,d_gradUz,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,streamID=stream3)
+#endif
 
 ! Account for the jacobian
 ! The Lifting already has the right sign
 ! For FV elements no Jacobian is needed here, since already applied in Lifting_Volint (hidden in FV_Metrics_f/g/hTilde_sJ)
-CALL ApplyJacobianLifting(d_gradUx,toPhysical=.TRUE.)
-CALL ApplyJacobianLifting(d_gradUy,toPhysical=.TRUE.)
+CALL ApplyJacobianLifting(d_gradUx,toPhysical=.TRUE.,streamID=stream1)
+CALL ApplyJacobianLifting(d_gradUy,toPhysical=.TRUE.,streamID=stream2)
 #if (PP_dim==3)
-CALL ApplyJacobianLifting(d_gradUz,toPhysical=.TRUE.)
+CALL ApplyJacobianLifting(d_gradUz,toPhysical=.TRUE.,streamID=stream3)
 #endif
 
 ! We need the gradients at the face of the grid cells
@@ -131,18 +134,20 @@ CALL StartReceiveMPIData_GPU(d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest
 #endif /*USE_MPI*/
 
 ! Prolong to face
-CALL ProlongToFaceLifting(PP_N,d_gradUx,d_gradUx_master,d_gradUx_slave,d_L_Minus,d_L_Plus)
-CALL ProlongToFaceLifting(PP_N,d_gradUy,d_gradUy_master,d_gradUy_slave,d_L_Minus,d_L_Plus)
+CALL ProlongToFaceLifting(PP_N,d_gradUx,d_gradUx_master,d_gradUx_slave,d_L_Minus,d_L_Plus,streamID=stream1)
+CALL ProlongToFaceLifting(PP_N,d_gradUy,d_gradUy_master,d_gradUy_slave,d_L_Minus,d_L_Plus,streamID=stream2)
 #if (PP_dim==3)
-CALL ProlongToFaceLifting(PP_N,d_gradUz,d_gradUz_master,d_gradUz_slave,d_L_Minus,d_L_Plus)
+CALL ProlongToFaceLifting(PP_N,d_gradUz,d_gradUz_master,d_gradUz_slave,d_L_Minus,d_L_Plus,streamID=stream3)
 #endif
 
 #if USE_MPI
 ! TODO: Improve latency hiding by moving send directly after computation of respective gradients
-CALL cudaDeviceSynchronize() ! TODO: Move CudaSynchronize into MPI send
+CALL cudaStreamSynchronize(stream1) ! TODO: Move CudaSynchronize into MPI send
 CALL StartSendMPIData_GPU(d_gradUx_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,1,SEND),SendID=2)
+CALL cudaStreamSynchronize(stream2) ! TODO: Move CudaSynchronize into MPI send
 CALL StartSendMPIData_GPU(d_gradUy_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,2,SEND),SendID=2)
 #if (PP_dim==3)
+CALL cudaStreamSynchronize(stream3) ! TODO: Move CudaSynchronize into MPI send
 CALL StartSendMPIData_GPU(d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,3,SEND),SendID=2)
 #endif
 #endif /*USE_MPI*/

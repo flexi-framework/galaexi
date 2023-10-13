@@ -76,9 +76,11 @@ PPURE SUBROUTINE ApplyDMatrix_CUDA(&
 #ifdef WITHnVars
         TP_nVar, &
 #endif
-        nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T)
+        nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T,streamID)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU,ONLY: DefaultStream
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -91,17 +93,22 @@ REAL,DEVICE,INTENT(IN)    :: d_f( TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< flu
 REAL,DEVICE,INTENT(IN)    :: d_g( TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< flux in y
 REAL,DEVICE,INTENT(IN)    :: d_h( TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< flux in z
 REAL,DEVICE,INTENT(IN)    :: d_D_Hat_T(   0:PP_N,0:PP_N)                  !< Dervative matrix
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER            :: nDOF
 INTEGER,PARAMETER  :: nThreads=256
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 nDOF = (PP_N+1)*(PP_N+1)*(PP_NZ+1)*nElems
-CALL ApplyDMatrix_Kernel<<<nDOF/nThreads+1,nThreads>>>(&
+CALL ApplyDMatrix_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(&
 #ifdef WITHnVars
-                                                       TP_nVar,&
+                  TP_nVar,&
 #endif
-                                                       PP_N,nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T)
+                  PP_N,nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T)
 END SUBROUTINE ApplyDMatrix_CUDA
 
 !==================================================================================================================================

@@ -276,12 +276,13 @@ PPURE SUBROUTINE SurfInt_CUDA_Single_Flux(&
 #ifdef WITHnVars
         TP_nVar, &
 #endif
-        Nloc,d_Flux,d_Ut,d_L_HatMinus,d_L_HatPlus,weak)
+        Nloc,d_Flux,d_Ut,d_L_HatMinus,d_L_HatPlus,weak,streamID)
 ! MODULES
-USE MOD_Globals
+USE CUDAFOR
 USE MOD_PreProc
-USE MOD_Mesh_Vars ,ONLY: nElems,nSides
-USE MOD_Mesh_Vars ,ONLY: d_S2V2_inv,d_ElemToSide
+USE MOD_GPU      ,ONLY:DefaultStream
+USE MOD_Mesh_Vars,ONLY:nElems,nSides
+USE MOD_Mesh_Vars,ONLY:d_S2V2_inv,d_ElemToSide
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -294,13 +295,18 @@ REAL,DEVICE,INTENT(IN)    :: d_Flux(1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides) !< (IN
 REAL,DEVICE,INTENT(IN)    :: d_L_HatPlus(0:Nloc),d_L_HatMinus(0:Nloc)
 REAL,DEVICE,INTENT(INOUT) :: d_Ut(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)   !< (INOUT) Time derivative of the solution
 LOGICAL,INTENT(IN)        :: weak
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER            :: nDOF
 INTEGER,PARAMETER  :: nThreads=128
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 nDOF = nElems*(Nloc+1)**2*(ZDIM(Nloc)+1)
-CALL SurfInt_Device_Single_Flux<<<nDOF/nThreads+1,nThreads>>>(&
+CALL SurfInt_Device_Single_Flux<<<nDOF/nThreads+1,nThreads,0,mystream>>>(&
 #ifdef WITHnVars
         TP_nVar, &
 #endif

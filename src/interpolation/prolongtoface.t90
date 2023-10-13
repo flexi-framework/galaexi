@@ -117,11 +117,13 @@ PPURE SUBROUTINE ProlongToFace_CUDA(&
 #ifdef WITHnVar
     TP_nVar,&
 #endif
-    Nloc,d_Uvol,d_Uface_master,d_Uface_slave,d_L_Minus,d_L_Plus)
+    Nloc,d_Uvol,d_Uface_master,d_Uface_slave,d_L_Minus,d_L_Plus,streamID)
 ! MODULES
-USE MOD_Mesh_Vars,          ONLY: nElems
-USE MOD_Mesh_Vars,          ONLY: firstMPISide_YOUR, lastMPISide_MINE, nSides
-USE MOD_Mesh_Vars,          ONLY: d_S2V2, d_ElemToSide
+USE CUDAFOR
+USE MOD_GPU      ,ONLY:DefaultStream
+USE MOD_Mesh_Vars,ONLY:nElems
+USE MOD_Mesh_Vars,ONLY:firstMPISide_YOUR, lastMPISide_MINE, nSides
+USE MOD_Mesh_Vars,ONLY:d_S2V2, d_ElemToSide
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -133,13 +135,18 @@ REAL,DEVICE,INTENT(IN)          :: d_Uvol(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:n
 REAL,DEVICE,INTENT(INOUT)       :: d_Uface_master(TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
 REAL,DEVICE,INTENT(INOUT)       :: d_Uface_slave( TP_nVar,0:Nloc,0:ZDIM(Nloc),1:nSides)
 REAL,DEVICE,INTENT(IN)          :: d_L_Minus(0:Nloc),d_L_Plus(0:Nloc)
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER             :: nDOF
 INTEGER,PARAMETER   :: nThreads=128
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 nDOF = nElems*6*(Nloc+1)*(ZDIM(Nloc)+1)
-CALL ProlongToFace_Device<<<nDOF/nThreads+1,nThreads>>>(&
+CALL ProlongToFace_Device<<<nDOF/nThreads+1,nThreads,0,mystream>>>(&
 #ifdef WITHnVar
              TP_nVar,&
 #endif

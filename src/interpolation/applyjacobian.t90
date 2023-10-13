@@ -158,9 +158,11 @@ PPURE SUBROUTINE ApplyJacobian_CUDA(&
 #ifdef WITHnVar
         TP_nVar, &
 #endif
-        d_U,toPhysical)
+        d_U,toPhysical,streamID)
 ! MODULES
+USE CUDAFOR
 USE MOD_PreProc
+USE MOD_GPU      ,ONLY:DefaultStream
 USE MOD_Mesh_Vars,ONLY:d_sJ,nElems
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -170,17 +172,22 @@ INTEGER,INTENT(IN)  :: TP_nVar
 #endif
 REAL,DEVICE,INTENT(INOUT)  :: d_U(TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< Input: Solution to be transformed
 LOGICAL,INTENT(IN)         :: toPhysical                                !< Switch for physical<-->reference transformation
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER             :: i,j,k,iElem,nDOF
 INTEGER,PARAMETER   :: nThreads=256
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 nDOF = (PP_N+1)**2*(PP_NZ+1)*nElems
-CALL ApplyJacobian_Device<<<nDOF/nThreads+1,nThreads>>>(&
+CALL ApplyJacobian_Device<<<nDOF/nThreads+1,nThreads,0,mystream>>>(&
 #ifdef WITHnVar
-                                                        TP_nVar, &
+          TP_nVar, &
 #endif
-                                                        nDOF,d_sJ,d_U,toPhysical=.TRUE.)
+          nDOF,d_sJ,d_U,toPhysical=.TRUE.)
 END SUBROUTINE ApplyJacobian_CUDA
 
 !==================================================================================================================================

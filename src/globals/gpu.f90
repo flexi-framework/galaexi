@@ -20,8 +20,10 @@ IMPLICIT NONE
 
 PRIVATE
 
-INTEGER(KIND=cuda_stream_kind) :: stream1
-INTEGER(KIND=cuda_stream_kind) :: stream2
+INTEGER(KIND=CUDA_STREAM_KIND) :: DefaultStream
+INTEGER(KIND=CUDA_STREAM_KIND) :: stream1
+INTEGER(KIND=CUDA_STREAM_KIND) :: stream2
+INTEGER(KIND=CUDA_STREAM_KIND) :: stream3
 
 INTERFACE InitGPU
   MODULE PROCEDURE InitGPU
@@ -32,7 +34,7 @@ INTERFACE FinalizeGPU
 END INTERFACE
 
 PUBLIC::InitGPU,FinalizeGPU
-PUBLIC::stream1,stream2
+PUBLIC::stream1,stream2,stream3,DefaultStream
 !==================================================================================================================================
 
 CONTAINS
@@ -54,11 +56,14 @@ INTEGER               ::   istat
 SWRITE(UNIT_stdOut,'(132("-"))')
 SWRITE(UNIT_stdOut,'(A)') ' INIT GPU...'
 
-SWRITE(UNIT_stdOut,'(A)') ' DUMMY ' 
+SWRITE(UNIT_stdOut,'(A)') ' DUMMY '
 
 
 istat = cudaStreamCreate(stream1)
 istat = cudaStreamCreate(stream2)
+istat = cudaStreamCreate(stream3)
+
+DefaultStream=cudaforGetDefaultStream()
 
 SWRITE(UNIT_stdOut,'(A)')' INIT GPU DONE!'
 SWRITE(UNIT_stdOut,'(132("-"))')
@@ -82,6 +87,7 @@ INTEGER               ::   istat
 
 istat = cudaStreamDestroy(stream1)
 istat = cudaStreamDestroy(stream2)
+istat = cudaStreamDestroy(stream3)
 
 END SUBROUTINE FinalizeGPU
 
