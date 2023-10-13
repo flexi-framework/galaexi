@@ -107,18 +107,19 @@ CALL Lifting_FillFlux_NormVec(d_gradUz_slave,d_gradUx_master,d_gradUy_master,d_g
 #endif /*USE_MPI*/
 
 ! Compute surface integral contribution and add to ut
-CALL SurfIntLifting(PP_N,d_gradUx_master,d_gradUx,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting)
-CALL SurfIntLifting(PP_N,d_gradUy_master,d_gradUy,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting)
-CALL SurfIntLifting(PP_N,d_gradUz_master,d_gradUz,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting)
+CALL SurfIntLifting(PP_N,d_gradUx_master,d_gradUx,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,doApplyJacobian=.TRUE.)
+CALL SurfIntLifting(PP_N,d_gradUy_master,d_gradUy,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,doApplyJacobian=.TRUE.)
+CALL SurfIntLifting(PP_N,d_gradUz_master,d_gradUz,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,doApplyJacobian=.TRUE.)
 
 ! Account for the jacobian
+! TODO: This is already done in surfaceintegral to save memory bandwidth!
 ! The Lifting already has the right sign
 ! For FV elements no Jacobian is needed here, since already applied in Lifting_Volint (hidden in FV_Metrics_f/g/hTilde_sJ)
-CALL ApplyJacobianLifting(d_gradUx,toPhysical=.TRUE.)
-CALL ApplyJacobianLifting(d_gradUy,toPhysical=.TRUE.)
-#if (PP_dim==3)
-CALL ApplyJacobianLifting(d_gradUz,toPhysical=.TRUE.)
-#endif
+!CALL ApplyJacobianLifting(d_gradUx,toPhysical=.TRUE.)
+!CALL ApplyJacobianLifting(d_gradUy,toPhysical=.TRUE.)
+!#if (PP_dim==3)
+!CALL ApplyJacobianLifting(d_gradUz,toPhysical=.TRUE.)
+!#endif
 
 ! We need the gradients at the face of the grid cells
 #if USE_MPI
