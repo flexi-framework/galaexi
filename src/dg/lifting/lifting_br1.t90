@@ -80,7 +80,6 @@ CALL StartReceiveMPIData_GPU(d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest
 ! Compute lifting MPI fluxes
 CALL Lifting_FillFlux(d_UPrim_master,d_UPrim_slave,d_gradUz_slave,doMPISides=.TRUE.)
 ! Start Send MINE
-CALL cudaDeviceSynchronize() ! TODO: Move CudaSynchronize into MPI send
 CALL StartSendMPIData_GPU(   d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest_Flux(:,SEND),SendID=1)
 #endif /*USE_MPI*/
 
@@ -142,13 +141,10 @@ CALL ProlongToFaceLifting(PP_N,d_gradUz,d_gradUz_master,d_gradUz_slave,d_L_Minus
 
 #if USE_MPI
 ! TODO: Improve latency hiding by moving send directly after computation of respective gradients
-CALL cudaStreamSynchronize(stream1) ! TODO: Move CudaSynchronize into MPI send
-CALL StartSendMPIData_GPU(d_gradUx_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,1,SEND),SendID=2)
-CALL cudaStreamSynchronize(stream2) ! TODO: Move CudaSynchronize into MPI send
-CALL StartSendMPIData_GPU(d_gradUy_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,2,SEND),SendID=2)
+CALL StartSendMPIData_GPU(d_gradUx_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,1,SEND),SendID=2,streamID=stream1)
+CALL StartSendMPIData_GPU(d_gradUy_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,2,SEND),SendID=2,streamID=stream2)
 #if (PP_dim==3)
-CALL cudaStreamSynchronize(stream3) ! TODO: Move CudaSynchronize into MPI send
-CALL StartSendMPIData_GPU(d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,3,SEND),SendID=2)
+CALL StartSendMPIData_GPU(d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,3,SEND),SendID=2,streamID=stream3)
 #endif
 #endif /*USE_MPI*/
 

@@ -288,7 +288,7 @@ INTEGER,INTENT(IN)          :: DataSize                                 !< size 
 INTEGER,INTENT(IN)          :: LowerBound                               !< lower side index for last dimension of FaceData
 INTEGER,INTENT(IN)          :: UpperBound                               !< upper side index for last dimension of FaceData
 INTEGER,INTENT(OUT)         :: MPIRequest(nNbProcs)                     !< communication handles
-REAL,INTENT(OUT),DEVICE     :: FaceData(DataSize,LowerBound:UpperBound) !< the complete face data (for inner, BC and MPI sides).
+REAL,DEVICE,INTENT(OUT)     :: FaceData(DataSize,LowerBound:UpperBound) !< the complete face data (for inner, BC and MPI sides).
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER                     :: iNBProc
@@ -345,8 +345,9 @@ END SUBROUTINE StartSendMPIData
 !==================================================================================================================================
 !> Subroutine that performs the send operations for the face data that has to be exchanged between processors.
 !==================================================================================================================================
-SUBROUTINE StartSendMPIData_GPU(FaceData,DataSize,LowerBound,UpperBound,MPIRequest,SendID)
+SUBROUTINE StartSendMPIData_GPU(FaceData,DataSize,LowerBound,UpperBound,MPIRequest,SendID,streamID)
 ! MODULES
+USE CUDAFOR
 USE MOD_Globals
 USE MOD_MPI_Vars
 IMPLICIT NONE
@@ -360,10 +361,18 @@ INTEGER,INTENT(IN)          :: LowerBound                               !< lower
 INTEGER,INTENT(IN)          :: UpperBound                               !< upper side index for last dimension of FaceData
 INTEGER,INTENT(OUT)         :: MPIRequest(nNbProcs)                     !< communication handles
 REAL,INTENT(IN),DEVICE      :: FaceData(DataSize,LowerBound:UpperBound) !< the complete face data (for inner, BC and MPI sides).
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID          !< sent data is computed in this stream, so we have to wait
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER                     :: iNBProc
 !==================================================================================================================================
+! Wait until computation of data is finished before sending. Else synchronize whole device. THIS IS COSTLY!!
+IF (PRESENT(streamID) THEN
+  CALL cudaStreamSynchronize(streamID)
+ELSE
+  CALL cudaDeviceSynchronize()
+ENDIF
+
 DO iNbProc=1,nNbProcs
   IF(nMPISides_send(iNbProc,SendID).GT.0)THEN
     nSendVal    =DataSize*nMPISides_send(iNbProc,SendID)

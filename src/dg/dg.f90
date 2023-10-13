@@ -324,7 +324,6 @@ CALL StartReceiveMPIData_GPU(d_U_slave,DataSizeSide,1,nSides,MPIRequest_U(:,SEND
 #endif
 CALL ProlongToFaceCons(PP_N,d_U,d_U_master,d_U_slave,d_L_Minus,d_L_Plus)
 #if USE_MPI
-CALL cudaDeviceSynchronize() ! TODO: Move CudaSynchronize into MPI send
 CALL StartSendMPIData_GPU(   d_U_slave,DataSizeSide,1,nSides,MPIRequest_U(:,RECV),SendID=2) ! SEND YOUR / U_slave: slave -> master
 #endif
 
@@ -362,7 +361,6 @@ CALL FinishExchangeMPIData(6*nNbProcs,MPIRequest_gradU) ! gradUx,y,z: slave -> m
 #if USE_MPI
 CALL StartReceiveMPIData_GPU(d_Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,SEND),SendID=1)
 CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.TRUE.)
-CALL cudaDeviceSynchronize() ! TODO: Move CudaSynchronize into MPI send
 CALL StartSendMPIData_GPU(   d_Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,RECV),SendID=1)
 #endif
 CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.)
