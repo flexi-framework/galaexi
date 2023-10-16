@@ -339,9 +339,7 @@ CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_U)        ! U_slave: slave -> m
 ! 5. Convert face data from conservative to primitive variables
 !    Attention: For FV with 2nd order reconstruction U_master/slave and therewith UPrim_master/slave are still only 1st order
 ! TODO: Linadv?
-!CALL GetPrimitiveStateSurface(U_master,U_slave,UPrim_master,UPrim_slave)
-CALL ConsToPrim(PP_N,nSides,d_UPrim_master,d_U_master) ! TODO: Skip non-filled MPI sides
-CALL ConsToPrim(PP_N,nSides,d_UPrim_slave ,d_U_slave )
+CALL GetPrimitiveStateSurface(d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave)
 
 #if PARABOLIC
 ! 6. Lifting

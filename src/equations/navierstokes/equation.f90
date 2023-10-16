@@ -196,33 +196,40 @@ END SUBROUTINE InitEquation
 !>
 !> TODO: Provide switch for these two versions.
 !==================================================================================================================================
-SUBROUTINE GetPrimitiveStateSurface(U_master,U_slave,UPrim_master,UPrim_slave)
+SUBROUTINE GetPrimitiveStateSurface(d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave)
 ! MODULES
 USE MOD_Preproc
 USE MOD_EOS,      ONLY: ConsToPrim
-USE MOD_Mesh_Vars,ONLY: firstInnerSide,firstMPISide_YOUR,lastMPISide_YOUR,nSides
+USE MOD_Mesh_Vars,ONLY: firstInnerSide,firstMPISide_YOUR,lastMPISide_MINE,lastMPISide_YOUR,nSides
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
-REAL,INTENT(IN)  :: U_master(    CONS,0:PP_N,0:PP_NZ,1:nSides) !< conservative solution on master sides
-REAL,INTENT(IN)  :: U_slave(     CONS,0:PP_N,0:PP_NZ,1:nSides) !< conservative solution on slave sides
-REAL,INTENT(OUT) :: UPrim_master(PRIM,0:PP_N,0:PP_NZ,1:nSides) !< primitive solution on master sides
-REAL,INTENT(OUT) :: UPrim_slave( PRIM,0:PP_N,0:PP_NZ,1:nSides) !< primitive solution on slave sides
+REAL,DEVICE,INTENT(IN)  :: d_U_master(    1:PP_nVar    ,0:PP_N,0:PP_NZ,1:nSides) !< conservative solution on master sides
+REAL,DEVICE,INTENT(IN)  :: d_U_slave(     1:PP_nVar    ,0:PP_N,0:PP_NZ,1:nSides) !< conservative solution on slave sides
+REAL,DEVICE,INTENT(OUT) :: d_UPrim_master(1:PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides) !< primitive solution on master sides
+REAL,DEVICE,INTENT(OUT) :: d_UPrim_slave( 1:PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides) !< primitive solution on slave sides
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER          :: i,j,iSide
 !==================================================================================================================================
-DO iSide=1,nSides
-  IF(iSide.GE.firstMPISide_YOUR.AND.iSide.LE.lastMPISide_YOUR) CYCLE
-  DO j=0,PP_NZ; DO i=0,PP_N
-    CALL ConsToPrim(UPrim_master(:,i,j,iSide),U_master(:,i,j,iSide))
-  END DO; END DO
-END DO
-DO iSide=firstInnerSide,lastMPISide_YOUR
-  DO j=0,PP_NZ; DO i=0,PP_N
-    CALL ConsToPrim(UPrim_slave(:,i,j,iSide),U_slave(:,i,j,iSide))
-  END DO; END DO
-END DO
+!DO iSide=1,nSides
+!  IF(iSide.GE.firstMPISide_YOUR.AND.iSide.LE.lastMPISide_YOUR) CYCLE
+!  DO j=0,PP_NZ; DO i=0,PP_N
+!    CALL ConsToPrim(UPrim_master(:,i,j,iSide),U_master(:,i,j,iSide))
+!  END DO; END DO
+!END DO
+!DO iSide=firstInnerSide,lastMPISide_YOUR
+!  DO j=0,PP_NZ; DO i=0,PP_N
+!    CALL ConsToPrim(UPrim_slave(:,i,j,iSide),U_slave(:,i,j,iSide))
+!  END DO; END DO
+!END DO
+
+! TODO: No MPIMortars considered here!
+! No MPI YOUR sides for master
+CALL ConsToPrim(PP_N,                 lastMPISide_MINE,d_UPrim_master(:,:,:,             1:lastMPISide_MINE) &
+                                                      ,    d_U_master(:,:,:,             1:lastMPISide_MINE) )
+! No BCs for Slave sides
+CALL ConsToPrim(PP_N,lastMPISide_YOUR-firstInnerSide+1,d_UPrim_slave( :,:,:,firstInnerSide:lastMPISide_YOUR) &
+                                                          ,d_U_slave( :,:,:,firstInnerSide:lastMPISide_YOUR) )
 
 !! Version 2: Compute UPrim_master/slave from volume UPrim
 !
