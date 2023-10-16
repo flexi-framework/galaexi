@@ -267,11 +267,19 @@ doApplyJacobian_loc = .FALSE.
 IF (PRESENT(doApplyJacobian)) doApplyJacobian_loc=doApplyJacobian
 
 nDOF = nElems*(Nloc+1)**2*(ZDIM(Nloc)+1)
+#if (PP_NodeType==1 || (PP_NodeType==2 && defined(EXACT_MM)))
 CALL SurfInt_Device<<<nDOF/nThreads+1,nThreads>>>(&
 #ifdef WITHnVars
         TP_nVar, &
 #endif
         Nloc,nSides,nElems,d_Flux_master,d_Flux_slave,d_Ut,d_sJ,d_L_HatMinus,d_L_HatPlus,d_ElemToSide,d_S2V2_inv,doApplyJacobian_loc)
+#elif (PP_NodeType==2 && !defined(EXACT_MM))
+CALL SurfInt_Device<<<nDOF/nThreads+1,nThreads>>>(&
+#ifdef WITHnVars
+        TP_nVar, &
+#endif
+        Nloc,nSides,nElems,d_Flux_master,d_Flux_slave,d_Ut,d_sJ,d_L_HatMinus(0),d_L_HatPlus(Nloc),d_ElemToSide,d_S2V2_inv,doApplyJacobian_loc)
+#endif
 END SUBROUTINE SurfInt_CUDA
 
 !==================================================================================================================================
@@ -310,11 +318,19 @@ doApplyJacobian_loc = .FALSE.
 IF (PRESENT(doApplyJacobian)) doApplyJacobian_loc=doApplyJacobian
 
 nDOF = nElems*(Nloc+1)**2*(ZDIM(Nloc)+1)
+#if (PP_NodeType==1 || (PP_NodeType==2 && defined(EXACT_MM)))
 CALL SurfInt_Device_Single_Flux<<<nDOF/nThreads+1,nThreads>>>(&
 #ifdef WITHnVars
         TP_nVar, &
 #endif
         Nloc,nSides,nElems,d_Flux,d_Ut,d_sJ,d_L_HatMinus,d_L_HatPlus,d_ElemToSide,d_S2V2_inv,weak,doApplyJacobian_loc)
+#elif (PP_NodeType==2 && !defined(EXACT_MM))
+CALL SurfInt_Device_Single_Flux<<<nDOF/nThreads+1,nThreads>>>(&
+#ifdef WITHnVars
+        TP_nVar, &
+#endif
+        Nloc,nSides,nElems,d_Flux,d_Ut,d_sJ,d_L_HatMinus(0),d_L_HatPlus(Nloc),d_ElemToSide,d_S2V2_inv,weak,doApplyJacobian_loc)
+#endif
 END SUBROUTINE SurfInt_CUDA_Single_Flux
 
 !==================================================================================================================================

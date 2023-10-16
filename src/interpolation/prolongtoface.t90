@@ -146,7 +146,7 @@ CALL EvalElemFaceG_Device<<<nDOF/nThreads+1,nThreads>>>(&
 #endif
              Nloc,nSides,nElems,d_Uvol,d_Uface_master,d_Uface_slave,d_L_Minus,d_L_Plus,d_ElemToSide,d_S2V2)
 #else
-CALL EvalElemFaceG_Device<<<nDOF/nThreads+1,nThreads>>>(&
+CALL EvalElemFaceGL_Device<<<nDOF/nThreads+1,nThreads>>>(&
 #ifdef WITHnVar
              TP_nVar,&
 #endif
