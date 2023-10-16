@@ -337,9 +337,13 @@ INTEGER,VALUE,INTENT(IN) :: nSides
 INTEGER,VALUE,INTENT(IN) :: nElems
 REAL,INTENT(IN)          :: Flux_master(1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides) !< (IN) Flux on master side
 REAL,INTENT(IN)          :: Flux_slave (1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides) !< (IN) Flux on slave side
+#if (PP_NodeType==1 || (PP_NodeType==2 && defined(EXACT_MM)))
 REAL,INTENT(IN)          :: L_HatPlus(0:Nloc),L_HatMinus(0:Nloc)
+#elif (PP_NodeType==2 && !defined(EXACT_MM))
+REAL,INTENT(IN)          :: L_HatPlus,L_HatMinus
+#endif
 REAL,INTENT(INOUT)       :: Ut(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)   !< (INOUT) Time derivative of the solution
-REAL,INTENT(IN)          :: sJ(        0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems,1)   !< (IN) Jacobian
+REAL,INTENT(IN)          :: sJ(        0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems,1) !< (IN) Jacobian
 INTEGER,INTENT(IN)       :: ElemToSide(3,6,nElems)
 INTEGER,INTENT(IN)       :: S2V2(2,0:Nloc,0:Nloc,0:4,6)
 LOGICAL,VALUE,INTENT(IN) :: doApplyJacobian
@@ -434,6 +438,7 @@ IF (ElemID.LE.nElems) THEN
 
     ! Get indices of pointwise flux on locside and add
     SELECT CASE(locSideID)
+#if (PP_NodeType==1 || (PP_NodeType==2 && defined(EXACT_MM)))
     CASE(XI_MINUS)
       p=S2V2(1,j,k,flip,locSideID)
       q=S2V2(2,j,k,flip,locSideID)
@@ -482,6 +487,62 @@ IF (ElemID.LE.nElems) THEN
       ELSE ! slave
         Ut_loc(:) =Ut_loc(:) -Flux_slave( :,p,q,SideID)*L_hatPlus(k)
       END IF
+#elif (PP_NodeType==2 && !defined(EXACT_MM))
+    CASE(XI_MINUS)
+      IF (i.NE.0) CYCLE
+      p=S2V2(1,j,k,flip,locSideID)
+      q=S2V2(2,j,k,flip,locSideID)
+      IF(isMaster) THEN
+        Ut_loc(:) =Ut_loc(:) +Flux_master(:,p,q,SideID)*L_hatMinus
+      ELSE ! slave
+        Ut_loc(:) =Ut_loc(:) -Flux_slave( :,p,q,SideID)*L_hatMinus
+      END IF
+    CASE(ETA_MINUS)
+      IF (j.NE.0) CYCLE
+      p=S2V2(1,i,k,flip,locSideID)
+      q=S2V2(2,i,k,flip,locSideID)
+      IF(isMaster) THEN
+        Ut_loc(:) =Ut_loc(:) +Flux_master(:,p,q,SideID)*L_hatMinus
+      ELSE ! slave
+        Ut_loc(:) =Ut_loc(:) -Flux_slave( :,p,q,SideID)*L_hatMinus
+      END IF
+    CASE(ZETA_MINUS)
+      IF (k.NE.0) CYCLE
+      p=S2V2(1,i,j,flip,locSideID)
+      q=S2V2(2,i,j,flip,locSideID)
+      IF(isMaster) THEN
+        Ut_loc(:) =Ut_loc(:) +Flux_master(:,p,q,SideID)*L_hatMinus
+      ELSE ! slave
+        Ut_loc(:) =Ut_loc(:) -Flux_slave( :,p,q,SideID)*L_hatMinus
+      END IF
+    CASE(XI_PLUS)
+      IF (i.NE.Nloc) CYCLE
+      p=S2V2(1,j,k,flip,locSideID)
+      q=S2V2(2,j,k,flip,locSideID)
+      IF(isMaster) THEN
+        Ut_loc(:) =Ut_loc(:) +Flux_master(:,p,q,SideID)*L_hatPlus
+      ELSE ! slave
+        Ut_loc(:) =Ut_loc(:) -Flux_slave( :,p,q,SideID)*L_hatPlus
+      END IF
+    CASE(ETA_PLUS)
+      IF (j.NE.Nloc) CYCLE
+      p=S2V2(1,i,k,flip,locSideID)
+      q=S2V2(2,i,k,flip,locSideID)
+      IF(isMaster) THEN
+        Ut_loc(:) =Ut_loc(:) +Flux_master(:,p,q,SideID)*L_hatPlus
+      ELSE ! slave
+        Ut_loc(:) =Ut_loc(:) -Flux_slave( :,p,q,SideID)*L_hatPlus
+      END IF
+    CASE(ZETA_PLUS)
+      IF (k.NE.Nloc) CYCLE
+      p=S2V2(1,i,j,flip,locSideID)
+      q=S2V2(2,i,j,flip,locSideID)
+      IF(isMaster) THEN
+        Ut_loc(:) =Ut_loc(:) +Flux_master(:,p,q,SideID)*L_hatPlus
+      ELSE ! slave
+        Ut_loc(:) =Ut_loc(:) -Flux_slave( :,p,q,SideID)*L_hatPlus
+      END IF
+#endif
     END SELECT !locSideID
   END DO
 
@@ -514,7 +575,11 @@ INTEGER,VALUE,INTENT(IN) :: Nloc    !< (IN) Polynomial degree
 INTEGER,VALUE,INTENT(IN) :: nSides
 INTEGER,VALUE,INTENT(IN) :: nElems
 REAL,INTENT(IN)    :: Flux(1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSides) !< (IN) Flux
+#if (PP_NodeType==1 || (PP_NodeType==2 && defined(EXACT_MM)))
 REAL,INTENT(IN)    :: L_HatPlus(0:Nloc),L_HatMinus(0:Nloc)
+#elif (PP_NodeType==2 && !defined(EXACT_MM))
+REAL,INTENT(IN)    :: L_HatPlus,L_HatMinus
+#endif
 REAL,INTENT(INOUT) :: Ut(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)   !< (INOUT) Time derivative of the solution
 REAL,INTENT(IN)    :: sJ(        0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems,1)   !< (IN) Jacobian
 INTEGER,INTENT(IN) :: ElemToSide(3,6,nElems)
@@ -561,6 +626,7 @@ IF (ElemID.LE.nElems) THEN
 
     ! Get indices of pointwise flux on locside and add
     SELECT CASE(locSideID)
+#if (PP_NodeType==1 || (PP_NodeType==2 && defined(EXACT_MM)))
     CASE(XI_MINUS)
       p=S2V2(1,j,k,flip,locSideID)
       q=S2V2(2,j,k,flip,locSideID)
@@ -585,6 +651,38 @@ IF (ElemID.LE.nElems) THEN
       p=S2V2(1,i,j,flip,locSideID)
       q=S2V2(2,i,j,flip,locSideID)
       Ut_loc(:) = Ut_loc(:) +sig*Flux(:,p,q,SideID)*L_hatPlus(k)
+#elif (PP_NodeType==2 && !defined(EXACT_MM))
+    CASE(XI_MINUS)
+      IF (i.NE.0) CYCLE
+      p=S2V2(1,j,k,flip,locSideID)
+      q=S2V2(2,j,k,flip,locSideID)
+      Ut_loc(:) = Ut_loc(:) +sig*Flux(:,p,q,SideID)*L_hatMinus
+    CASE(ETA_MINUS)
+      IF (j.NE.0) CYCLE
+      p=S2V2(1,i,k,flip,locSideID)
+      q=S2V2(2,i,k,flip,locSideID)
+      Ut_loc(:) = Ut_loc(:) +sig*Flux(:,p,q,SideID)*L_hatMinus
+    CASE(ZETA_MINUS)
+      IF (k.NE.0) CYCLE
+      p=S2V2(1,i,j,flip,locSideID)
+      q=S2V2(2,i,j,flip,locSideID)
+      Ut_loc(:) = Ut_loc(:) +sig*Flux(:,p,q,SideID)*L_hatMinus
+    CASE(XI_PLUS)
+      IF (i.NE.Nloc) CYCLE
+      p=S2V2(1,j,k,flip,locSideID)
+      q=S2V2(2,j,k,flip,locSideID)
+      Ut_loc(:) = Ut_loc(:) +sig*Flux(:,p,q,SideID)*L_hatPlus
+    CASE(ETA_PLUS)
+      IF (j.NE.Nloc) CYCLE
+      p=S2V2(1,i,k,flip,locSideID)
+      q=S2V2(2,i,k,flip,locSideID)
+      Ut_loc(:) = Ut_loc(:) +sig*Flux(:,p,q,SideID)*L_hatPlus
+    CASE(ZETA_PLUS)
+      IF (k.NE.Nloc) CYCLE
+      p=S2V2(1,i,j,flip,locSideID)
+      q=S2V2(2,i,j,flip,locSideID)
+      Ut_loc(:) = Ut_loc(:) +sig*Flux(:,p,q,SideID)*L_hatPlus
+#endif
     END SELECT !locSideID
   END DO
   ! Add local Ut for my DOF (i,j,k,ElemID) to global Ut
