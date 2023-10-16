@@ -189,72 +189,182 @@ END SUBROUTINE VolInt_weakForm
 !> "Split form nodal discontinuous Galerkin schemes with summation-by-parts property for the compressible Euler equations."
 !> Journal of Computational Physics 327 (2016): 39-66.
 !==================================================================================================================================
-SUBROUTINE VolInt_splitForm(Ut)
+SUBROUTINE VolInt_splitForm(d_Ut)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
 USE MOD_PreProc
-USE MOD_DG_Vars      ,ONLY: DVolSurf,UPrim,U
-USE MOD_Mesh_Vars    ,ONLY: Metrics_fTilde,Metrics_gTilde,nElems
+USE MOD_DG_Vars      ,ONLY: d_DVolSurf,d_UPrim,d_U,nDOFElem
+USE MOD_Mesh_Vars    ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,nElems
 #if PP_dim==3 || VOLINT_VISC
-USE MOD_Mesh_Vars    ,ONLY: Metrics_hTilde
+USE MOD_Mesh_Vars    ,ONLY: d_Metrics_hTilde
 #endif
-USE MOD_SplitFlux    ,ONLY:SplitDGVolume_pointer ! computes volume fluxes in split formulation
+!USE MOD_SplitFlux    ,ONLY:SplitDGVolume_pointer ! computes volume fluxes in split formulation
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
-REAL,INTENT(OUT)   :: Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
+REAL,DEVICE,INTENT(OUT)   :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER            :: i,j,k,l,iElem
-REAL,DIMENSION(PP_nVar                     )  :: Flux         !< temp variable for split flux
+!INTEGER            :: i,j,k,l,iElem
+!REAL,DIMENSION(PP_nVar                     )  :: Flux         !< temp variable for split flux
+INTEGER :: nDOF
+INTEGER,PARAMETER :: nThreads=256
 !==================================================================================================================================
-DO iElem=1,nElems
+!DO iElem=1,nElems
+!
+!! For split DG, the matrix DVolSurf will always be equal to 0 on the main diagonal. Thus, the (consistent) fluxes will always be
+!! multiplied by zero and we don't have to take them into account at all.
+!  ! We need to nullify the Ut array
+!  Ut(:,:,:,:,iElem) = 0.
+!
+!
+!  DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
+!    DO l=i+1,PP_N
+!       ! compute split flux in x-direction
+!       CALL SplitDGVolume_pointer(U(:,i,j,k,iElem),UPrim(:,i,j,k,iElem), &
+!                                  U(:,l,j,k,iElem),UPrim(:,l,j,k,iElem), &
+!                                  Metrics_fTilde(:,i,j,k,iElem,0),Metrics_fTilde(:,l,j,k,iElem,0),Flux)
+!       ! add up time derivative
+!       Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) + DVolSurf(l,i)*Flux(:)
+!       !symmetry
+!       Ut(:,l,j,k,iElem) = Ut(:,l,j,k,iElem) + DVolSurf(i,l)*Flux(:)
+!    END DO ! l
+!
+!    DO l=j+1,PP_N
+!       ! compute split flux in y-direction
+!       CALL SplitDGVolume_pointer(U(:,i,j,k,iElem),UPrim(:,i,j,k,iElem), &
+!                                  U(:,i,l,k,iElem),UPrim(:,i,l,k,iElem), &
+!                                  Metrics_gTilde(:,i,j,k,iElem,0),Metrics_gTilde(:,i,l,k,iElem,0),Flux)
+!       ! add up time derivative
+!       Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) + DVolSurf(l,j)*Flux(:)
+!       !symmetry
+!       Ut(:,i,l,k,iElem) = Ut(:,i,l,k,iElem) + DVolSurf(j,l)*Flux(:)
+!    END DO ! l
+!
+!#if PP_dim==3
+!    DO l=k+1,PP_N
+!       ! compute split flux in z-direction
+!       CALL SplitDGVolume_pointer(U(:,i,j,k,iElem),UPrim(:,i,j,k,iElem), &
+!                                  U(:,i,j,l,iElem),UPrim(:,i,j,l,iElem), &
+!                                  Metrics_hTilde(:,i,j,k,iElem,0),Metrics_hTilde(:,i,j,l,iElem,0),Flux)
+!       ! add up time derivative
+!       Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) + DVolSurf(l,k)*Flux(:)
+!       !symmetry
+!       Ut(:,i,j,l,iElem) = Ut(:,i,j,l,iElem) + DVolSurf(k,l)*Flux(:)
+!    END DO ! l
+!#endif /*PP_dim==3*/
+!
+!  END DO; END DO; END DO !i,j,k
+!END DO ! iElem
+nDOF = nDOFElem*nElems
+CALL VolInt_splitForm_Kernel<<<nDOF/nThreads+1,nThreads>>>(PP_N,nElems,d_Ut,d_U,d_UPrim,d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,d_DVolSurf)
+END SUBROUTINE VolInt_splitForm
+
+!==================================================================================================================================
+!> Computes the advection and viscous part volume integral in SplitDG formulation
+!>
+!> Attention 1: 1/J(i,j,k) is not yet accounted for
+!> Attention 2: input Ut is overwritten with the volume flux derivatives
+!> Attention 3: the factor of 2 in front of the derivative matrix entries is incorporated into the split fluxes!
+!> Attention 4: This is the strong form of the DGSEM! Substracting the inner flux is incorporated into the used D matrix, which
+!>              saves performance but only works for Gauss-Lobatto points. So no changes in the surface integral or fill flux
+!>              routines are necessary. For Gauss-Lobatto points, these inner fluxes cancel exactly with the non-zero (consistent)
+!>              fluxes at the outer points [-1,1] of the volume integral, which is why these inner fluxes never have to be actuallys
+!>              computed.
+!> Attention 5: For Gauss-Lobatto points, the matrix DVolSurf will always be equal to 0 on the main diagonal for the inner points
+!>              and becomes 0 for the outer points at [-1,1] after considering the inner fluxes of the strong form (Attention 4).
+!>              Thus, the (consistent) fluxes will always be multiplied by zero and we don't have to take them into account at all.
+!>
+!> For details on the derivation see Gassner, Gregor J., Andrew R. Winters, and David A. Kopriva.
+!> "Split form nodal discontinuous Galerkin schemes with summation-by-parts property for the compressible Euler equations."
+!> Journal of Computational Physics 327 (2016): 39-66.
+!==================================================================================================================================
+PPURE ATTRIBUTES(GLOBAL) SUBROUTINE VolInt_splitForm_Kernel(Nloc,nElems,d_Ut,d_U,d_UPrim,d_Mf,d_Mg,d_Mh,d_DVolSurf)
+!----------------------------------------------------------------------------------------------------------------------------------
+! MODULES
+USE MOD_SplitFlux    ,ONLY:SplitVolumeFluxSD_DEVICE ! computes volume fluxes in split formulation
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN) :: Nloc
+INTEGER,VALUE,INTENT(IN) :: nElems
+REAL,INTENT(OUT)   :: d_Ut(   PP_nVar    ,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< Time derivative of the volume integral (viscous part)
+REAL,INTENT(IN)    :: d_U(    PP_nVar    ,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< Time derivative of the volume integral (viscous part)
+REAL,INTENT(IN)    :: d_UPrim(PP_nVarPrim,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< Time derivative of the volume integral (viscous part)
+REAL,INTENT(IN)    :: d_Mf(             3,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems,1) !< Time derivative of the volume integral (viscous part)
+REAL,INTENT(IN)    :: d_Mg(             3,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems,1) !< Time derivative of the volume integral (viscous part)
+REAL,INTENT(IN)    :: d_Mh(             3,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems,1) !< Time derivative of the volume integral (viscous part)
+REAL,INTENT(IN)    :: d_DVolSurf(0:Nloc,0:Nloc) !< Time derivative of the volume integral (viscous part)
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER            :: i,j,k,l,ElemID,rest,threadID
+REAL,DEVICE,DIMENSION(PP_nVar)  :: d_Flux         !< temp variable for split flux
+REAL,DEVICE,DIMENSION(PP_nVar)  :: d_Ut_tmp       !< temp variable for split flux
+!==================================================================================================================================
+! Get thread indices
+threadID = (blockidx%x-1) * blockdim%x + threadidx%x
+! Get ElemID of current thread
+ElemID   =        (threadID-1)/(Nloc+1)**3+1 ! Elems are 1-indexed
+rest     = threadID-(ElemID-1)*(Nloc+1)**3
+! Get ijk indices of current thread
+k        = (rest-1)/(Nloc+1)**2
+rest     =  rest- k*(Nloc+1)**2
+j        = (rest-1)/(Nloc+1)!**1
+rest     =  rest- j*(Nloc+1)!**1
+i        = (rest-1)!/(Nloc+1)**0
 
 ! For split DG, the matrix DVolSurf will always be equal to 0 on the main diagonal. Thus, the (consistent) fluxes will always be
 ! multiplied by zero and we don't have to take them into account at all.
+IF (ElemID.LE.nElems) THEN
   ! We need to nullify the Ut array
-  Ut(:,:,:,:,iElem) = 0.
+  !d_Ut(:,i,j,k,ElemID) = 0.
+  d_Ut_tmp(:) = 0.
 
 
-  DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-    DO l=i+1,PP_N
-       ! compute split flux in x-direction
-       CALL SplitDGVolume_pointer(U(:,i,j,k,iElem),UPrim(:,i,j,k,iElem), &
-                                  U(:,l,j,k,iElem),UPrim(:,l,j,k,iElem), &
-                                  Metrics_fTilde(:,i,j,k,iElem,0),Metrics_fTilde(:,l,j,k,iElem,0),Flux)
-       ! add up time derivative
-       Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) + DVolSurf(l,i)*Flux(:)
-       !symmetry
-       Ut(:,l,j,k,iElem) = Ut(:,l,j,k,iElem) + DVolSurf(i,l)*Flux(:)
-    END DO ! l
+  !DO l=i+1,Nloc
+  DO l=0,Nloc
+     ! compute split flux in x-direction
+     CALL SplitVolumeFluxSD_DEVICE(d_U(:,i,j,k,ElemID),d_UPrim(:,i,j,k,ElemID), &
+                                   d_U(:,l,j,k,ElemID),d_UPrim(:,l,j,k,ElemID), &
+                                   d_Mf(:,i,j,k,ElemID,1),d_Mf(:,l,j,k,ElemID,1),d_Flux)
+     ! add up time derivative
+     d_Ut_tmp(:) = d_Ut_tmp(:) + d_DVolSurf(l,i)*d_Flux(:)
+     !d_Ut(:,i,j,k,ElemID) = d_Ut(:,i,j,k,ElemID) + d_DVolSurf(l,i)*d_Flux(:)
+     !!symmetry
+     !d_Ut(:,l,j,k,ElemID) = d_Ut(:,l,j,k,ElemID) + d_DVolSurf(i,l)*d_Flux(:)
+  END DO ! l
 
-    DO l=j+1,PP_N
-       ! compute split flux in y-direction
-       CALL SplitDGVolume_pointer(U(:,i,j,k,iElem),UPrim(:,i,j,k,iElem), &
-                                  U(:,i,l,k,iElem),UPrim(:,i,l,k,iElem), &
-                                  Metrics_gTilde(:,i,j,k,iElem,0),Metrics_gTilde(:,i,l,k,iElem,0),Flux)
-       ! add up time derivative
-       Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) + DVolSurf(l,j)*Flux(:)
-       !symmetry
-       Ut(:,i,l,k,iElem) = Ut(:,i,l,k,iElem) + DVolSurf(j,l)*Flux(:)
-    END DO ! l
+  !DO l=j+1,Nloc
+  DO l=0,Nloc
+     ! compute split flux in y-direction
+     CALL SplitVolumeFluxSD_DEVICE(d_U(:,i,j,k,ElemID),d_UPrim(:,i,j,k,ElemID), &
+                                   d_U(:,i,l,k,ElemID),d_UPrim(:,i,l,k,ElemID), &
+                                   d_Mg(:,i,j,k,ElemID,1),d_Mg(:,i,l,k,ElemID,1),d_Flux)
+     ! add up time derivative
+     d_Ut_tmp(:) = d_Ut_tmp(:) + d_DVolSurf(l,j)*d_Flux(:)
+     !d_Ut(:,i,j,k,ElemID) = d_Ut(:,i,j,k,ElemID) + d_DVolSurf(l,j)*d_Flux(:)
+     !!symmetry
+     !d_Ut(:,i,l,k,ElemID) = d_Ut(:,i,l,k,ElemID) + d_DVolSurf(j,l)*d_Flux(:)
+  END DO ! l
 
 #if PP_dim==3
-    DO l=k+1,PP_N
-       ! compute split flux in z-direction
-       CALL SplitDGVolume_pointer(U(:,i,j,k,iElem),UPrim(:,i,j,k,iElem), &
-                                  U(:,i,j,l,iElem),UPrim(:,i,j,l,iElem), &
-                                  Metrics_hTilde(:,i,j,k,iElem,0),Metrics_hTilde(:,i,j,l,iElem,0),Flux)
-       ! add up time derivative
-       Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) + DVolSurf(l,k)*Flux(:)
-       !symmetry
-       Ut(:,i,j,l,iElem) = Ut(:,i,j,l,iElem) + DVolSurf(k,l)*Flux(:)
-    END DO ! l
+  !DO l=k+1,Nloc
+  DO l=0,Nloc
+     ! compute split flux in z-direction
+     CALL SplitVolumeFluxSD_DEVICE(d_U(:,i,j,k,ElemID),d_UPrim(:,i,j,k,ElemID), &
+                                   d_U(:,i,j,l,ElemID),d_UPrim(:,i,j,l,ElemID), &
+                                   d_Mh(:,i,j,k,ElemID,1),d_Mh(:,i,j,l,ElemID,1),d_Flux)
+     ! add up time derivative
+     d_Ut_tmp(:) = d_Ut_tmp(:) + d_DVolSurf(l,k)*d_Flux(:)
+     !d_Ut(:,i,j,k,ElemID) = d_Ut(:,i,j,k,ElemID) + d_DVolSurf(l,k)*d_Flux(:)
+     !!symmetry
+     !d_Ut(:,i,j,l,ElemID) = d_Ut(:,i,j,l,ElemID) + d_DVolSurf(k,l)*d_Flux(:)
+  END DO ! l
 #endif /*PP_dim==3*/
+  d_Ut(:,i,j,l,ElemID) = d_Ut_tmp()
 
-  END DO; END DO; END DO !i,j,k
-END DO ! iElem
-END SUBROUTINE VolInt_splitForm
+ENDIF ! iElem
+END SUBROUTINE VolInt_splitForm_Kernel
 #endif /*SPLIT_DG*/
 
 !==================================================================================================================================

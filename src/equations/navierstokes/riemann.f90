@@ -607,7 +607,7 @@ END SUBROUTINE ViscousFlux_Kernel_CUDA
 PPURE ATTRIBUTES(DEVICE,HOST) SUBROUTINE Riemann_LF(F,F_L,F_R,U_LL,U_RR,Kappa)
 ! MODULES
 #ifdef SPLIT_DG
-USE MOD_SplitFlux     ,ONLY: SplitDGSurface_pointer
+USE MOD_SplitFlux     ,ONLY: SplitSurfaceFluxSD_DEVICE!SplitDGSurface_pointer
 #endif /*SPLIT_DG*/
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -628,7 +628,8 @@ LambdaMax = MAX( ABS(U_RR(EXT_VEL1)),ABS(U_LL(EXT_VEL1)) ) + MAX( SPEEDOFSOUND_H
 F = 0.5*((F_L+F_R) - LambdaMax*(U_RR(CONS) - U_LL(CONS)))
 #else
 ! get split flux
-CALL SplitDGSurface_pointer(U_LL,U_RR,F)
+!CALL SplitDGSurface_pointer(U_LL,U_RR,F)
+CALL SplitSurfaceFluxSD_DEVICE(U_LL,U_RR,F)
 ! compute surface flux
 F = F - 0.5*LambdaMax*(U_RR(CONS) - U_LL(CONS))
 #endif /*SPLIT_DG*/

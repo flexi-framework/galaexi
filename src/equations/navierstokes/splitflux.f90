@@ -66,6 +66,8 @@ END INTERFACE
 PUBLIC::InitSplitDG,DefineParametersSplitDG
 PUBLIC::SplitDGSurface_pointer,SplitDGVolume_pointer
 PUBLIC::GetLogMean
+PUBLIC::SplitVolumeFluxSD_DEVICE
+PUBLIC::SplitSurfaceFluxSD_DEVICE
 !==================================================================================================================================
 
 CONTAINS
@@ -209,11 +211,114 @@ Flux(:) = 0.5*(MRef(1)+M(1))*fTilde(:) + &
 END SUBROUTINE SplitVolumeFluxSD
 
 !==================================================================================================================================
+!> Computes the Split-Flux retaining the standard NS-Equations
+!> Attention 1: Factor 2 from differentiation matrix is already been considered
+!==================================================================================================================================
+PPURE ATTRIBUTES(HOST,DEVICE) SUBROUTINE SplitVolumeFluxSD_DEVICE(URef,UPrimRef,U,UPrim,MRef,M,Flux)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+REAL,DIMENSION(CONS),INTENT(IN)  :: URef          !< conserved variables
+REAL,DIMENSION(CONS),INTENT(IN)  :: U             !< conserved variables
+REAL,DIMENSION(PRIM),INTENT(IN)  :: UPrimRef      !< primitive variables
+REAL,DIMENSION(PRIM),INTENT(IN)  :: UPrim         !< primitive variables
+REAL,DIMENSION(1:3 ),INTENT(IN)  :: MRef          !< metric terms
+REAL,DIMENSION(1:3 ),INTENT(IN)  :: M             !< metric terms
+REAL,DIMENSION(CONS),INTENT(OUT) :: Flux          !< flux in reverence space
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+!REAL                                    :: rhoEpRef,rhoEp ! auxiliary variable for (rho*E+p)
+!REAL,DIMENSION(PP_nVar)                 :: fTilde,gTilde  ! flux in physical space
+!#if PP_dim == 3
+!REAL,DIMENSION(PP_nVar)                 :: hTilde         ! flux in physical space
+!#endif
+REAL,DIMENSION(3) :: MMRef
+!REAL :: Mmom,Mmomref
+!==================================================================================================================================
+!! compute auxiliary variables, total energy density plus pressure
+!rhoEpRef = URef(ENER) + UPrimRef(PRES)
+!rhoEp    = U(ENER) + UPrim(PRES)
+!
+!! local Euler fluxes x-direction
+!fTilde(DENS) = (URef(MOM1) + U(MOM1))                                                       ! {rho*u}
+!fTilde(MOM1) = (URef(MOM1)*UPrimRef(VEL1)+UPrimRef(PRES) + U(MOM1)*UPrim(VEL1)+UPrim(PRES)) ! {rho*u²}+{p}
+!fTilde(MOM2) = (URef(MOM1)*UPrimRef(VEL2) + U(MOM1)*UPrim(VEL2))                            ! {rho*u*v}
+!#if PP_dim == 3
+!fTilde(MOM3) = (URef(MOM1)*UPrimRef(VEL3) + U(MOM1)*UPrim(VEL3))                            ! {rho*u*w}
+!#else
+!fTilde(MOM3) = 0.
+!#endif
+!fTilde(ENER) = (rhoEpRef*UPrimRef(VEL1) + rhoEp*UPrim(VEL1))                                ! {(rho*E+p)*u}
+!! local Euler fluxes y-direction
+!gTilde(DENS) = (URef(MOM2) + U(MOM2))                                                       ! {rho*v}
+!gTilde(MOM1) = (URef(MOM1)*UPrimRef(VEL2) + U(MOM1)*UPrim(VEL2))                            ! {rho*u*v}
+!gTilde(MOM2) = (URef(MOM2)*UPrimRef(VEL2)+UPrimRef(PRES) + U(MOM2)*UPrim(VEL2)+UPrim(PRES)) ! {rho*v²}+{p}
+!#if PP_dim == 3
+!gTilde(MOM3) = (URef(MOM2)*UPrimRef(VEL3) + U(MOM2)*UPrim(VEL3))                            ! {rho*v*w}
+!#else
+!gTilde(MOM3) = 0.
+!#endif
+!gTilde(ENER) = (rhoEpRef*UPrimRef(VEL2) + rhoEp*UPrim(VEL2))                                ! {(rho*E+p)*v}
+!#if PP_dim == 3
+!! local Euler fluxes z-direction
+!hTilde(DENS) = (URef(MOM3) + U(MOM3))                                                       ! {rho*w}
+!hTilde(MOM1) = (URef(MOM1)*UPrimRef(VEL3) + U(MOM1)*UPrim(VEL3))                            ! {rho*u*w}
+!hTilde(MOM2) = (URef(MOM2)*UPrimRef(VEL3) + U(MOM2)*UPrim(VEL3))                            ! {rho*v*w}
+!hTilde(MOM3) = (URef(MOM3)*UPrimRef(VEL3)+UPrimRef(PRES) + U(MOM3)*UPrim(VEL3)+UPrim(PRES)) ! {rho*v²+p}
+!hTilde(ENER) = (rhoEpRef*UPrimRef(VEL3) + rhoEp*UPrim(VEL3))                                ! {(rho*E+p)*w}
+!#endif
+!
+!! transform into reference space
+!Flux(:) = 0.5*(MRef(1)+M(1))*fTilde(:) + &
+!#if PP_dim == 3
+!          0.5*(MRef(3)+M(3))*hTilde(:) + &
+!#endif
+!          0.5*(MRef(2)+M(2))*gTilde(:)
+
+! local Euler fluxes x-direction
+MMref(:) = 0.5*(MRef(:)+M(:))
+
+Flux(DENS) = MMRef(1)*(URef(MOM1) + U(MOM1)) &                                      ! {rho*u}
+           + MMRef(2)*(URef(MOM2) + U(MOM2)) &                                      ! {rho*v}
+           + MMRef(3)*(URef(MOM3) + U(MOM3))                                        ! {rho*w}
+Flux(MOM1) = MMRef(1)*(URef(MOM1)*UPrimRef(VEL1)+UPrimRef(PRES) + U(MOM1)*UPrim(VEL1)+UPrim(PRES)) & ! {rho*u²}+{p}
+           + MMRef(2)*(URef(MOM1)*UPrimRef(VEL2)                + U(MOM1)*UPrim(VEL2))             & ! {rho*u*v}
+           + MMRef(3)*(URef(MOM1)*UPrimRef(VEL3)                + U(MOM1)*UPrim(VEL3))               ! {rho*u*w}
+Flux(MOM2) = MMRef(1)*(URef(MOM1)*UPrimRef(VEL2)                + U(MOM1)*UPrim(VEL2))             & ! {rho*u*v}
+           + MMRef(2)*(URef(MOM2)*UPrimRef(VEL2)+UPrimRef(PRES) + U(MOM2)*UPrim(VEL2)+UPrim(PRES)) & ! {rho*v²}+{p}}
+           + MMRef(3)*(URef(MOM2)*UPrimRef(VEL3)                + U(MOM2)*UPrim(VEL3))               ! {rho*v*w}
+#if PP_dim ==3
+Flux(MOM3) = MMRef(1)*(URef(MOM1)*UPrimRef(VEL3)                + U(MOM1)*UPrim(VEL3))             & ! {rho*u*w}
+           + MMRef(2)*(URef(MOM2)*UPrimRef(VEL3)                + U(MOM2)*UPrim(VEL3))             & ! {rho*v*w}
+           + MMRef(3)*(URef(MOM3)*UPrimRef(VEL3)+UPrimRef(PRES) + U(MOM3)*UPrim(VEL3)+UPrim(PRES))   ! {rho*w²}+{p}}
+#else
+Flux(MOM3) = 0.
+#endif
+Flux(ENER) = MMRef(1)*((URef(ENER)+UPrimRef(PRES))*UPrimRef(VEL1) + (U(ENER)+UPrim(PRES))*UPrim(VEL1)) & ! {(rho*E+p)*u}
+           + MMRef(2)*((URef(ENER)+UPrimRef(PRES))*UPrimRef(VEL2) + (U(ENER)+UPrim(PRES))*UPrim(VEL2)) & ! {(rho*E+p)*v}
+           + MMRef(3)*((URef(ENER)+UPrimRef(PRES))*UPrimRef(VEL3) + (U(ENER)+UPrim(PRES))*UPrim(VEL3))   ! {(rho*E+p)*w}
+
+!MMref(:) = 0.5*(MRef(:)+M(:))
+!Mmom    = DOT_PRODUCT(MMref(:),U(MOMV)) ! metrics times momentum vector
+!Mmomref = DOT_PRODUCT(MMref(:),URef(MOMV)) ! metrics times momentum vector
+!
+!Flux(DENS) = Mmom+Mmomref
+!Flux(MOM1) = Mmom*UPrim(VEL1)+Mmomref*UPrimRef(VEL1) &
+!           + MMref(1)*(UPrim(PRES)+UPrimRef(PRES))
+!Flux(MOM2) = Mmom*UPrim(VEL2)+Mmomref*UPrimRef(VEL2) &
+!           + MMref(2)*(UPrim(PRES)+UPrimRef(PRES))
+!Flux(MOM3) = Mmom*UPrim(VEL3)+Mmomref*UPrimRef(VEL3) &
+!           + MMref(3)*(UPrim(PRES)+UPrimRef(PRES))
+!Flux(ENER) = Mmom   *(U   (ENER) + UPrim   (PRES))/U   (DENS) &
+!           + Mmomref*(URef(ENER) + UPrimRef(PRES))/URef(DENS)
+END SUBROUTINE SplitVolumeFluxSD_DEVICE
+
+!==================================================================================================================================
 !> Computes the surface flux for the split formulation retaining the standard NS-Equations
 !==================================================================================================================================
 PPURE SUBROUTINE SplitSurfaceFluxSD(U_LL,U_RR,F)
 ! MODULES
-USE MOD_PreProc
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -237,6 +342,33 @@ F(ENER)= 0.5*((U_LL(EXT_ENER)+U_LL(EXT_PRES))*U_LL(EXT_VEL1)+(U_RR(EXT_ENER)+U_R
 END SUBROUTINE SplitSurfaceFluxSD
 
 !==================================================================================================================================
+!> Computes the surface flux for the split formulation retaining the standard NS-Equations
+!==================================================================================================================================
+PPURE ATTRIBUTES(DEVICE,HOST) SUBROUTINE SplitSurfaceFluxSD_DEVICE(U_LL,U_RR,F)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+REAL,DIMENSION(PP_2Var),INTENT(IN)  :: U_LL      !< variables at the left surfaces
+REAL,DIMENSION(PP_2Var),INTENT(IN)  :: U_RR      !< variables at the right surfaces
+REAL,DIMENSION(CONS   ),INTENT(OUT) :: F         !< resulting flux
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+!==================================================================================================================================
+
+F(DENS)= 0.5*(U_LL(EXT_MOM1)+U_RR(EXT_MOM1))                                                                 ! {rho*u}
+F(MOM1)= 0.5*(U_LL(EXT_MOM1)*U_LL(EXT_VEL1)+U_LL(EXT_PRES)+U_RR(EXT_MOM1)*U_RR(EXT_VEL1)+U_RR(EXT_PRES))     ! {rho*u²}+{p}
+F(MOM2)= 0.5*(U_LL(EXT_MOM1)*U_LL(EXT_VEL2)+U_RR(EXT_MOM1)*U_RR(EXT_VEL2))                                   ! {rho*u*v}
+#if PP_dim == 3
+F(MOM3)= 0.5*(U_LL(EXT_MOM1)*U_LL(EXT_VEL3)+U_RR(EXT_MOM1)*U_RR(EXT_VEL3))                                   ! {rho*u*w}
+#else
+F(MOM3)= 0.
+#endif
+F(ENER)= 0.5*((U_LL(EXT_ENER)+U_LL(EXT_PRES))*U_LL(EXT_VEL1)+(U_RR(EXT_ENER)+U_RR(EXT_PRES))*U_RR(EXT_VEL1)) ! {(rho*E+p)*u}
+
+END SUBROUTINE SplitSurfaceFluxSD_DEVICE
+
+!==================================================================================================================================
 !> Computes the Split-Flux retaining the formulation of Ducros
 !> Attention 1: Factor 2 from differentiation matrix is already been considered
 !> Uses quadratic split forms in all equations. Reference: Ducros, F., et al. "High-order fluxes for conservative
@@ -245,7 +377,6 @@ END SUBROUTINE SplitSurfaceFluxSD
 !==================================================================================================================================
 PPURE SUBROUTINE SplitVolumeFluxDU(URef,UPrimRef,U,UPrim,MRef,M,Flux)
 ! MODULES
-USE MOD_PreProc
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -307,7 +438,6 @@ END SUBROUTINE SplitVolumeFluxDU
 !==================================================================================================================================
 PPURE SUBROUTINE SplitSurfaceFluxDU(U_LL,U_RR,F)
 ! MODULES
-USE MOD_PreProc
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -338,7 +468,6 @@ END SUBROUTINE SplitSurfaceFluxDU
 !==================================================================================================================================
 PPURE SUBROUTINE SplitVolumeFluxKG(URef,UPrimRef,U,UPrim,MRef,M,Flux)
 ! MODULES
-USE MOD_PreProc
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -408,7 +537,6 @@ END SUBROUTINE SplitVolumeFluxKG
 !==================================================================================================================================
 PPURE SUBROUTINE SplitSurfaceFluxKG(U_LL,U_RR,F)
 ! MODULES
-USE MOD_PreProc
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -446,7 +574,6 @@ END SUBROUTINE SplitSurfaceFluxKG
 !==================================================================================================================================
 PPURE SUBROUTINE SplitVolumeFluxMO(URef,UPrimRef,U,UPrim,MRef,M,Flux)
 ! MODULES
-USE MOD_PreProc
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -531,7 +658,6 @@ END SUBROUTINE SplitVolumeFluxMO
 !==================================================================================================================================
 PPURE SUBROUTINE SplitSurfaceFluxMO(U_LL,U_RR,F)
 ! MODULES
-USE MOD_PreProc
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -574,7 +700,6 @@ END SUBROUTINE SplitSurfaceFluxMO
 !==================================================================================================================================
 PPURE SUBROUTINE SplitVolumeFluxPI(URef,UPrimRef,U,UPrim,MRef,M,Flux)
 ! MODULES
-USE MOD_PreProc
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -641,7 +766,6 @@ END SUBROUTINE SplitVolumeFluxPI
 !==================================================================================================================================
 PPURE SUBROUTINE SplitSurfaceFluxPI(U_LL,U_RR,F)
 ! MODULES
-USE MOD_PreProc
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -678,7 +802,6 @@ END SUBROUTINE SplitSurfaceFluxPI
 !==================================================================================================================================
 PPURE SUBROUTINE SplitVolumeFluxCH(URef,UPrimRef,U,UPrim,MRef,M,Flux)
 ! MODULES
-USE MOD_PreProc
 USE MOD_EOS_Vars, ONLY:sKappaM1
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -766,7 +889,6 @@ END SUBROUTINE SplitVolumeFluxCH
 !==================================================================================================================================
 PPURE SUBROUTINE SplitSurfaceFluxCH(U_LL,U_RR,F)
 ! MODULES
-USE MOD_PreProc
 USE MOD_EOS_Vars, ONLY:sKappaM1
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------

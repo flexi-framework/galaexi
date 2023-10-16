@@ -52,6 +52,7 @@ REAL,ALLOCATABLE                      :: DVolSurf(:,:)          !< Transpose of 
                                                                 !< DVolSurf = D_T
                                                                 !< DVolSurf(0,0) = D_T(0,0) + 1/(2 * wGP(0))
                                                                 !< DVolSurf(N,N) = D_T(N,N) - 1/(2 * wGP(N))
+REAL,DEVICE,ALLOCATABLE               :: d_DVolSurf(:,:)        !< Transpose of differentiation matrix used for calculating the strong form
 #endif /*SPLIT_DG*/
 
 !----------------------------------------------------------------------------------------------------------------------------------

@@ -183,7 +183,7 @@ SUBROUTINE InitDGbasis(N_in,xGP,wGP,L_Minus,L_Plus,D,D_T,D_Hat,D_Hat_T,L_HatMinu
 USE MOD_Interpolation,    ONLY: GetNodesAndWeights
 USE MOD_Basis,            ONLY: PolynomialDerivativeMatrix,LagrangeInterpolationPolys,PolynomialMassMatrix
 #ifdef SPLIT_DG
-USE MOD_DG_Vars,          ONLY: DVolSurf ! Transpose of differentiation matrix used for calculating the strong form
+USE MOD_DG_Vars,          ONLY: DVolSurf,d_DVolSurf ! Transpose of differentiation matrix used for calculating the strong form
 #endif /*SPLIT_DG*/
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -231,6 +231,8 @@ DVolSurf = D_T
 ! For Gauss-Lobatto points, these inner flux contributions cancel exactly with entries in the DVolSurf matrix, resulting in zeros.
 DVolSurf(   0,   0) = DVolSurf(   0   ,0) + 1.0/(2.0 * wGP(   0))  ! = 0. (for LGL)
 DVolSurf(N_in,N_in) = DVolSurf(N_in,N_in) - 1.0/(2.0 * wGP(N_in))  ! = 0. (for LGL)
+ALLOCATE(d_DVolSurf(0:N_in,0:N_in))
+d_DVolSurf=DVolSurf
 #endif /*SPLIT_DG*/
 
 ! interpolate to left and right face (1 and -1 in reference space) and pre-divide by mass matrix
