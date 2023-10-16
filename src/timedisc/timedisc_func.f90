@@ -144,6 +144,7 @@ SELECT CASE(TimeDiscType)
   CASE('LSERKW2')
     TimeStep=>TimeStepByLSERKW2
     ALLOCATE(Ut_tmp(1:PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems))
+    Ut_tmp=0.
   CASE('LSERKK3')
     TimeStep=>TimeStepByLSERKK3
     ALLOCATE(S2   (1:PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) &

@@ -78,12 +78,8 @@ REAL     :: tStage
 INTEGER  :: iStage,i
 INTEGER,PARAMETER :: nThreads=256
 !===================================================================================================================================
-
 ! Premultiply with dt
 b_dt = RKb*dt
-
-! Copy solution to GPU
-! d_U = U
 
 DO iStage = 1,nRKStages
   ! NOTE: perform timestep in rk
@@ -96,21 +92,16 @@ DO iStage = 1,nRKStages
   CALL DGTimeDerivative_weakForm(tStage)
 
   IF (iStage.EQ.1) THEN
-    !CALL VCopy(nTotalU,Ut_tmp,Ut)                        !Ut_tmp = d_Ut
-    CALL VCopy_GPU<<<nTotalU/nThreads+1,nThreads>>>(nTotalU,Ut_tmp,d_Ut)                        !Ut_tmp = Ut
+    mRKA=0.
   ELSE
-    !CALL VAXPBY(nTotalU,Ut_tmp,Ut,ConstOut=-RKA(iStage)) !Ut_tmp = d_Ut - Ut_tmp*RKA (iStage)
     mRKA=-1.*RKA(iStage)
-    CALL VAXPB_OUT_GPU<<<nTotalU/nThreads+1,nThreads>>>(nTotalU,Ut_tmp,d_Ut,mRKA) !Ut_tmp = Ut - Ut_tmp*RKA (iStage)
   END IF
-  !CALL VAXPBY(nTotalU,U,Ut_tmp,   ConstIn =b_dt(iStage)) !U       = U + Ut_tmp*b_dt(iStage)
-  CALL VAXPB_IN_GPU<<<nTotalU/nThreads+1,nThreads>>>(nTotalU,d_U,Ut_tmp,   b_dt(iStage)) !U       = U + Ut_tmp*b_dt(iStage)
-
+  ! This routine updates Ut_tmp and U in a single operation for performance. It computes:
+  ! Ut_tmp = d_Ut - Ut_tmp*RKA (iStage)
+  ! U      =    U + Ut_tmp*b_dt(iStage)
+  ! TODO: Unnecessary operations in first stage, since here RKA=0.
+  CALL VAXPB_OUT_VAXPB_IN<<<nTotalU/nThreads+1,nThreads>>>(nTotalU,d_Ut,Ut_tmp,d_U,mRKA,b_dt(iStage))
 END DO
-
-! Copy solution out
-! U = d_U
-
 END SUBROUTINE TimeStepByLSERKW2
 
 
