@@ -60,12 +60,32 @@ ENDIF()
 # =========================================================================
 OPTION(FLEXI_SPLIT_DG "Use split DG formulation" OFF)
 IF(FLEXI_SPLIT_DG)
-  ADD_DEFINITIONS(-DSPLIT_DG)
+  #ADD_DEFINITIONS(-DSPLIT_DG)
   IF(FLEXI_NODETYPE STREQUAL "GAUSS")
     MESSAGE(SEND_ERROR "FLEXI_SPLIT_DG only works on FLEXI_NODETYPE==GAUSS-LOBATTO points.")
   ENDIF()
   IF(NOT FLEXI_EQNSYSNAME STREQUAL "navierstokes")
     MESSAGE(SEND_ERROR "FLEXI_SPLIT_DG only works for FLEXI_EQNSYSNAME==navierstokes.")
+  ENDIF()
+
+  LIST(APPEND FLEXI_SPLIT_DG_LIST  "SD" "MO" "DU" "KG" "PI" "CH")
+  SET(FLEXI_SPLIT_DG_TYPE "PI" CACHE STRING "Type of split fluxes used for SPLIT_DG")
+  SET_PROPERTY(CACHE FLEXI_SPLIT_DG_TYPE PROPERTY STRINGS ${FLEXI_SPLIT_DG_LIST})
+
+  IF(    FLEXI_SPLIT_DG_TYPE STREQUAL "SD")
+    ADD_DEFINITIONS(-DSPLIT_DG=0)
+  ELSEIF(FLEXI_SPLIT_DG_TYPE STREQUAL "MO")
+    ADD_DEFINITIONS(-DSPLIT_DG=1)
+  ELSEIF(FLEXI_SPLIT_DG_TYPE STREQUAL "DU")
+    ADD_DEFINITIONS(-DSPLIT_DG=2)
+  ELSEIF(FLEXI_SPLIT_DG_TYPE STREQUAL "KG")
+    ADD_DEFINITIONS(-DSPLIT_DG=3)
+  ELSEIF(FLEXI_SPLIT_DG_TYPE STREQUAL "PI")
+    ADD_DEFINITIONS(-DSPLIT_DG=4)
+  ELSEIF(FLEXI_SPLIT_DG_TYPE STREQUAL "CH")
+    ADD_DEFINITIONS(-DSPLIT_DG=5)
+  ELSE()
+    MESSAGE(SEND_ERROR "No such SPLITDG known.")
   ENDIF()
 ENDIF()
 
@@ -277,7 +297,7 @@ FILE(GLOB_RECURSE flexiF90 ./src/interpolation/*.f90
                            ./src/io_hdf5/*.f90
                            ./src/timedisc/*.f90
                            #./src/precond/*.f90
-			   #./src/implicit/*.f90
+                           #./src/implicit/*.f90
                            ./src/testcase/${FLEXI_TESTCASE}/*.f90
                            # ./src/flexilib.f90
                            ./unitTests/unittest.f90

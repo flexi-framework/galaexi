@@ -33,41 +33,44 @@ PRIVATE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! GLOBAL VARIABLES
 !----------------------------------------------------------------------------------------------------------------------------------
-ABSTRACT INTERFACE
-  PPURE SUBROUTINE VolumeFlux(URef,UPrimRef,U,UPrim,MRef,M,Flux)
-    REAL,DIMENSION(PP_nVar    ),INTENT(IN)  :: URef,U
-    REAL,DIMENSION(PP_nVarPrim),INTENT(IN)  :: UPrimRef,UPrim
-    REAL,DIMENSION(1:3        ),INTENT(IN)  :: MRef,M
-    REAL,DIMENSION(PP_nVar    ),INTENT(OUT) :: Flux
-  END SUBROUTINE
+INTERFACE SplitVolumeFlux
+#if   SPLIT_DG==0
+  MODULE PROCEDURE SplitVolumeFluxSD
+#elif SPLIT_DG==1
+  MODULE PROCEDURE SplitVolumeFluxMO
+#elif SPLIT_DG==2
+  MODULE PROCEDURE SplitVolumeFluxDU
+#elif SPLIT_DG==3
+  MODULE PROCEDURE SplitVolumeFluxKG
+#elif SPLIT_DG==4
+  MODULE PROCEDURE SplitVolumeFluxPI
+#elif SPLIT_DG==5
+!  MODULE PROCEDURE SplitVolumeFluxPI
+#endif /*SPLIT_DG*/
 END INTERFACE
 
-ABSTRACT INTERFACE
-  PPURE SUBROUTINE SurfaceFlux(U_LL,U_RR,F)
-    REAL,DIMENSION(PP_2Var),INTENT(IN)  :: U_LL,U_RR
-    REAL,DIMENSION(PP_nVar),INTENT(OUT) :: F
-  END SUBROUTINE
+INTERFACE SplitSurfaceFlux
+#if   SPLIT_DG==0
+  MODULE PROCEDURE SplitSurfaceFluxSD
+#elif SPLIT_DG==1
+  MODULE PROCEDURE SplitSurfaceFluxMO
+#elif SPLIT_DG==2
+  MODULE PROCEDURE SplitSurfaceFluxDU
+#elif SPLIT_DG==3
+  MODULE PROCEDURE SplitSurfaceFluxKG
+#elif SPLIT_DG==4
+  MODULE PROCEDURE SplitSurfaceFluxPI
+#elif SPLIT_DG==5
+!  MODULE PROCEDURE SplitSurfaceFluxPI
+#endif /*SPLIT_DG*/
 END INTERFACE
-
-PROCEDURE(VolumeFlux),POINTER    :: SplitDGVolume_pointer    !< pointer defining the SpliDG formulation beeing used
-PROCEDURE(SurfaceFlux),POINTER   :: SplitDGSurface_pointer   !< pointer defining the SpliDG formulation beeing used
-
-INTEGER,PARAMETER      :: PRM_SPLITDG_SD          = 0
-INTEGER,PARAMETER      :: PRM_SPLITDG_MO          = 1
-INTEGER,PARAMETER      :: PRM_SPLITDG_DU          = 2
-INTEGER,PARAMETER      :: PRM_SPLITDG_KG          = 3
-INTEGER,PARAMETER      :: PRM_SPLITDG_PI          = 4
-INTEGER,PARAMETER      :: PRM_SPLITDG_CH          = 5
 
 INTERFACE InitSplitDG
   MODULE PROCEDURE InitSplitDG
 END INTERFACE
 
 PUBLIC::InitSplitDG,DefineParametersSplitDG
-PUBLIC::SplitDGSurface_pointer,SplitDGVolume_pointer
-PUBLIC::GetLogMean
-PUBLIC::SplitVolumeFluxSD_DEVICE
-PUBLIC::SplitSurfaceFluxSD_DEVICE
+PUBLIC::SplitVolumeFlux,SplitSurfaceFlux
 !==================================================================================================================================
 
 CONTAINS
@@ -77,8 +80,6 @@ CONTAINS
 !==================================================================================================================================
 SUBROUTINE DefineParametersSplitDG()
 ! MODULES
-USE MOD_Globals
-USE MOD_ReadInTools ,ONLY: prms,addStrListEntry
 ! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -86,14 +87,14 @@ IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 !==================================================================================================================================
-CALL prms%SetSection("SplitDG")
-CALL prms%CreateIntFromStringOption('SplitDG',"SplitDG formulation to be used: SD, MO, DU, KG, PI, CH","PI")
-CALL addStrListEntry('SplitDG','sd',           PRM_SPLITDG_SD)
-CALL addStrListEntry('SplitDG','mo',           PRM_SPLITDG_MO)
-CALL addStrListEntry('SplitDG','du',           PRM_SPLITDG_DU)
-CALL addStrListEntry('SplitDG','kg',           PRM_SPLITDG_KG)
-CALL addStrListEntry('SplitDG','pi',           PRM_SPLITDG_PI)
-CALL addStrListEntry('SplitDG','ch',           PRM_SPLITDG_CH)
+!CALL prms%SetSection("SplitDG")
+!CALL prms%CreateIntFromStringOption('SplitDG',"SplitDG formulation to be used: SD, MO, DU, KG, PI, CH","PI")
+!CALL addStrListEntry('SplitDG','sd',           PRM_SPLITDG_SD)
+!CALL addStrListEntry('SplitDG','mo',           PRM_SPLITDG_MO)
+!CALL addStrListEntry('SplitDG','du',           PRM_SPLITDG_DU)
+!CALL addStrListEntry('SplitDG','kg',           PRM_SPLITDG_KG)
+!CALL addStrListEntry('SplitDG','pi',           PRM_SPLITDG_PI)
+!CALL addStrListEntry('SplitDG','ch',           PRM_SPLITDG_CH)
 
 END SUBROUTINE DefineParametersSplitDG
 
@@ -103,51 +104,43 @@ END SUBROUTINE DefineParametersSplitDG
 SUBROUTINE InitSplitDG()
 ! MODULES
 USE MOD_Globals
-USE MOD_ReadInTools ,ONLY: GETINTFROMSTR
-USE MOD_DG_Vars     ,ONLY: SplitDG
 !----------------------------------------------------------------------------------------------------------------------------------
 IMPLICIT NONE
 ! INPUT / OUTPUT VARIABLES
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 !==================================================================================================================================
+SWRITE(UNIT_stdOut,'(132("-"))')
+SWRITE(UNIT_stdOut,'(A)') ' INIT SPLITDG...'
 ! check if Gauss-Lobatto-Pointset is beeing used
 #if (PP_NodeType==1)
 CALL CollectiveStop(__STAMP__,&
   'Wrong Pointset: Gauss-Lobatto-Points are mandatory for using SplitDG !')
 #endif
-! set pointers
-SplitDG = GETINTFROMSTR('SplitDG')
-SELECT CASE(SplitDG)
-CASE(PRM_SPLITDG_SD)
-  SplitDGVolume_pointer  => SplitVolumeFluxSD
-  SplitDGSurface_pointer => SplitSurfaceFluxSD
-CASE(PRM_SPLITDG_MO)
-  SplitDGVolume_pointer  => SplitVolumeFluxMO
-  SplitDGSurface_pointer => SplitSurfaceFluxMO
-CASE(PRM_SPLITDG_DU)
-  SplitDGVolume_pointer  => SplitVolumeFluxDU
-  SplitDGSurface_pointer => SplitSurfaceFluxDU
-CASE(PRM_SPLITDG_KG)
-  SplitDGVolume_pointer  => SplitVolumeFluxKG
-  SplitDGSurface_pointer => SplitSurfaceFluxKG
-CASE(PRM_SPLITDG_PI)
-  SplitDGVolume_pointer  => SplitVolumeFluxPI
-  SplitDGSurface_pointer => SplitSurfaceFluxPI
-CASE(PRM_SPLITDG_CH)
-  SplitDGVolume_pointer  => SplitVolumeFluxCH
-  SplitDGSurface_pointer => SplitSurfaceFluxCH
-CASE DEFAULT
-  CALL CollectiveStop(__STAMP__,&
-    'SplitDG formulation not defined!')
-END SELECT
+
+#if   SPLIT_DG==0
+SWRITE(*,'(A,A2)')' | SplitDG is set to SD'
+#elif SPLIT_DG==1
+SWRITE(*,'(A,A2)')' | SplitDG is set to MO'
+#elif SPLIT_DG==2
+SWRITE(*,'(A,A2)')' | SplitDG is set to DU'
+#elif SPLIT_DG==3
+SWRITE(*,'(A,A2)')' | SplitDG is set to KG'
+#elif SPLIT_DG==4
+SWRITE(*,'(A,A2)')' | SplitDG is set to PI'
+#elif SPLIT_DG==5
+CALL CollectiveStop(__STAMP__,&
+  'CH SplitFlux not implemented for GPU yet!')
+#endif /*SPLIT_DG*/
+SWRITE(UNIT_stdOut,'(A)')' INIT SPLITDG DONE!'
+SWRITE(UNIT_stdOut,'(132("-"))')
 END SUBROUTINE InitSplitDG
 
 !==================================================================================================================================
 !> Computes the Split-Flux retaining the standard NS-Equations
 !> Attention 1: Factor 2 from differentiation matrix is already been considered
 !==================================================================================================================================
-PPURE SUBROUTINE SplitVolumeFluxSD(URef,UPrimRef,U,UPrim,MRef,M,Flux)
+PPURE ATTRIBUTES(HOST,DEVICE) SUBROUTINE SplitVolumeFluxSD(URef,UPrimRef,U,UPrim,MRef,M,Flux)
 ! MODULES
 USE MOD_PreProc
 IMPLICIT NONE
@@ -214,7 +207,7 @@ END SUBROUTINE SplitVolumeFluxSD
 !> Computes the Split-Flux retaining the standard NS-Equations
 !> Attention 1: Factor 2 from differentiation matrix is already been considered
 !==================================================================================================================================
-PPURE ATTRIBUTES(HOST,DEVICE) SUBROUTINE SplitVolumeFluxSD_DEVICE(URef,UPrimRef,U,UPrim,MRef,M,Flux)
+PPURE ATTRIBUTES(HOST,DEVICE) SUBROUTINE SplitVolumeFluxSD_fast(URef,UPrimRef,U,UPrim,MRef,M,Flux)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -312,12 +305,12 @@ Flux(ENER) = MMRef(1)*((URef(ENER)+UPrimRef(PRES))*UPrimRef(VEL1) + (U(ENER)+UPr
 !           + MMref(3)*(UPrim(PRES)+UPrimRef(PRES))
 !Flux(ENER) = Mmom   *(U   (ENER) + UPrim   (PRES))/U   (DENS) &
 !           + Mmomref*(URef(ENER) + UPrimRef(PRES))/URef(DENS)
-END SUBROUTINE SplitVolumeFluxSD_DEVICE
+END SUBROUTINE SplitVolumeFluxSD_fast
 
 !==================================================================================================================================
 !> Computes the surface flux for the split formulation retaining the standard NS-Equations
 !==================================================================================================================================
-PPURE SUBROUTINE SplitSurfaceFluxSD(U_LL,U_RR,F)
+PPURE ATTRIBUTES(HOST,DEVICE) SUBROUTINE SplitSurfaceFluxSD(U_LL,U_RR,F)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -342,40 +335,13 @@ F(ENER)= 0.5*((U_LL(EXT_ENER)+U_LL(EXT_PRES))*U_LL(EXT_VEL1)+(U_RR(EXT_ENER)+U_R
 END SUBROUTINE SplitSurfaceFluxSD
 
 !==================================================================================================================================
-!> Computes the surface flux for the split formulation retaining the standard NS-Equations
-!==================================================================================================================================
-PPURE ATTRIBUTES(DEVICE,HOST) SUBROUTINE SplitSurfaceFluxSD_DEVICE(U_LL,U_RR,F)
-! MODULES
-IMPLICIT NONE
-!----------------------------------------------------------------------------------------------------------------------------------
-! INPUT / OUTPUT VARIABLES
-REAL,DIMENSION(PP_2Var),INTENT(IN)  :: U_LL      !< variables at the left surfaces
-REAL,DIMENSION(PP_2Var),INTENT(IN)  :: U_RR      !< variables at the right surfaces
-REAL,DIMENSION(CONS   ),INTENT(OUT) :: F         !< resulting flux
-!----------------------------------------------------------------------------------------------------------------------------------
-! LOCAL VARIABLES
-!==================================================================================================================================
-
-F(DENS)= 0.5*(U_LL(EXT_MOM1)+U_RR(EXT_MOM1))                                                                 ! {rho*u}
-F(MOM1)= 0.5*(U_LL(EXT_MOM1)*U_LL(EXT_VEL1)+U_LL(EXT_PRES)+U_RR(EXT_MOM1)*U_RR(EXT_VEL1)+U_RR(EXT_PRES))     ! {rho*u²}+{p}
-F(MOM2)= 0.5*(U_LL(EXT_MOM1)*U_LL(EXT_VEL2)+U_RR(EXT_MOM1)*U_RR(EXT_VEL2))                                   ! {rho*u*v}
-#if PP_dim == 3
-F(MOM3)= 0.5*(U_LL(EXT_MOM1)*U_LL(EXT_VEL3)+U_RR(EXT_MOM1)*U_RR(EXT_VEL3))                                   ! {rho*u*w}
-#else
-F(MOM3)= 0.
-#endif
-F(ENER)= 0.5*((U_LL(EXT_ENER)+U_LL(EXT_PRES))*U_LL(EXT_VEL1)+(U_RR(EXT_ENER)+U_RR(EXT_PRES))*U_RR(EXT_VEL1)) ! {(rho*E+p)*u}
-
-END SUBROUTINE SplitSurfaceFluxSD_DEVICE
-
-!==================================================================================================================================
 !> Computes the Split-Flux retaining the formulation of Ducros
 !> Attention 1: Factor 2 from differentiation matrix is already been considered
 !> Uses quadratic split forms in all equations. Reference: Ducros, F., et al. "High-order fluxes for conservative
 !> skew-symmetric-like schemes in structured meshes: application to compressible flows."
 !> Journal of Computational Physics 161.1 (2000): 114-139.
 !==================================================================================================================================
-PPURE SUBROUTINE SplitVolumeFluxDU(URef,UPrimRef,U,UPrim,MRef,M,Flux)
+PPURE ATTRIBUTES(HOST,DEVICE) SUBROUTINE SplitVolumeFluxDU(URef,UPrimRef,U,UPrim,MRef,M,Flux)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -436,7 +402,7 @@ END SUBROUTINE SplitVolumeFluxDU
 !==================================================================================================================================
 !> Computes the surface flux for the split formulation of Ducros
 !==================================================================================================================================
-PPURE SUBROUTINE SplitSurfaceFluxDU(U_LL,U_RR,F)
+PPURE ATTRIBUTES(HOST,DEVICE) SUBROUTINE SplitSurfaceFluxDU(U_LL,U_RR,F)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -466,7 +432,7 @@ END SUBROUTINE SplitSurfaceFluxDU
 !> Navier–Stokes equations for a compressible fluid." Journal of Computational Physics 227.3 (2008): 1676-1700.
 !> Uses a quadratic splitting for u*p and a cubic splitting for rho*e*u in the energy equation.
 !==================================================================================================================================
-PPURE SUBROUTINE SplitVolumeFluxKG(URef,UPrimRef,U,UPrim,MRef,M,Flux)
+PPURE ATTRIBUTES(HOST,DEVICE) SUBROUTINE SplitVolumeFluxKG(URef,UPrimRef,U,UPrim,MRef,M,Flux)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -535,7 +501,7 @@ END SUBROUTINE SplitVolumeFluxKG
 !==================================================================================================================================
 !> Computes the surface flux for the split formulation of Kennedy and Gruber
 !==================================================================================================================================
-PPURE SUBROUTINE SplitSurfaceFluxKG(U_LL,U_RR,F)
+PPURE ATTRIBUTES(HOST,DEVICE) SUBROUTINE SplitSurfaceFluxKG(U_LL,U_RR,F)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -572,7 +538,7 @@ END SUBROUTINE SplitSurfaceFluxKG
 !> Reference: Morinishi, Yohei. "Skew-symmetric form of convective terms and fully conservative finite difference schemes for
 !> variable density low-Mach number flows." Journal of Computational Physics 229.2 (2010): 276-300.
 !==================================================================================================================================
-PPURE SUBROUTINE SplitVolumeFluxMO(URef,UPrimRef,U,UPrim,MRef,M,Flux)
+PPURE ATTRIBUTES(HOST,DEVICE) SUBROUTINE SplitVolumeFluxMO(URef,UPrimRef,U,UPrim,MRef,M,Flux)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -656,7 +622,7 @@ END SUBROUTINE SplitVolumeFluxMO
 !==================================================================================================================================
 !> Computes the surface flux for the split formulation of Morinishi
 !==================================================================================================================================
-PPURE SUBROUTINE SplitSurfaceFluxMO(U_LL,U_RR,F)
+PPURE ATTRIBUTES(HOST,DEVICE) SUBROUTINE SplitSurfaceFluxMO(U_LL,U_RR,F)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -698,7 +664,7 @@ END SUBROUTINE SplitSurfaceFluxMO
 !> equation. It was presented in the (worth reading) overview: Pirozzoli, Sergio. "Numerical methods for high-speed flows."
 !> Annual review of fluid mechanics 43 (2011): 163-194.
 !==================================================================================================================================
-PPURE SUBROUTINE SplitVolumeFluxPI(URef,UPrimRef,U,UPrim,MRef,M,Flux)
+PPURE ATTRIBUTES(HOST,DEVICE) SUBROUTINE SplitVolumeFluxPI(URef,UPrimRef,U,UPrim,MRef,M,Flux)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -764,7 +730,7 @@ END SUBROUTINE SplitVolumeFluxPI
 !==================================================================================================================================
 !> Computes the surface flux for the split formulation of Pirozzoli
 !==================================================================================================================================
-PPURE SUBROUTINE SplitSurfaceFluxPI(U_LL,U_RR,F)
+PPURE ATTRIBUTES(HOST,DEVICE) SUBROUTINE SplitSurfaceFluxPI(U_LL,U_RR,F)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -792,171 +758,171 @@ F(ENER)= 0.125*(U_LL(EXT_DENS)+U_RR(EXT_DENS))*(H_LL+H_RR)*(U_LL(EXT_VEL1)+U_RR(
 
 END SUBROUTINE SplitSurfaceFluxPI
 
-!==================================================================================================================================
-!> Computes the Split-Flux retaining the entropy conserving (and formally KEP) formulation of Chandrashekar
-!> Attention 1: Factor 2 from differentiation matrix is already been considered
-!> The flux after Chanrashekar uses a special computation of the pressure, based on the averages of density and inverse
-!> temperature, which correspondonds to using the harmonic average of the temperature when applying the ideal gas law.
-!> Reference: Chandrashekar, Praveen. "Kinetic energy preserving and entropy stable finite volume schemes for compressible Euler
-!> and Navier-Stokes equations." Communications in Computational Physics 14.5 (2013): 1252-1286.
-!==================================================================================================================================
-PPURE SUBROUTINE SplitVolumeFluxCH(URef,UPrimRef,U,UPrim,MRef,M,Flux)
-! MODULES
-USE MOD_EOS_Vars, ONLY:sKappaM1
-IMPLICIT NONE
-!----------------------------------------------------------------------------------------------------------------------------------
-! INPUT / OUTPUT VARIABLES
-REAL,DIMENSION(CONS),INTENT(IN)  :: URef     !< conserved variables
-REAL,DIMENSION(CONS),INTENT(IN)  :: U        !< conserved variables
-REAL,DIMENSION(PRIM),INTENT(IN)  :: UPrimRef !< primitive variables
-REAL,DIMENSION(PRIM),INTENT(IN)  :: UPrim    !< primitive variables
-REAL,DIMENSION(1:3 ),INTENT(IN)  :: MRef     !< metric terms
-REAL,DIMENSION(1:3 ),INTENT(IN)  :: M        !< metric terms
-REAL,DIMENSION(CONS),INTENT(OUT) :: Flux     !< flux in reverence space
-!----------------------------------------------------------------------------------------------------------------------------------
-! LOCAL VARIABLES
-REAL                                    :: beta,betaRef            ! auxiliary variables for the inverse Temperature
-REAL                                    :: pHatMean,HMean          ! auxiliary variable for the mean pressure and specific enthalpy
-REAL                                    :: uMean,vMean,wMean       ! auxiliary variable for the average velocities
-REAL                                    :: rhoLogMean,betaLogMean  ! auxiliary variable for the logarithmic means
-REAL,DIMENSION(PP_nVar)                 :: fTilde,gTilde           ! flux in physical space
-#if PP_dim == 3
-REAL,DIMENSION(PP_nVar)                 :: hTilde                  ! flux in physical space
-#endif
-!==================================================================================================================================
-! average velocities
-uMean = 0.5*(UPrimRef(VEL1) + UPrim(VEL1))
-vMean = 0.5*(UPrimRef(VEL2) + UPrim(VEL2))
-wMean = 0.5*(UPrimRef(VEL3) + UPrim(VEL3))
-
-! inverse temperature
-betaRef  = 0.5*URef(DENS)/UPrimRef(PRES)
-beta     = 0.5*U(DENS)/UPrim(PRES)
-
-! Density and inverse temperature logarithmic average
-CALL GetLogMean(URef(DENS),U(DENS),rhoLogMean)
-CALL GetLogMean(betaRef,beta,betaLogMean)
-! Average of pressure and specific enthalpy
-pHatMean = 0.5*(URef(DENS)+U(DENS))/(betaRef+beta)
-HMean    = 0.5*sKappaM1/betaLogMean + pHatMean/rhoLogMean + &
-           0.5*DOT_PRODUCT(UPrimRef(VELV),UPrim(VELV))
-
-! local Euler fluxes x-direction
-fTilde(DENS) = rhoLogMean*uMean                                      ! {rho}_log*{u}
-fTilde(MOM1) = rhoLogMean*uMean**2 + pHatMean                        ! {rho}_log*{u}²+{pHat}
-fTilde(MOM2) = rhoLogMean*uMean*vMean                                ! {rho}_log*{u}*{v}
-#if PP_dim == 3
-fTilde(MOM3) = rhoLogMean*uMean*wMean                                ! {rho}_log*{u}*{w}
-#else
-fTilde(MOM3) = 0.
-#endif
-fTilde(ENER) = rhoLogMean*HMean*uMean                                ! {rho}_log*{H}*{u}
-! local Euler fluxes y-direction
-gTilde(DENS) = rhoLogMean*vMean                                      ! {rho}_log*{v}
-gTilde(MOM1) = rhoLogMean*vMean*uMean                                ! {rho}_log*{v}*{u}
-gTilde(MOM2) = rhoLogMean*vMean**2 +pHatMean                         ! {rho}_log*{v}²+{pHat}
-#if PP_dim == 3
-gTilde(MOM3) = rhoLogMean*vMean*wMean                                ! {rho}_log*{v}*{w}
-#else
-gTilde(MOM3) = 0.
-#endif
-gTilde(ENER) = rhoLogMean*HMean*vMean                                ! {rho}_log*{H}*{v}
-#if PP_dim == 3
-! local Euler fluxes z-direction
-hTilde(DENS) = rhoLogMean*wMean                                      ! {rho}_log*{w}
-hTilde(MOM1) = rhoLogMean*wMean*uMean                                ! {rho}_log*{w}*{u}
-hTilde(MOM2) = rhoLogMean*wMean*vMean                                ! {rho}_log*{w}*{v}
-hTilde(MOM3) = rhoLogMean*wMean**2 + pHatMean                        ! {rho}_log*{w}²+{pHat}
-hTilde(ENER) = rhoLogMean*HMean*wMean                                ! {rho}_log*{H}*{w}
-#endif
-
-! transform into reference space
-Flux(:) = 0.5*(MRef(1)+M(1))*fTilde(:) + &
-#if PP_dim == 3
-          0.5*(MRef(3)+M(3))*hTilde(:) + &
-#endif
-          0.5*(MRef(2)+M(2))*gTilde(:)
-
-! Acount for factor of 2
-Flux = Flux*2.
-
-END SUBROUTINE SplitVolumeFluxCH
-
-!==================================================================================================================================
-!> Computes the surface flux for the entropy conserving formulation of Chandrashekar.
-!> The flux after Chanrashekar uses a special computation of the pressure, based on the averages of density and inverse
-!> temperature, which correspondonds to using the harmonic average of the temperature when applying the ideal gas law.
-!==================================================================================================================================
-PPURE SUBROUTINE SplitSurfaceFluxCH(U_LL,U_RR,F)
-! MODULES
-USE MOD_EOS_Vars, ONLY:sKappaM1
-IMPLICIT NONE
-!----------------------------------------------------------------------------------------------------------------------------------
-! INPUT / OUTPUT VARIABLES
-REAL,DIMENSION(PP_2Var),INTENT(IN)  :: U_LL !< variables at the left surfaces
-REAL,DIMENSION(PP_2Var),INTENT(IN)  :: U_RR !< variables at the right surfaces
-REAL,DIMENSION(CONS   ),INTENT(OUT) :: F    !< resulting flux
-!----------------------------------------------------------------------------------------------------------------------------------
-! LOCAL VARIABLES
-REAL                                :: beta_LL,beta_RR        ! auxiliary variables for the inverse Temperature
-REAL                                :: pHatMean,HMean         ! auxiliary variable for the mean pressure and specific enthalpy
-REAL                                :: uMean,vMean,wMean      ! auxiliary variable for the average velocities
-REAL                                :: rhoLogMean,betaLogMean ! auxiliary variable for the logarithmic mean
-!==================================================================================================================================
-! average velocities
-uMean = 0.5*(U_LL(EXT_VEL1) + U_RR(EXT_VEL1))
-vMean = 0.5*(U_LL(EXT_VEL2) + U_RR(EXT_VEL2))
-wMean = 0.5*(U_LL(EXT_VEL3) + U_RR(EXT_VEL3))
-
-! inverse temperature
-beta_LL = 0.5*U_LL(EXT_DENS)/U_LL(EXT_PRES)
-beta_RR = 0.5*U_RR(EXT_DENS)/U_RR(EXT_PRES)
-
-! average pressure, enthalpy, density and inverse temperature
-! logarithmic mean
-CALL GetLogMean(U_LL(EXT_DENS),U_RR(EXT_DENS),rhoLogMean)
-CALL GetLogMean(beta_LL,beta_RR,betaLogMean)
-! "standard" average
-pHatMean = 0.5*(U_LL(EXT_DENS)+U_RR(EXT_DENS))/(beta_LL+beta_RR)
-HMean    = 0.5*sKappaM1/betaLogMean + pHatMean/rhoLogMean + &
-           0.5*(U_LL(EXT_VEL1)*U_RR(EXT_VEL1) + U_LL(EXT_VEL2)*U_RR(EXT_VEL2) + U_LL(EXT_VEL3)*U_RR(EXT_VEL3))
-
-!compute flux
-F(DENS) = rhoLogMean*uMean
-F(MOM1) = F(DENS)*uMean + pHatMean
-F(MOM2) = F(DENS)*vMean
-F(MOM3) = F(DENS)*wMean
-F(ENER) = F(DENS)*HMean
-
-END SUBROUTINE SplitSurfaceFluxCH
-
-!==================================================================================================================================
-!> auxilary function for calculating the logarithmic mean numerically stable according to Ismail and Roe
-!==================================================================================================================================
-ELEMENTAL SUBROUTINE GetLogMean(U_L,U_R,UMean)
-! MODULES
-IMPLICIT NONE
-!----------------------------------------------------------------------------------------------------------------------------------
-! INPUT / OUTPUT VARIABLES
-REAL,INTENT(IN)  :: U_L   !< variables at the left surfaces
-REAL,INTENT(IN)  :: U_R   !< variables at the right surfaces
-REAL,INTENT(OUT) :: UMean !< resulting flux
-!----------------------------------------------------------------------------------------------------------------------------------
-! LOCAL VARIABLES
-REAL,PARAMETER   :: epsilon = 0.01
-REAL             :: chi,f,u,N ! auxiliary variables
-!==================================================================================================================================
-chi = U_L/U_R
-f = (chi-1)/(chi+1)
-u = f*f
-
-IF (u .LT. epsilon) THEN
-  N = 1.0+u/3.0+u*u/5.0+u*u*u/7.0
-ELSE
-  N = log(chi)/(2.*f)
-ENDIF
-
-UMean = (U_L+U_R)/(2.*N)
-END SUBROUTINE getLogMean
+!!==================================================================================================================================
+!!> Computes the Split-Flux retaining the entropy conserving (and formally KEP) formulation of Chandrashekar
+!!> Attention 1: Factor 2 from differentiation matrix is already been considered
+!!> The flux after Chanrashekar uses a special computation of the pressure, based on the averages of density and inverse
+!!> temperature, which correspondonds to using the harmonic average of the temperature when applying the ideal gas law.
+!!> Reference: Chandrashekar, Praveen. "Kinetic energy preserving and entropy stable finite volume schemes for compressible Euler
+!!> and Navier-Stokes equations." Communications in Computational Physics 14.5 (2013): 1252-1286.
+!!==================================================================================================================================
+!PPURE ATTRIBUTES(HOST,DEVICE) SUBROUTINE SplitVolumeFluxCH(URef,UPrimRef,U,UPrim,MRef,M,Flux)
+!! MODULES
+!USE MOD_EOS_Vars, ONLY:sKappaM1
+!IMPLICIT NONE
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! INPUT / OUTPUT VARIABLES
+!REAL,DIMENSION(CONS),INTENT(IN)  :: URef     !< conserved variables
+!REAL,DIMENSION(CONS),INTENT(IN)  :: U        !< conserved variables
+!REAL,DIMENSION(PRIM),INTENT(IN)  :: UPrimRef !< primitive variables
+!REAL,DIMENSION(PRIM),INTENT(IN)  :: UPrim    !< primitive variables
+!REAL,DIMENSION(1:3 ),INTENT(IN)  :: MRef     !< metric terms
+!REAL,DIMENSION(1:3 ),INTENT(IN)  :: M        !< metric terms
+!REAL,DIMENSION(CONS),INTENT(OUT) :: Flux     !< flux in reverence space
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! LOCAL VARIABLES
+!REAL                                    :: beta,betaRef            ! auxiliary variables for the inverse Temperature
+!REAL                                    :: pHatMean,HMean          ! auxiliary variable for the mean pressure and specific enthalpy
+!REAL                                    :: uMean,vMean,wMean       ! auxiliary variable for the average velocities
+!REAL                                    :: rhoLogMean,betaLogMean  ! auxiliary variable for the logarithmic means
+!REAL,DIMENSION(PP_nVar)                 :: fTilde,gTilde           ! flux in physical space
+!#if PP_dim == 3
+!REAL,DIMENSION(PP_nVar)                 :: hTilde                  ! flux in physical space
+!#endif
+!!==================================================================================================================================
+!! average velocities
+!uMean = 0.5*(UPrimRef(VEL1) + UPrim(VEL1))
+!vMean = 0.5*(UPrimRef(VEL2) + UPrim(VEL2))
+!wMean = 0.5*(UPrimRef(VEL3) + UPrim(VEL3))
+!
+!! inverse temperature
+!betaRef  = 0.5*URef(DENS)/UPrimRef(PRES)
+!beta     = 0.5*U(DENS)/UPrim(PRES)
+!
+!! Density and inverse temperature logarithmic average
+!CALL GetLogMean(URef(DENS),U(DENS),rhoLogMean)
+!CALL GetLogMean(betaRef,beta,betaLogMean)
+!! Average of pressure and specific enthalpy
+!pHatMean = 0.5*(URef(DENS)+U(DENS))/(betaRef+beta)
+!HMean    = 0.5*sKappaM1/betaLogMean + pHatMean/rhoLogMean + &
+!           0.5*DOT_PRODUCT(UPrimRef(VELV),UPrim(VELV))
+!
+!! local Euler fluxes x-direction
+!fTilde(DENS) = rhoLogMean*uMean                                      ! {rho}_log*{u}
+!fTilde(MOM1) = rhoLogMean*uMean**2 + pHatMean                        ! {rho}_log*{u}²+{pHat}
+!fTilde(MOM2) = rhoLogMean*uMean*vMean                                ! {rho}_log*{u}*{v}
+!#if PP_dim == 3
+!fTilde(MOM3) = rhoLogMean*uMean*wMean                                ! {rho}_log*{u}*{w}
+!#else
+!fTilde(MOM3) = 0.
+!#endif
+!fTilde(ENER) = rhoLogMean*HMean*uMean                                ! {rho}_log*{H}*{u}
+!! local Euler fluxes y-direction
+!gTilde(DENS) = rhoLogMean*vMean                                      ! {rho}_log*{v}
+!gTilde(MOM1) = rhoLogMean*vMean*uMean                                ! {rho}_log*{v}*{u}
+!gTilde(MOM2) = rhoLogMean*vMean**2 +pHatMean                         ! {rho}_log*{v}²+{pHat}
+!#if PP_dim == 3
+!gTilde(MOM3) = rhoLogMean*vMean*wMean                                ! {rho}_log*{v}*{w}
+!#else
+!gTilde(MOM3) = 0.
+!#endif
+!gTilde(ENER) = rhoLogMean*HMean*vMean                                ! {rho}_log*{H}*{v}
+!#if PP_dim == 3
+!! local Euler fluxes z-direction
+!hTilde(DENS) = rhoLogMean*wMean                                      ! {rho}_log*{w}
+!hTilde(MOM1) = rhoLogMean*wMean*uMean                                ! {rho}_log*{w}*{u}
+!hTilde(MOM2) = rhoLogMean*wMean*vMean                                ! {rho}_log*{w}*{v}
+!hTilde(MOM3) = rhoLogMean*wMean**2 + pHatMean                        ! {rho}_log*{w}²+{pHat}
+!hTilde(ENER) = rhoLogMean*HMean*wMean                                ! {rho}_log*{H}*{w}
+!#endif
+!
+!! transform into reference space
+!Flux(:) = 0.5*(MRef(1)+M(1))*fTilde(:) + &
+!#if PP_dim == 3
+!          0.5*(MRef(3)+M(3))*hTilde(:) + &
+!#endif
+!          0.5*(MRef(2)+M(2))*gTilde(:)
+!
+!! Acount for factor of 2
+!Flux = Flux*2.
+!
+!END SUBROUTINE SplitVolumeFluxCH
+!
+!!==================================================================================================================================
+!!> Computes the surface flux for the entropy conserving formulation of Chandrashekar.
+!!> The flux after Chanrashekar uses a special computation of the pressure, based on the averages of density and inverse
+!!> temperature, which correspondonds to using the harmonic average of the temperature when applying the ideal gas law.
+!!==================================================================================================================================
+!PPURE ATTRIBUTES(HOST,DEVICE) SUBROUTINE SplitSurfaceFluxCH(U_LL,U_RR,F)
+!! MODULES
+!USE MOD_EOS_Vars, ONLY:sKappaM1
+!IMPLICIT NONE
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! INPUT / OUTPUT VARIABLES
+!REAL,DIMENSION(PP_2Var),INTENT(IN)  :: U_LL !< variables at the left surfaces
+!REAL,DIMENSION(PP_2Var),INTENT(IN)  :: U_RR !< variables at the right surfaces
+!REAL,DIMENSION(CONS   ),INTENT(OUT) :: F    !< resulting flux
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! LOCAL VARIABLES
+!REAL                                :: beta_LL,beta_RR        ! auxiliary variables for the inverse Temperature
+!REAL                                :: pHatMean,HMean         ! auxiliary variable for the mean pressure and specific enthalpy
+!REAL                                :: uMean,vMean,wMean      ! auxiliary variable for the average velocities
+!REAL                                :: rhoLogMean,betaLogMean ! auxiliary variable for the logarithmic mean
+!!==================================================================================================================================
+!! average velocities
+!uMean = 0.5*(U_LL(EXT_VEL1) + U_RR(EXT_VEL1))
+!vMean = 0.5*(U_LL(EXT_VEL2) + U_RR(EXT_VEL2))
+!wMean = 0.5*(U_LL(EXT_VEL3) + U_RR(EXT_VEL3))
+!
+!! inverse temperature
+!beta_LL = 0.5*U_LL(EXT_DENS)/U_LL(EXT_PRES)
+!beta_RR = 0.5*U_RR(EXT_DENS)/U_RR(EXT_PRES)
+!
+!! average pressure, enthalpy, density and inverse temperature
+!! logarithmic mean
+!CALL GetLogMean(U_LL(EXT_DENS),U_RR(EXT_DENS),rhoLogMean)
+!CALL GetLogMean(beta_LL,beta_RR,betaLogMean)
+!! "standard" average
+!pHatMean = 0.5*(U_LL(EXT_DENS)+U_RR(EXT_DENS))/(beta_LL+beta_RR)
+!HMean    = 0.5*sKappaM1/betaLogMean + pHatMean/rhoLogMean + &
+!           0.5*(U_LL(EXT_VEL1)*U_RR(EXT_VEL1) + U_LL(EXT_VEL2)*U_RR(EXT_VEL2) + U_LL(EXT_VEL3)*U_RR(EXT_VEL3))
+!
+!!compute flux
+!F(DENS) = rhoLogMean*uMean
+!F(MOM1) = F(DENS)*uMean + pHatMean
+!F(MOM2) = F(DENS)*vMean
+!F(MOM3) = F(DENS)*wMean
+!F(ENER) = F(DENS)*HMean
+!
+!END SUBROUTINE SplitSurfaceFluxCH
+!
+!!==================================================================================================================================
+!!> auxilary function for calculating the logarithmic mean numerically stable according to Ismail and Roe
+!!==================================================================================================================================
+!ELEMENTAL ATTRIBUTES(HOST,DEVICE) SUBROUTINE GetLogMean(U_L,U_R,UMean)
+!! MODULES
+!IMPLICIT NONE
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! INPUT / OUTPUT VARIABLES
+!REAL,INTENT(IN)  :: U_L   !< variables at the left surfaces
+!REAL,INTENT(IN)  :: U_R   !< variables at the right surfaces
+!REAL,INTENT(OUT) :: UMean !< resulting flux
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! LOCAL VARIABLES
+!REAL,PARAMETER   :: epsilon = 0.01
+!REAL             :: chi,f,u,N ! auxiliary variables
+!!==================================================================================================================================
+!chi = U_L/U_R
+!f = (chi-1)/(chi+1)
+!u = f*f
+!
+!IF (u .LT. epsilon) THEN
+!  N = 1.0+u/3.0+u*u/5.0+u*u*u/7.0
+!ELSE
+!  N = log(chi)/(2.*f)
+!ENDIF
+!
+!UMean = (U_L+U_R)/(2.*N)
+!END SUBROUTINE getLogMean
 
 END MODULE MOD_SplitFlux
