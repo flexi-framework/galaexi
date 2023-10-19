@@ -37,7 +37,7 @@ INTERFACE VolInt
 #endif /*SPLIT_DG*/
 END INTERFACE
 
-#if  PARABOLIC && !VOLINT_VISC
+#if  PARABOLIC
 INTERFACE VolInt_Visc
   MODULE PROCEDURE VolInt_weakForm_Visc
 END INTERFACE
@@ -45,66 +45,68 @@ END INTERFACE
 
 
 PUBLIC::VolInt
-#if  PARABOLIC && !VOLINT_VISC
+#if  PARABOLIC
 PUBLIC::VolInt_Visc
 #endif
 !==================================================================================================================================
 CONTAINS
 
-#if PARABOLIC && !VOLINT_VISC
+#if PARABOLIC
 !==================================================================================================================================
 !> Computes the viscous part volume integral of the weak DG form according to Kopriva
 !> Attention 1: 1/J(i,j,k) is not yet accounted for
 !> Attention 2: input Ut is NOT overwritten, but instead added to the volume flux derivatives
 !==================================================================================================================================
-SUBROUTINE VolInt_weakForm_Visc(Ut)
+SUBROUTINE VolInt_weakForm_Visc(d_Ut)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
 USE MOD_PreProc
-USE MOD_DG_Vars      ,ONLY: D_hat_T,nDOFElem,UPrim
-USE MOD_Mesh_Vars    ,ONLY: Metrics_fTilde,Metrics_gTilde,Metrics_hTilde,nElems
-USE MOD_Flux         ,ONLY: EvalDiffFlux3D  ! computes volume fluxes in local coordinates
-USE MOD_Lifting_Vars ,ONLY: gradUx,gradUy,gradUz
-#if FV_ENABLED
-USE MOD_FV_Vars      ,ONLY: FV_Elems
+USE MOD_DG_Vars         ,ONLY: nDOFElem,d_f,d_g,d_h,nElems_Block_volInt
+USE MOD_DG_Vars         ,ONLY: d_UPrim,d_D_Hat_T
+USE MOD_Mesh_Vars       ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,nElems
+USE MOD_Flux            ,ONLY: EvalFlux3D      ! computes volume fluxes in local coordinates
+USE MOD_Flux            ,ONLY: EvalTransformedDiffFlux3D_CUDA
+USE MOD_ApplyDMatrixCons,ONLY: ApplyDMatrixCons
+#if PARABOLIC
+USE MOD_Lifting_Vars    ,ONLY: d_gradUx,d_gradUy,d_gradUz
 #endif
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
-REAL,INTENT(INOUT) :: Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
+REAL,DEVICE,INTENT(OUT)   :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER            :: i,j,k,l,iElem
-REAL,DIMENSION(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ) :: f,g,h     !< Volume viscous fluxes at GP
+INTEGER            :: iElem,lastElem,nElems_myBlock
+INTEGER            :: nDOF
+INTEGER,PARAMETER  :: nThreads=256
 !==================================================================================================================================
-! Diffusive part
-DO iElem=1,nElems
-#if FV_ENABLED
-  IF (FV_Elems(iElem).EQ.1) CYCLE ! FV Elem
-#endif
-  CALL EvalDiffFlux3D( UPrim(:,:,:,:,iElem),&
-                      gradUx(:,:,:,:,iElem),&
-                      gradUy(:,:,:,:,iElem),&
-                      gradUz(:,:,:,:,iElem),&
-                      f,g,h,iElem)
+DO iElem=1,nElems,nElems_Block_volInt
+  lastElem    = MIN(nElems,iElem+nElems_Block_volInt-1)
+  nElems_myBlock = lastElem-iElem+1
+  nDOF = nDOFElem*nElems_myBlock
 
-  CALL VolInt_Metrics(nDOFElem,f,g,h,Metrics_fTilde(:,:,:,:,iElem,0),&
-                                     Metrics_gTilde(:,:,:,:,iElem,0),&
-                                     Metrics_hTilde(:,:,:,:,iElem,0))
+  CALL EvalTransformedDiffFlux3D_CUDA(nDOF &
+                            ,d_UPrim( :,:,:,:,iElem:lastElem) &
+                            ,d_gradUx(:,:,:,:,iElem:lastElem) &
+                            ,d_gradUy(:,:,:,:,iElem:lastElem) &
+                            ,d_gradUz(:,:,:,:,iElem:lastElem) &
+                            ,d_f( :,:,:,:,1:nElems_myBlock)  &
+                            ,d_g( :,:,:,:,1:nElems_myBlock)  &
+                            ,d_h( :,:,:,:,1:nElems_myBlock)  &
+                            ,d_Metrics_fTilde(:,:,:,:,iElem:lastElem,0) &
+                            ,d_Metrics_gTilde(:,:,:,:,iElem:lastElem,0) &
+                            ,d_Metrics_hTilde(:,:,:,:,iElem:lastElem,0))
 
-  DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-    DO l=0,PP_N
-      ! Update the time derivative with the spatial derivatives of the transformed fluxes
-      Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) + D_Hat_T(l,i)*f(:,l,j,k) + &
-#if PP_dim==3
-                                              D_Hat_T(l,k)*h(:,i,j,l) + &
-#endif
-                                              D_Hat_T(l,j)*g(:,i,l,k)
-    END DO ! l
-  END DO; END DO; END DO !i,j,k
+  CALL ApplyDMatrixCons(nElems_myBlock &
+                       ,d_Ut(:,:,:,:,iElem:lastElem) &
+                       ,d_f( :,:,:,:,1:nElems_myBlock) &
+                       ,d_g( :,:,:,:,1:nElems_myBlock) &
+                       ,d_h( :,:,:,:,1:nElems_myBlock) &
+                       ,d_D_Hat_T &
+                       )
 END DO ! iElem
 END SUBROUTINE VolInt_weakForm_Visc
-#endif /*PARABOLIC && !VOLINT_VISC*/
+#endif /*PARABOLIC*/
 
 
 !==================================================================================================================================
@@ -123,8 +125,7 @@ USE MOD_Mesh_Vars       ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTild
 USE MOD_Flux            ,ONLY: EvalFlux3D      ! computes volume fluxes in local coordinates
 USE MOD_Flux            ,ONLY: EvalTransformedFlux3D
 USE MOD_ApplyDMatrixCons,ONLY: ApplyDMatrixCons
-#if VOLINT_VISC
-USE MOD_Flux            ,ONLY: EvalDiffFlux3D  ! computes volume fluxes in local coordinates
+#if PARABOLIC
 USE MOD_Lifting_Vars    ,ONLY: d_gradUx,d_gradUy,d_gradUz
 #endif
 IMPLICIT NONE
@@ -137,7 +138,6 @@ INTEGER            :: iElem,lastElem,nElems_myBlock
 INTEGER            :: nDOF
 INTEGER,PARAMETER  :: nThreads=256
 !==================================================================================================================================
-! Diffusive part
 DO iElem=1,nElems,nElems_Block_volInt
   lastElem    = MIN(nElems,iElem+nElems_Block_volInt-1)
   nElems_myBlock = lastElem-iElem+1
@@ -209,6 +209,10 @@ REAL,DEVICE,INTENT(OUT)   :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Tim
 INTEGER :: nDOF
 INTEGER,PARAMETER :: nThreads=256
 !==================================================================================================================================
+#if PARABOLIC
+CALL VolInt_weakForm_Visc(d_Ut)
+#endif
+
 nDOF = nDOFElem*nElems
 CALL VolInt_splitForm_Kernel<<<nDOF/nThreads+1,nThreads>>>(PP_N,nElems,d_Ut,d_U,d_UPrim,d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,d_DVolSurf)
 END SUBROUTINE VolInt_splitForm
@@ -313,7 +317,11 @@ IF (ElemID.LE.nElems) THEN
      !d_Ut(:,i,j,l,ElemID) = d_Ut(:,i,j,l,ElemID) + d_DVolSurf(k,l)*d_Flux(:)
   END DO ! l
 #endif /*PP_dim==3*/
+#if PARABOLIC
+  d_Ut(:,i,j,k,ElemID) = d_Ut(:,i,j,k,ElemID)+d_Ut_tmp(:) ! Already contains viscous Ut in case of PARABOLIC
+#else
   d_Ut(:,i,j,k,ElemID) = d_Ut_tmp(:)
+#endif
 
 ENDIF ! iElem
 END SUBROUTINE VolInt_splitForm_Kernel

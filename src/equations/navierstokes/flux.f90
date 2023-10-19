@@ -67,6 +67,7 @@ END INTERFACE
 PUBLIC::EvalFlux3D, EvalEulerFlux1D, EvalEulerFlux1D_fast,EvalTransformedFlux3D
 #if PARABOLIC
 PUBLIC::EvalDiffFlux3D
+PUBLIC::EvalTransformedDiffFlux3D_CUDA
 #endif /*PARABOLIC*/
 !==================================================================================================================================
 
@@ -333,6 +334,46 @@ IF (i.LE.nDOF) THEN
 END IF
 END SUBROUTINE EvalTransformedFlux3D_Kernel
 
+#if PARABOLIC
+!==================================================================================================================================
+!> Wrapper routine to compute the advection part of the Navier-Stokes fluxes for a single volume cell
+!==================================================================================================================================
+PPURE ATTRIBUTES(GLOBAL) SUBROUTINE EvalTransformedDiffFlux3D_Kernel(nDOF,UPrim &
+#if PARABOLIC
+                                                           ,gradUx,gradUy,gradUz,mu,lambda &
+#endif
+                                                           ,f,g,h,Mf,Mg,Mh)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)  :: nDOF     !< number of degrees of freedom in arrays
+REAL,DEVICE,DIMENSION(PP_nVarPrim   ,1:nDOF),INTENT(IN)  :: UPrim    !< Primitive solution
+REAL,DEVICE,DIMENSION(3             ,1:nDOF),INTENT(IN)  :: Mf,Mg,Mh !< Metrics in x,y,z
+REAL,DEVICE,DIMENSION(PP_nVar       ,1:nDOF),INTENT(OUT) :: f,g,h    !> Physical fluxes in x,y,z
+#if PARABOLIC
+REAL,DEVICE,DIMENSION(PP_nVarLifting,1:nDOF),INTENT(IN)  :: gradUx,gradUy,gradUz !> gradients in x,y,z
+REAL,VALUE,INTENT(IN) :: mu,lambda
+#endif
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER             :: i
+!==================================================================================================================================
+i = (blockidx%x-1) * blockdim%x + threadidx%x
+IF (i.LE.nDOF) THEN
+  ! We have to nullify in this case
+  f(:,i) = 0.
+  g(:,i) = 0.
+  h(:,i) = 0.
+  CALL EvalTransformedDiffFlux3D( UPrim(:,i) &
+                                ,gradUx(:,i),gradUy(:,i),gradUz(:,i) &
+                                ,     f(:,i),     g(:,i),     h(:,i) &
+                                ,    Mf(:,i),    Mg(:,i),    Mh(:,i) &
+                                ,mu,lambda)
+END IF
+END SUBROUTINE EvalTransformedDiffFlux3D_Kernel
+#endif
+
 !==================================================================================================================================
 !> Wrapper routine to compute the advection part of the Navier-Stokes fluxes
 !==================================================================================================================================
@@ -374,6 +415,39 @@ CALL EvalTransformedFlux3D_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,U,UPrim &
 #endif
                                                                ,f,g,h,Mf,Mg,Mh)
 END SUBROUTINE EvalTransformedFlux3D
+
+#if PARABOLIC
+!==================================================================================================================================
+!> Wrapper routine to compute the advection part of the Navier-Stokes fluxes
+!==================================================================================================================================
+PPURE SUBROUTINE EvalTransformedDiffFlux3D_CUDA(nDOF,UPrim &
+                                          ,gradUx,gradUy,gradUz &
+                                          ,f,g,h,Mf,Mg,Mh)
+! MODULES
+USE MOD_EOS_Vars,ONLY: mu0,cp,Pr
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)  :: nDOF     !< number of degrees of freedom in arrays
+REAL,DEVICE,DIMENSION(PP_nVarPrim   ,1:nDOF),INTENT(IN)  :: UPrim    !< Primitive solution
+REAL,DEVICE,DIMENSION(3             ,1:nDOF),INTENT(IN)  :: Mf,Mg,Mh !< Metrics in x,y,z
+REAL,DEVICE,DIMENSION(PP_nVar       ,1:nDOF),INTENT(OUT) :: f,g,h    !> Physical fluxes in x,y,z
+REAL,DEVICE,DIMENSION(PP_nVarLifting,1:nDOF),INTENT(IN)  :: gradUx,gradUy,gradUz !> gradients in x,y,z
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER,PARAMETER   :: nThreads=256
+#if PARABOLIC
+REAL                :: mu,lambda
+#endif
+!==================================================================================================================================
+! TODO: Impelment cleanly!
+mu     = VISCOSITY_PRIM(UPrim(:,1))
+lambda = THERMAL_CONDUCTIVITY_H(mu)
+CALL EvalTransformedDiffFlux3D_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,UPrim &
+                                                                   ,gradUx,gradUy,gradUz,mu,lambda &
+                                                                   ,f,g,h,Mf,Mg,Mh)
+END SUBROUTINE EvalTransformedDiffFlux3D_CUDA
+#endif
 
 !==================================================================================================================================
 !> Wrapper routine to compute the advection part of the Navier-Stokes fluxes for a single volume cell
