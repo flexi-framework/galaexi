@@ -138,9 +138,11 @@ REAL                           :: muSGSmax
 #if PARABOLIC
 REAL                           :: Max_Lambda_v(3),mu,prim(PP_nVarPrim)
 #endif /*PARABOLIC*/
-INTEGER,DEVICE                 :: FVE
+INTEGER                        :: FVE
 !==================================================================================================================================
 errType=0
+
+FVE = 1
 
 TimeStepConv=HUGE(1.)
 TimeStepVisc=HUGE(1.)
@@ -154,14 +156,14 @@ DO iElem=1,nElems
     UE(EXT_PRES)=PRESSURE_HE(UE)
     UE(EXT_TEMP)=TEMPERATURE_HE(UE)
     c=SPEEDOFSOUND_HE(UE)
-    vsJ=UE(EXT_VELV)*d_sJ(i,j,k,iElem,FV_Elems(iElem))
-    LambdaTmp(1)=ABS(SUM(d_Metrics_fTilde(:,i,j,k,iElem,FV_Elems(iElem))*vsJ)) + &
-                          c*MetricsAdv(1,i,j,k,iElem,FV_Elems(iElem))
-    LambdaTmp(2)=ABS(SUM(d_Metrics_gTilde(:,i,j,k,iElem,FV_Elems(iElem))*vsJ)) + &
-                          c*MetricsAdv(2,i,j,k,iElem,FV_Elems(iElem))
-    LambdaTmp(3)=ABS(SUM(d_Metrics_hTilde(:,i,j,k,iElem,FV_Elems(iElem))*vsJ)) + &
-                          c*MetricsAdv(3,i,j,k,iElem,FV_Elems(iElem))
-    TimeStepConv=d_CFLScale(FV_Elems(iElem))*2./SUM(LambdaTmp)
+    vsJ=UE(EXT_VELV)*d_sJ(i,j,k,iElem,FVE)
+    LambdaTmp(1)=ABS(SUM(d_Metrics_fTilde(:,i,j,k,iElem,FVE)*vsJ)) + &
+                          c*MetricsAdv(1,i,j,k,iElem,FVE)
+    LambdaTmp(2)=ABS(SUM(d_Metrics_gTilde(:,i,j,k,iElem,FVE)*vsJ)) + &
+                          c*MetricsAdv(2,i,j,k,iElem,FVE)
+    LambdaTmp(3)=ABS(SUM(d_Metrics_hTilde(:,i,j,k,iElem,FVE)*vsJ)) + &
+                          c*MetricsAdv(3,i,j,k,iElem,FVE)
+    TimeStepConv=d_CFLScale(FVE)*2./SUM(LambdaTmp)
   END DO; END DO; END DO ! i,j,k
 END DO ! iElem=1,nElems
 

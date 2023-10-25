@@ -25,6 +25,7 @@ PRIVATE
 
 INTERFACE FV_VolInt
   MODULE PROCEDURE FV_VolInt
+  MODULE PROCEDURE FV_VolInt_Conv
 END INTERFACE
 
 PUBLIC::FV_VolInt
@@ -132,7 +133,7 @@ DO iElem=1,nElems
 
     ! 4. calculate advective part of the flux
     CALL Riemann(PP_N,F_FV,UCons_L,UCons_R,UPrim_L,UPrim_R,          &
-        FV_NormVecXi (:,:,:,i,iElem), FV_TangVec1Xi(:,:,:,i,iElem), FV_TangVec2Xi(:,:,:,i,iElem),.FALSE.)
+        FV_NormVecXi (:,:,:,i,iElem), FV_TangVec1Xi(:,:,:,i,iElem), FV_TangVec2Xi(:,:,:,i,iElem))
 
 #if VOLINT_VISC
     ! 5. compute viscous flux in normal direction of the interface
@@ -185,7 +186,7 @@ DO iElem=1,nElems
 
     ! 4. calculate advective part of the flux
     CALL Riemann(PP_N,F_FV,UCons_L,UCons_R,UPrim_L,UPrim_R,          &
-        FV_NormVecEta (:,:,:,j,iElem), FV_TangVec1Eta(:,:,:,j,iElem), FV_TangVec2Eta(:,:,:,j,iElem),.FALSE.)
+        FV_NormVecEta (:,:,:,j,iElem), FV_TangVec1Eta(:,:,:,j,iElem), FV_TangVec2Eta(:,:,:,j,iElem))
 #if VOLINT_VISC
     ! 5. compute viscous flux in normal direction of the interface
     DO q=0,PP_NZ; DO p=0,PP_N
@@ -228,7 +229,7 @@ DO iElem=1,nElems
 
     ! 4. calculate advective part of the flux
     CALL Riemann(PP_N,F_FV,UCons_L,UCons_R,UPrim_L,UPrim_R,          &
-        FV_NormVecZeta (:,:,:,k,iElem), FV_TangVec1Zeta(:,:,:,k,iElem), FV_TangVec2Zeta(:,:,:,k,iElem),.FALSE.)
+        FV_NormVecZeta (:,:,:,k,iElem), FV_TangVec1Zeta(:,:,:,k,iElem), FV_TangVec2Zeta(:,:,:,k,iElem))
 #if VOLINT_VISC
     ! 5. compute viscous flux in normal direction of the interface
     DO q=0,PP_N; DO p=0,PP_N
@@ -256,6 +257,216 @@ DO iElem=1,nElems
 
 END DO ! iElem
 END SUBROUTINE FV_VolInt
+
+!==================================================================================================================================
+!> Volume operator of the FV sub-cells method.
+!> The following steps are performed direction-by-direction (XI/ETA/ZETA) for every inner slice in the respective direction:
+!> - reconstruct solution at the sub-cell interfaces
+!> - evaluate Riemann solver at the slices
+!> - apply fluxes to the left and right sub-cell of the slice
+!> are evaluated in the volume integral of the lifting procedure.
+!==================================================================================================================================
+SUBROUTINE FV_VolInt_Conv(d_U,d_UPrim,d_Ut)
+! MODULES
+USE MOD_PreProc                         ! all PP_*** variables
+USE MOD_FV_Vars
+USE MOD_DG_Vars      ,ONLY: nDOFElem
+USE MOD_Riemann      ,ONLY: Riemann
+USE MOD_Mesh_Vars    ,ONLY: nElems
+USE MOD_EOS          ,ONLY: PrimToCons
+! IMPLICIT VARIABLE HANDLING
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+REAL,DEVICE,INTENT(IN)    :: d_U(    PP_nVar    ,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)  !< solution vector of primitive variables
+REAL,DEVICE,INTENT(IN)    :: d_UPrim(PP_nVarPrim,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)  !< solution vector of primitive variables
+REAL,DEVICE,INTENT(INOUT) :: d_Ut(   PP_nVar    ,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)  !< time derivative of conservative solution vector
+                                                                         !< for FV elements
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER           :: nDOF
+INTEGER,PARAMETER :: nThreads=256
+!==================================================================================================================================
+nDOF=nDOFElem*nElems
+CALL FV_VolInt_Conv_GPU<<<nDOF/nThreads+1,nThreads>>>(nElems,d_U,d_UPrim,d_Ut &
+                                                     ,d_FV_NormVecXi  ,d_FV_TangVec1Xi  ,d_FV_TangVec2Xi   &
+                                                     ,d_FV_NormVecEta ,d_FV_TangVec1Eta ,d_FV_TangVec2Eta  &
+                                                     ,d_FV_NormVecZeta,d_FV_TangVec1Zeta,d_FV_TangVec2Zeta &
+                                                     ,d_FV_SurfElemXi_sw   &
+                                                     ,d_FV_SurfElemEta_sw  &
+                                                     ,d_FV_SurfElemZeta_sw &
+                                                     ,d_FV_w_inv &
+                                                     )
+
+END SUBROUTINE FV_VolInt_Conv
+
+!==================================================================================================================================
+!> Volume operator of the FV sub-cells method.
+!> The following steps are performed direction-by-direction (XI/ETA/ZETA) for every inner slice in the respective direction:
+!> - reconstruct solution at the sub-cell interfaces
+!> - evaluate Riemann solver at the slices
+!> - apply fluxes to the left and right sub-cell of the slice
+!> are evaluated in the volume integral of the lifting procedure.
+!==================================================================================================================================
+PPURE ATTRIBUTES(GLOBAL) SUBROUTINE FV_VolInt_Conv_GPU(nElems,U,UPrim,Ut &
+                                                      ,FV_NormVecXi  ,FV_TangVec1Xi  ,FV_TangVec2Xi   &
+                                                      ,FV_NormVecEta ,FV_TangVec1Eta ,FV_TangVec2Eta  &
+                                                      ,FV_NormVecZeta,FV_TangVec1Zeta,FV_TangVec2Zeta &
+                                                      ,FV_SurfElemXi_sw   &
+                                                      ,FV_SurfElemEta_sw  &
+                                                      ,FV_SurfElemZeta_sw &
+                                                      ,FV_w_inv &
+                                                      )
+! MODULES
+USE MOD_Riemann      ,ONLY: Riemann
+USE MOD_EOS          ,ONLY: PrimToCons
+! IMPLICIT VARIABLE HANDLING
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN) :: nElems
+REAL,DEVICE,INTENT(IN)    :: UPrim(PP_nVarPrim ,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)  !< solution vector of primitive variables
+REAL,DEVICE,INTENT(IN)    :: U(    PP_nVar     ,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)  !< solution vector of conservative variables
+REAL,DEVICE,INTENT(INOUT) :: Ut(   PP_nVar     ,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)  !< time derivative of conservative solution vector
+REAL,DEVICE,INTENT(IN)    :: FV_NormVecXi(    3,0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_TangVec1Xi(   3,0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_TangVec2Xi(   3,0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_SurfElemXi_sw(  0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_NormVecEta(   3,0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_TangVec1Eta(  3,0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_TangVec2Eta(  3,0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_SurfElemEta_sw( 0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_NormVecZeta(  3,0:PP_N,0:PP_N ,1:PP_NZ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_TangVec1Zeta( 3,0:PP_N,0:PP_N ,1:PP_NZ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_TangVec2Zeta( 3,0:PP_N,0:PP_N ,1:PP_NZ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_SurfElemZeta_sw(0:PP_N,0:PP_N ,1:PP_NZ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_w_inv(0:PP_N)
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                 :: i,j,k,iElem,threadID,rest
+REAL,DIMENSION(PP_nVar) :: Ut_FV_tmp
+REAL,DIMENSION(PP_nVar) :: F_FV
+!==================================================================================================================================
+! Get thread indices
+threadID = (blockidx%x-1) * blockdim%x + threadidx%x
+! Get iElem of current thread
+iElem   =        (threadID-1)/(PP_N+1)**3+1 ! Elems are 1-indexed
+rest    = threadID-(iElem-1)*(PP_N+1)**3
+! Get ijk indices of current thread
+k       = (rest-1)/(PP_N+1)**2
+rest    =  rest- k*(PP_N+1)**2
+j       = (rest-1)/(PP_N+1)!**1
+rest    =  rest- j*(PP_N+1)!**1
+i       = (rest-1)!/(PP_N+1)**0
+
+IF (iElem.LE.nElems) THEN
+  ! We have point i,j,k!
+  Ut_FV_tmp(:) = 0.
+
+  ! === Xi-Direction ===========
+  ! Left
+  IF (i.GT.0) THEN ! Flux across surface of DG element is performed in surface integral
+    CALL Riemann(F_FV &
+                ,U(    :,i-1,j,k,iElem) & ! Left
+                ,U(    :,i  ,j,k,iElem) & ! Right
+                ,UPrim(:,i-1,j,k,iElem) & ! Left
+                ,UPrim(:,i  ,j,k,iElem) & ! Right
+                ,FV_NormVecXi( :,j,k,i,iElem) &
+                ,FV_TangVec1Xi(:,j,k,i,iElem) &
+                ,FV_TangVec2Xi(:,j,k,i,iElem) &
+                ,1.4)
+    ! sign contains normal vector in negative xi-direction
+    Ut_FV_tmp(:) = Ut_FV_tmp(:) - F_FV(:) * FV_SurfElemXi_sw(j,k,i,iElem) * FV_w_inv(i)
+  END IF
+
+  ! Right
+  IF (i.LT.PP_N) THEN ! Flux across surface of DG element is performed in surface integral
+    CALL Riemann(F_FV &
+             ,U(    :,i  ,j,k,iElem) & ! Left
+             ,U(    :,i+1,j,k,iElem) & ! Right
+             ,UPrim(:,i  ,j,k,iElem) & ! Left
+             ,UPrim(:,i+1,j,k,iElem) & ! Right
+             ,FV_NormVecXi( :,j,k,i+1,iElem) &
+             ,FV_TangVec1Xi(:,j,k,i+1,iElem) &
+             ,FV_TangVec2Xi(:,j,k,i+1,iElem) &
+             ,1.4)
+    ! sign contains normal vector in positive xi-direction
+    Ut_FV_tmp(:) = Ut_FV_tmp(:) + F_FV(:) * FV_SurfElemXi_sw(j,k,i+1,iElem) * FV_w_inv(i)
+  END IF
+
+  ! === Eta-Direction ===========
+  ! Left
+  IF (j.GT.0) THEN ! Flux across surface of DG element is performed in surface integral
+    CALL Riemann(F_FV &
+                ,U(    :,i,j-1,k,iElem) & ! Left
+                ,U(    :,i,j  ,k,iElem) & ! Right
+                ,UPrim(:,i,j-1,k,iElem) & ! Left
+                ,UPrim(:,i,j  ,k,iElem) & ! Right
+                ,FV_NormVecEta( :,i,k,j,iElem) &
+                ,FV_TangVec1Eta(:,i,k,j,iElem) &
+                ,FV_TangVec2Eta(:,i,k,j,iElem) &
+                ,1.4)
+    ! sign contains normal vector in negative eta-direction
+    Ut_FV_tmp(:) = Ut_FV_tmp(:) - F_FV(:) * FV_SurfElemEta_sw(i,k,j,iElem) * FV_w_inv(j)
+  END IF
+
+  ! Right
+  IF (j.LT.PP_N) THEN ! Flux across surface of DG element is performed in surface integral
+    CALL Riemann(F_FV &
+             ,U(    :,i,j  ,k,iElem) & ! Left
+             ,U(    :,i,j+1,k,iElem) & ! Right
+             ,UPrim(:,i,j  ,k,iElem) & ! Left
+             ,UPrim(:,i,j+1,k,iElem) & ! Right
+             ,FV_NormVecEta( :,i,k,j+1,iElem) &
+             ,FV_TangVec1Eta(:,i,k,j+1,iElem) &
+             ,FV_TangVec2Eta(:,i,k,j+1,iElem) &
+             ,1.4)
+    ! sign contains normal vector in positive eta-direction
+    Ut_FV_tmp(:) = Ut_FV_tmp(:) + F_FV(:) * FV_SurfElemEta_sw(i,k,j+1,iElem) * FV_w_inv(j)
+  END IF
+
+#if PP_dim == 3
+  ! === Zeta-Direction ===========
+  ! Left
+  IF (k.GT.0) THEN ! Flux across surface of DG element is performed in surface integral
+    CALL Riemann(F_FV &
+                ,U(    :,i,j,k-1,iElem) & ! Left
+                ,U(    :,i,j,k  ,iElem) & ! Right
+                ,UPrim(:,i,j,k-1,iElem) & ! Left
+                ,UPrim(:,i,j,k  ,iElem) & ! Right
+                ,FV_NormVecZeta( :,i,j,k,iElem) &
+                ,FV_TangVec1Zeta(:,i,j,k,iElem) &
+                ,FV_TangVec2Zeta(:,i,j,k,iElem) &
+                ,1.4)
+    ! sign contains normal vector in negative xi-direction
+    Ut_FV_tmp(:) = Ut_FV_tmp(:) - F_FV(:) * FV_SurfElemZeta_sw(i,j,k,iElem) * FV_w_inv(k)
+  END IF
+
+  ! Right
+  IF (k.LT.PP_N) THEN ! Flux across surface of DG element is performed in surface integral
+    CALL Riemann(F_FV &
+                ,U(    :,i,j,k  ,iElem) & ! Left
+                ,U(    :,i,j,k+1,iElem) & ! Right
+                ,UPrim(:,i,j,k  ,iElem) & ! Left
+                ,UPrim(:,i,j,k+1,iElem) & ! Right
+                ,FV_NormVecZeta( :,i,j,k,iElem) &
+                ,FV_TangVec1Zeta(:,i,j,k,iElem) &
+                ,FV_TangVec2Zeta(:,i,j,k,iElem) &
+                ,1.4)
+    ! sign contains normal vector in positive xi-direction
+    Ut_FV_tmp(:) = Ut_FV_tmp(:) + F_FV(:) * FV_SurfElemZeta_sw(i,j,k+1,iElem) * FV_w_inv(k)
+  END IF
+#endif
+
+!#if FV_ENABLED == 2
+!  ! Blend the solutions together
+!  Ut(:,:,:,:,iElem) = (1 - FV_alpha(iElem)) * Ut(:,:,:,:,iElem) + FV_alpha(iElem)*Ut_FV
+!#else
+!  Ut(:,:,:,:,iElem) = Ut_FV
+!#endif /*FV_BLENDING*/
+
+END IF
+END SUBROUTINE FV_VolInt_Conv_GPU
 
 END MODULE MOD_FV_VolInt
 #endif /* FV_ENABLED */

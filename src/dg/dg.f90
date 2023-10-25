@@ -291,6 +291,9 @@ USE MOD_Lifting             ,ONLY: Lifting
 USE MOD_MPI_Vars
 USE MOD_MPI                 ,ONLY: StartReceiveMPIData_GPU,StartSendMPIData_GPU,FinishExchangeMPIData
 #endif /*USE_MPI*/
+#if FV_ENABLED
+USE MOD_FV_VolInt           ,ONLY: FV_VolInt
+#endif /*USE_MPI*/
 !@cuf USE MOD_Mesh_Vars     ,ONLY: d_sJ
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -352,6 +355,10 @@ CALL Lifting(d_UPrim,d_UPrim_master,d_UPrim_slave,t)
 
 ! 8. Compute volume integral contribution and add to Ut
 CALL VolInt(d_Ut)
+
+#if FV_ENABLED
+!CALL FV_VolInt(d_U,d_UPrim,d_Ut)
+#endif
 
 #if PARABOLIC && USE_MPI
 ! Complete send / receive for gradUx, gradUy, gradUz, started in the lifting routines

@@ -582,22 +582,22 @@ TangVec2(:,:,0:PP_NZ,:,firstMPISide_YOUR:lastMPISide_YOUR)= Geo(8:10,:,:,:,first
 DEALLOCATE(Geo)
 #endif /*USE_MPI*/
 
-#if FV_ENABLED
-#if USE_MPI
-MPIRequest_Geo=MPI_REQUEST_NULL
-CALL StartReceiveMPIData(sJ_slave(:,:,:,:,0),(PP_N+1)*(PP_NZ+1),1,nSides,MPIRequest_Geo(:,SEND),SendID=2)
-CALL ProlongToFace1(PP_N,detJac_N,sJ_master(:,:,:,:,0),sJ_slave(:,:,:,:,0),L_Minus,L_Plus,doMPISides=.TRUE.,pureDG=.TRUE.)
-CALL U_Mortar1(sJ_master(:,:,:,:,0),sJ_slave(:,:,:,:,0),doMPISides=.TRUE.,pureDG=.TRUE.)
-CALL StartSendMPIData(   sJ_slave(:,:,:,:,0),(PP_N+1)*(PP_NZ+1),1,nSides,MPIRequest_Geo(:,RECV),SendID=2)
-#endif
-CALL ProlongToFace1(PP_N,detJac_N,sJ_master(:,:,:,:,0),sJ_slave(:,:,:,:,0),L_Minus,L_Plus,doMPISides=.FALSE.,pureDG=.TRUE.)
-CALL U_Mortar1(sJ_master(:,:,:,:,0),sJ_slave(:,:,:,:,0),doMPISides=.FALSE.,pureDG=.TRUE.)
-#if USE_MPI
-CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Geo)
-#endif
-sJ_slave( :,:,:,:,0) = 1./sJ_slave( :,:,:,:,0)
-sJ_master(:,:,:,:,0) = 1./sJ_master(:,:,:,:,0)
-#endif /* FV_ENABLED */
+!#if FV_ENABLED
+!#if USE_MPI
+!MPIRequest_Geo=MPI_REQUEST_NULL
+!CALL StartReceiveMPIData(sJ_slave(:,:,:,:,0),(PP_N+1)*(PP_NZ+1),1,nSides,MPIRequest_Geo(:,SEND),SendID=2)
+!CALL ProlongToFace1(PP_N,detJac_N,sJ_master(:,:,:,:,0),sJ_slave(:,:,:,:,0),L_Minus,L_Plus,doMPISides=.TRUE.,pureDG=.TRUE.)
+!CALL U_Mortar1(sJ_master(:,:,:,:,0),sJ_slave(:,:,:,:,0),doMPISides=.TRUE.,pureDG=.TRUE.)
+!CALL StartSendMPIData(   sJ_slave(:,:,:,:,0),(PP_N+1)*(PP_NZ+1),1,nSides,MPIRequest_Geo(:,RECV),SendID=2)
+!#endif
+!CALL ProlongToFace1(PP_N,detJac_N,sJ_master(:,:,:,:,0),sJ_slave(:,:,:,:,0),L_Minus,L_Plus,doMPISides=.FALSE.,pureDG=.TRUE.)
+!CALL U_Mortar1(sJ_master(:,:,:,:,0),sJ_slave(:,:,:,:,0),doMPISides=.FALSE.,pureDG=.TRUE.)
+!#if USE_MPI
+!CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Geo)
+!#endif
+!sJ_slave( :,:,:,:,0) = 1./sJ_slave( :,:,:,:,0)
+!sJ_master(:,:,:,:,0) = 1./sJ_master(:,:,:,:,0)
+!#endif /* FV_ENABLED */
 
 END SUBROUTINE CalcMetrics
 

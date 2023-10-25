@@ -183,6 +183,21 @@ ALLOCATE(FV_TangVec1Zeta(3,0:PP_N,0:PP_N ,1:PP_N,nElems))  !  -"-
 ALLOCATE(FV_TangVec2Zeta(3,0:PP_N,0:PP_N ,1:PP_N,nElems))  !  -"-
 #endif
 
+!@cuf ALLOCATE(d_FV_NormVecXi       (3,0:PP_N,0:PP_NZ,1:PP_N ,nElems))
+!@cuf ALLOCATE(d_FV_TangVec1Xi      (3,0:PP_N,0:PP_NZ,1:PP_N ,nElems))
+!@cuf ALLOCATE(d_FV_TangVec2Xi      (3,0:PP_N,0:PP_NZ,1:PP_N ,nElems))
+!@cuf ALLOCATE(d_FV_SurfElemXi_sw   (  0:PP_N,0:PP_NZ,1:PP_N ,nElems))
+!@cuf ALLOCATE(d_FV_NormVecEta      (3,0:PP_N,0:PP_NZ,1:PP_N ,nElems))
+!@cuf ALLOCATE(d_FV_TangVec1Eta     (3,0:PP_N,0:PP_NZ,1:PP_N ,nElems))
+!@cuf ALLOCATE(d_FV_TangVec2Eta     (3,0:PP_N,0:PP_NZ,1:PP_N ,nElems))
+!@cuf ALLOCATE(d_FV_SurfElemEta_sw  (  0:PP_N,0:PP_NZ,1:PP_N ,nElems))
+#if (PP_dim == 3)
+!@cuf ALLOCATE(d_FV_NormVecZeta     (3,0:PP_N,0:PP_N ,1:PP_NZ,nElems))
+!@cuf ALLOCATE(d_FV_TangVec1Zeta    (3,0:PP_N,0:PP_N ,1:PP_NZ,nElems))
+!@cuf ALLOCATE(d_FV_TangVec2Zeta    (3,0:PP_N,0:PP_N ,1:PP_NZ,nElems))
+!@cuf ALLOCATE(d_FV_SurfElemZeta_sw (  0:PP_N,0:PP_N ,1:PP_NZ,nElems))
+#endif
+
 #if PARABOLIC
 ALLOCATE(FV_Metrics_fTilde_sJ(3,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 ALLOCATE(FV_Metrics_gTilde_sJ(3,0:PP_N,0:PP_N,0:PP_NZ,nElems))
@@ -238,7 +253,7 @@ Geo(8:10,:,:,:)=TangVec2(:,:,0:PP_NZ,1,firstMPISide_MINE:nSides)
 MPIRequest_Geo=MPI_REQUEST_NULL
 CALL StartReceiveMPIData(Geo,10*(PP_N+1)**(PP_dim-1),firstMPISide_MINE,nSides,MPIRequest_Geo(:,RECV),SendID=1) ! Receive YOUR / Geo: master -> slave
 CALL StartSendMPIData(   Geo,10*(PP_N+1)**(PP_dim-1),firstMPISide_MINE,nSides,MPIRequest_Geo(:,SEND),SendID=1) ! SEND MINE / Geo: master -> slave
-CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Geo) 
+CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Geo)
 SurfElem  (:,0:PP_NZ,1,firstMPISide_YOUR:lastMPISide_YOUR)= Geo(1   ,:,:,firstMPISide_YOUR:lastMPISide_YOUR)
 NormVec (:,:,0:PP_NZ,1,firstMPISide_YOUR:lastMPISide_YOUR)= Geo(2:4 ,:,:,firstMPISide_YOUR:lastMPISide_YOUR)
 TangVec1(:,:,0:PP_NZ,1,firstMPISide_YOUR:lastMPISide_YOUR)= Geo(5:7 ,:,:,firstMPISide_YOUR:lastMPISide_YOUR)
@@ -516,6 +531,19 @@ END DO
 #endif /* PARABOLIC */
 #endif /* FV_RECONSTRUCT */
 
+!@cuf d_FV_NormVecXi       = FV_NormVecXi
+!@cuf d_FV_TangVec1Xi      = FV_TangVec1Xi
+!@cuf d_FV_TangVec2Xi      = FV_TangVec2Xi
+!@cuf d_FV_SurfElemXi_sw   = FV_SurfElemXi_sw
+!@cuf d_FV_NormVecEta      = FV_NormVecEta
+!@cuf d_FV_TangVec1Eta     = FV_TangVec1Eta
+!@cuf d_FV_TangVec2Eta     = FV_TangVec2Eta
+!@cuf d_FV_SurfElemEta_sw  = FV_SurfElemEta_sw
+!@cuf d_FV_NormVecZeta     = FV_NormVecZeta
+!@cuf d_FV_TangVec1Zeta    = FV_TangVec1Zeta
+!@cuf d_FV_TangVec2Zeta    = FV_TangVec2Zeta
+!@cuf d_FV_SurfElemZeta_sw = FV_SurfElemZeta_sw
+
 
 SWRITE(UNIT_stdOut,'(A)')' Done !'
 
@@ -605,6 +633,20 @@ SDEALLOCATE(FV_TangVec2Eta)
 SDEALLOCATE(FV_NormVecZeta)
 SDEALLOCATE(FV_TangVec1Zeta)
 SDEALLOCATE(FV_TangVec2Zeta)
+SDEALLOCATE(d_FV_NormVecXi)
+SDEALLOCATE(d_FV_TangVec1Xi)
+SDEALLOCATE(d_FV_TangVec2Xi)
+SDEALLOCATE(d_FV_SurfElemXi_sw)
+SDEALLOCATE(d_FV_NormVecEta)
+SDEALLOCATE(d_FV_TangVec1Eta)
+SDEALLOCATE(d_FV_TangVec2Eta)
+SDEALLOCATE(d_FV_SurfElemEta_sw)
+#if (PP_dim == 3)
+SDEALLOCATE(d_FV_NormVecZeta)
+SDEALLOCATE(d_FV_TangVec1Zeta)
+SDEALLOCATE(d_FV_TangVec2Zeta)
+SDEALLOCATE(d_FV_SurfElemZeta_sw)
+#endif
 
 #if PARABOLIC
 SDEALLOCATE(FV_Metrics_fTilde_sJ)
