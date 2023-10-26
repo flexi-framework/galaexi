@@ -172,13 +172,15 @@ END SUBROUTINE InitTestcase
 SUBROUTINE ExactFuncTestcase(tIn,x,Resu,Resu_t,Resu_tt)
 ! MODULES
 USE MOD_Globals,      ONLY: Abort
-USE MOD_EOS_Vars,     ONLY: kappa,mu0
+USE MOD_EOS_Vars,     ONLY: kappa
 USE MOD_EOS,          ONLY: PrimToCons
 USE MOD_TestCase_Vars,ONLY: MachNumber
 USE MOD_EOS_Vars     ,ONLY: R
+#if PARABOLIC
 #if PP_VISC == 1
-USE MOD_EOS_Vars     ,ONLY: Tref
+USE MOD_EOS_Vars,     ONLY: mu0
 USE MOD_EOS_Vars,     ONLY: ExpoSuth,Tref,Ts,cSuth
+#endif
 #endif
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -203,12 +205,14 @@ prim(5)=(A/Ms*A/Ms/Kappa*prim(1))  ! scaling to get Ms
 prim(6)= prim(5)/prim(1) / R       ! T does not matter for prim to cons
 prim(5)=prim(5)+1./16.*A*A*prim(1)*(COS(2*x(1))*COS(2.*x(3)) + 2.*COS(2.*x(2)) +2.*COS(2.*x(1)) +COS(2*x(2))*COS(2.*x(3)))
 
+#if PARABOLIC
 #if PP_VISC == 1 
 ! Adjust the Sutherland temperature Ts 
 Tref = 1.0/prim(6)  ! Tref = 1/Tref
 Ts   = 0.4042
 cSuth   = Ts**ExpoSuth*(1+Ts)/(2*Ts*Ts)
 prim(1) = prim(5) /R/ prim(6)
+#endif
 #endif
 
 CALL PrimToCons(prim,Resu)
