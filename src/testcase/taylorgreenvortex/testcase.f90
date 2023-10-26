@@ -94,6 +94,7 @@ CALL prms%SetSection("Testcase")
 CALL prms%CreateIntOption('nWriteStats', "Write testcase statistics to file at every n-th AnalyzeTestcase step.", '100')
 CALL prms%CreateIntOption('nAnalyzeTestCase', "Call testcase specific analysis routines every n-th timestep. "//&
                                               "(Note: always called at global analyze level)"                   , '10')
+CALL prms%CreateRealOption('MachNumber'     , "Mach number", '0.1')
 END SUBROUTINE DefineParametersTestcase
 
 
@@ -103,7 +104,7 @@ END SUBROUTINE DefineParametersTestcase
 SUBROUTINE InitTestcase()
 ! MODULES
 USE MOD_Globals
-USE MOD_ReadInTools,    ONLY: GETINT
+USE MOD_ReadInTools,    ONLY: GETINT,GETREAL
 USE MOD_Output_Vars,    ONLY: ProjectName
 USE MOD_TestCase_Vars
 USE MOD_Output,         ONLY: InitOutputToFile
@@ -116,6 +117,8 @@ CHARACTER(LEN=31)        :: varnames(nTGVVars)
 !==================================================================================================================================
 SWRITE(UNIT_stdOut,'(132("-"))')
 SWRITE(UNIT_stdOut,'(A)') ' INIT TESTCASE TAYLOR-GREEN VORTEX...'
+SWRITE(UNIT_stdOut,'(A)') ' AnalyzeTestcase is currently not supported on GPUs!!!'
+
 
 #if FV_ENABLED
 CALL CollectiveStop(__STAMP__, &
@@ -123,8 +126,11 @@ CALL CollectiveStop(__STAMP__, &
 #endif
 
 ! Length of Buffer for TGV output
-nWriteStats      = GETINT( 'nWriteStats')
-nAnalyzeTestCase = GETINT( 'nAnalyzeTestCase')
+nWriteStats      = GETINT( 'nWriteStats','100')
+nAnalyzeTestCase = GETINT( 'nAnalyzeTestCase','10')
+
+! Set Mach number of TGV
+MachNumber = GETREAL('MachNumber','0.1')
 
 IF(MPIRoot)THEN
   ALLOCATE(Time(nWriteStats))
@@ -166,8 +172,14 @@ END SUBROUTINE InitTestcase
 SUBROUTINE ExactFuncTestcase(tIn,x,Resu,Resu_t,Resu_tt)
 ! MODULES
 USE MOD_Globals,      ONLY: Abort
-USE MOD_EOS_Vars,     ONLY: kappa
+USE MOD_EOS_Vars,     ONLY: kappa,mu0
 USE MOD_EOS,          ONLY: PrimToCons
+USE MOD_TestCase_Vars,ONLY: MachNumber
+USE MOD_EOS_Vars     ,ONLY: R
+#if PP_VISC == 1
+USE MOD_EOS_Vars     ,ONLY: Tref
+USE MOD_EOS_Vars,     ONLY: ExpoSuth,Tref,Ts,cSuth
+#endif
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -180,15 +192,25 @@ REAL,INTENT(OUT)                :: Resu_tt(5)  !< second time deriv of exact fuc
 ! LOCAL VARIABLES
 REAL                            :: A,Ms,prim(PP_nVarPrim)
 !==================================================================================================================================
-A=1.    ! magnitude of speed
-Ms=0.1  ! maximum Mach number
+A  = 1.           ! magnitude of speed
+Ms = MachNumber  ! maximum Mach number
+
 prim(1)=1.
 prim(2)= A*SIN(x(1))*COS(x(2))*COS(x(3))
 prim(3)=-A*COS(x(1))*SIN(x(2))*COS(x(3))
 prim(4)=0.
 prim(5)=(A/Ms*A/Ms/Kappa*prim(1))  ! scaling to get Ms
+prim(6)= prim(5)/prim(1) / R       ! T does not matter for prim to cons
 prim(5)=prim(5)+1./16.*A*A*prim(1)*(COS(2*x(1))*COS(2.*x(3)) + 2.*COS(2.*x(2)) +2.*COS(2.*x(1)) +COS(2*x(2))*COS(2.*x(3)))
-prim(6)=0. ! T does not matter for prim to cons
+
+#if PP_VISC == 1 
+! Adjust the Sutherland temperature Ts 
+Tref = 1.0/prim(6)  ! Tref = 1/Tref
+Ts   = 0.4042
+cSuth   = Ts**ExpoSuth*(1+Ts)/(2*Ts*Ts)
+prim(1) = prim(5) /R/ prim(6)
+#endif
+
 CALL PrimToCons(prim,Resu)
 Resu_t =0.
 Resu_tt=0.
@@ -478,8 +500,8 @@ USE MOD_TestCase_Vars,ONLY:writeBuf,Time
 IMPLICIT NONE
 !==================================================================================================================================
 IF(MPIRoot)THEN
-  DEALLOCATE(Time)
-  DEALLOCATE(writeBuf)
+  SDEALLOCATE(Time)
+  SDEALLOCATE(writeBuf)
 END IF
 END SUBROUTINE
 
