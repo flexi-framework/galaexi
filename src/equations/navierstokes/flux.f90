@@ -52,6 +52,7 @@ END INTERFACE
 
 #if PARABOLIC
 INTERFACE EvalDiffFlux3D
+  MODULE PROCEDURE EvalNormalDiffFlux3D
   MODULE PROCEDURE EvalDiffFlux3D
   MODULE PROCEDURE EvalDiffFlux3D_Point
   MODULE PROCEDURE EvalDiffFlux3D_Surface
@@ -66,6 +67,7 @@ END INTERFACE
 PUBLIC::EvalFlux3D, EvalEulerFlux1D, EvalEulerFlux1D_fast,EvalTransformedFlux3D
 #if PARABOLIC
 PUBLIC::EvalDiffFlux3D
+PUBLIC::EvalTransformedDiffFlux3D_CUDA
 #endif /*PARABOLIC*/
 !==================================================================================================================================
 
@@ -332,6 +334,38 @@ IF (i.LE.nDOF) THEN
 END IF
 END SUBROUTINE EvalTransformedFlux3D_Kernel
 
+#if PARABOLIC
+!==================================================================================================================================
+!> Wrapper routine to compute the advection part of the Navier-Stokes fluxes for a single volume cell
+!==================================================================================================================================
+PPURE ATTRIBUTES(GLOBAL) SUBROUTINE EvalTransformedDiffFlux3D_Kernel(nDOF,UPrim &
+                                                           ,gradUx,gradUy,gradUz,mu,lambda &
+                                                           ,f,g,h,Mf,Mg,Mh)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)  :: nDOF     !< number of degrees of freedom in arrays
+REAL,DEVICE,DIMENSION(PP_nVarPrim   ,1:nDOF),INTENT(IN)  :: UPrim    !< Primitive solution
+REAL,DEVICE,DIMENSION(3             ,1:nDOF),INTENT(IN)  :: Mf,Mg,Mh !< Metrics in x,y,z
+REAL,DEVICE,DIMENSION(PP_nVar       ,1:nDOF),INTENT(OUT) :: f,g,h    !> Physical fluxes in x,y,z
+REAL,DEVICE,DIMENSION(PP_nVarLifting,1:nDOF),INTENT(IN)  :: gradUx,gradUy,gradUz !> gradients in x,y,z
+REAL,VALUE,INTENT(IN) :: mu,lambda
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER             :: i
+!==================================================================================================================================
+i = (blockidx%x-1) * blockdim%x + threadidx%x
+IF (i.LE.nDOF) THEN
+  CALL EvalTransformedDiffFlux3D( UPrim(:,i) &
+                                ,gradUx(:,i),gradUy(:,i),gradUz(:,i) &
+                                ,     f(:,i),     g(:,i),     h(:,i) &
+                                ,    Mf(:,i),    Mg(:,i),    Mh(:,i) &
+                                ,mu,lambda)
+END IF
+END SUBROUTINE EvalTransformedDiffFlux3D_Kernel
+#endif
+
 !==================================================================================================================================
 !> Wrapper routine to compute the advection part of the Navier-Stokes fluxes
 !==================================================================================================================================
@@ -373,6 +407,39 @@ CALL EvalTransformedFlux3D_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,U,UPrim &
 #endif
                                                                ,f,g,h,Mf,Mg,Mh)
 END SUBROUTINE EvalTransformedFlux3D
+
+#if PARABOLIC
+!==================================================================================================================================
+!> Wrapper routine to compute the advection part of the Navier-Stokes fluxes
+!==================================================================================================================================
+PPURE SUBROUTINE EvalTransformedDiffFlux3D_CUDA(nDOF,UPrim &
+                                          ,gradUx,gradUy,gradUz &
+                                          ,f,g,h,Mf,Mg,Mh)
+! MODULES
+USE MOD_EOS_Vars,ONLY: mu0,cp,Pr
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)  :: nDOF     !< number of degrees of freedom in arrays
+REAL,DEVICE,DIMENSION(PP_nVarPrim   ,1:nDOF),INTENT(IN)  :: UPrim    !< Primitive solution
+REAL,DEVICE,DIMENSION(3             ,1:nDOF),INTENT(IN)  :: Mf,Mg,Mh !< Metrics in x,y,z
+REAL,DEVICE,DIMENSION(PP_nVar       ,1:nDOF),INTENT(OUT) :: f,g,h    !> Physical fluxes in x,y,z
+REAL,DEVICE,DIMENSION(PP_nVarLifting,1:nDOF),INTENT(IN)  :: gradUx,gradUy,gradUz !> gradients in x,y,z
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER,PARAMETER   :: nThreads=256
+#if PARABOLIC
+REAL                :: mu,lambda
+#endif
+!==================================================================================================================================
+! TODO: Impelment cleanly!
+mu     = VISCOSITY_PRIM(UPrim(:,1))
+lambda = THERMAL_CONDUCTIVITY_H(mu)
+CALL EvalTransformedDiffFlux3D_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,UPrim &
+                                                                   ,gradUx,gradUy,gradUz,mu,lambda &
+                                                                   ,f,g,h,Mf,Mg,Mh)
+END SUBROUTINE EvalTransformedDiffFlux3D_CUDA
+#endif
 
 !==================================================================================================================================
 !> Wrapper routine to compute the advection part of the Navier-Stokes fluxes for a single volume cell
@@ -536,10 +603,10 @@ PPURE ATTRIBUTES(DEVICE,HOST) SUBROUTINE EvalTransformedDiffFlux3D(UPrim,gradUx,
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
-REAL,DIMENSION(PP_nVarPrim   ),INTENT(IN)    :: UPrim                 !< Solution vector
-REAL,DIMENSION(PP_nVarLifting),INTENT(IN)    :: gradUx,gradUy,gradUz  !> Gradients in x,y,z directions
-REAL,DIMENSION(PP_nVar       ),INTENT(INOUT) :: f,g,h                 !> Physical fluxes in x,y,z directions
-REAL,DIMENSION(3             ),INTENT(IN)    :: Mf,Mg,Mh              !> Metrics in x/y/z direction
+REAL,DIMENSION(PP_nVarPrim   ),INTENT(IN)  :: UPrim                 !< Solution vector
+REAL,DIMENSION(PP_nVarLifting),INTENT(IN)  :: gradUx,gradUy,gradUz  !> Gradients in x,y,z directions
+REAL,DIMENSION(PP_nVar       ),INTENT(OUT) :: f,g,h                 !> Physical fluxes in x,y,z directions
+REAL,DIMENSION(3             ),INTENT(IN)  :: Mf,Mg,Mh              !> Metrics in x/y/z direction
 REAL,INTENT(IN)  :: mu      !< viscosity of fluid
 REAL,INTENT(IN)  :: lambda  !< thermal conductivity of fluid
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -566,58 +633,49 @@ tauYVelPlusQ = tau_xy*UPrim(VEL1)+tau_yy*UPrim(VEL2)+tau_yz*UPrim(VEL3)+lambda*g
 tauZVelPlusQ = tau_xz*UPrim(VEL1)+tau_yz*UPrim(VEL2)+tau_zz*UPrim(VEL3)+lambda*gradUz(LIFT_TEMP)
 
 ! viscous fluxes in x-direction
-!f(DENS) = 0.
-f(MOM1) = f(MOM1)-Mf(1)*tau_xx &
-                 -Mf(2)*tau_xy &
-                 -Mf(3)*tau_xz
-f(MOM2) = f(MOM2)-Mf(1)*tau_xy &
-                 -Mf(2)*tau_yy &
-                 -Mf(3)*tau_yz
-f(MOM3) = f(MOM3)-Mf(1)*tau_xz &
-                 -Mf(2)*tau_yz &
-                 -Mf(3)*tau_zz
-f(ENER) = f(ENER)-Mf(1)*tauXVelPlusQ &
-                 -Mf(2)*tauYVelPlusQ &
-                 -Mf(3)*tauZVelPlusQ
-!f(ENER) = f(ENER)-Mf(1)*(tau_xx*UPrim(VEL1)+tau_xy*UPrim(VEL2)+tau_xz*UPrim(VEL3)+lambda*gradUx(LIFT_TEMP)) &
-!                 -Mf(2)*(tau_xy*UPrim(VEL1)+tau_yy*UPrim(VEL2)+tau_yz*UPrim(VEL3)+lambda*gradUy(LIFT_TEMP)) &
-!                 -Mf(3)*(tau_xz*UPrim(VEL1)+tau_yz*UPrim(VEL2)+tau_zz*UPrim(VEL3)+lambda*gradUz(LIFT_TEMP))
+f(DENS) = 0.
+f(MOM1) = -Mf(1)*tau_xx &
+          -Mf(2)*tau_xy &
+          -Mf(3)*tau_xz
+f(MOM2) = -Mf(1)*tau_xy &
+          -Mf(2)*tau_yy &
+          -Mf(3)*tau_yz
+f(MOM3) = -Mf(1)*tau_xz &
+          -Mf(2)*tau_yz &
+          -Mf(3)*tau_zz
+f(ENER) = -Mf(1)*tauXVelPlusQ &
+          -Mf(2)*tauYVelPlusQ &
+          -Mf(3)*tauZVelPlusQ
 
 ! viscous fluxes in y-direction
-!g(DENS) = 0.
-g(MOM1) = g(MOM1)-Mg(1)*tau_xx &
-                 -Mg(2)*tau_xy &
-                 -Mg(3)*tau_xz
-g(MOM2) = g(MOM2)-Mg(1)*tau_xy &
-                 -Mg(2)*tau_yy &
-                 -Mg(3)*tau_yz
-g(MOM3) = g(MOM3)-Mg(1)*tau_xz &
-                 -Mg(2)*tau_yz &
-                 -Mg(3)*tau_zz
-g(ENER) = g(ENER)-Mg(1)*tauXVelPlusQ &
-                 -Mg(2)*tauYVelPlusQ &
-                 -Mg(3)*tauZVelPlusQ
-!g(ENER) = g(ENER)-Mg(1)*(tau_xx*UPrim(VEL1)+tau_xy*UPrim(VEL2)+tau_xz*UPrim(VEL3)+lambda*gradUx(LIFT_TEMP)) &
-!                 -Mg(2)*(tau_xy*UPrim(VEL1)+tau_yy*UPrim(VEL2)+tau_yz*UPrim(VEL3)+lambda*gradUy(LIFT_TEMP)) &
-!                 -Mg(3)*(tau_xz*UPrim(VEL1)+tau_yz*UPrim(VEL2)+tau_zz*UPrim(VEL3)+lambda*gradUz(LIFT_TEMP))
+g(DENS) = 0.
+g(MOM1) = -Mg(1)*tau_xx &
+          -Mg(2)*tau_xy &
+          -Mg(3)*tau_xz
+g(MOM2) = -Mg(1)*tau_xy &
+          -Mg(2)*tau_yy &
+          -Mg(3)*tau_yz
+g(MOM3) = -Mg(1)*tau_xz &
+          -Mg(2)*tau_yz &
+          -Mg(3)*tau_zz
+g(ENER) = -Mg(1)*tauXVelPlusQ &
+          -Mg(2)*tauYVelPlusQ &
+          -Mg(3)*tauZVelPlusQ
 
 ! viscous fluxes in z-direction
-!h(DENS) = 0.
-h(MOM1) = h(MOM1)-Mh(1)*tau_xx &
-                 -Mh(2)*tau_xy &
-                 -Mh(3)*tau_xz
-h(MOM2) = h(MOM2)-Mh(1)*tau_xy &
-                 -Mh(2)*tau_yy &
-                 -Mh(3)*tau_yz
-h(MOM3) = h(MOM3)-Mh(1)*tau_xz &
-                 -Mh(2)*tau_yz &
-                 -Mh(3)*tau_zz
-h(ENER) = h(ENER)-Mh(1)*tauXVelPlusQ &
-                 -Mh(2)*tauYVelPlusQ &
-                 -Mh(3)*tauZVelPlusQ
-!h(ENER) = h(ENER)-Mh(1)*(tau_xx*UPrim(VEL1)+tau_xy*UPrim(VEL2)+tau_xz*UPrim(VEL3)+lambda*gradUx(LIFT_TEMP)) &
-!                 -Mh(2)*(tau_xy*UPrim(VEL1)+tau_yy*UPrim(VEL2)+tau_yz*UPrim(VEL3)+lambda*gradUy(LIFT_TEMP)) &
-!                 -Mh(3)*(tau_xz*UPrim(VEL1)+tau_yz*UPrim(VEL2)+tau_zz*UPrim(VEL3)+lambda*gradUz(LIFT_TEMP))
+h(DENS) = 0.
+h(MOM1) = -Mh(1)*tau_xx &
+          -Mh(2)*tau_xy &
+          -Mh(3)*tau_xz
+h(MOM2) = -Mh(1)*tau_xy &
+          -Mh(2)*tau_yy &
+          -Mh(3)*tau_yz
+h(MOM3) = -Mh(1)*tau_xz &
+          -Mh(2)*tau_yz &
+          -Mh(3)*tau_zz
+h(ENER) = -Mh(1)*tauXVelPlusQ &
+          -Mh(2)*tauYVelPlusQ &
+          -Mh(3)*tauZVelPlusQ
 END SUBROUTINE EvalTransformedDiffFlux3D
 
 !==================================================================================================================================
@@ -696,6 +754,79 @@ g(ENER) = -tau_xy*UPrim(VEL1)-tau_yy*UPrim(VEL2) &   ! F_euler-(tau_yx*u+tau_yy*
 h    = 0.
 #endif
 END SUBROUTINE EvalDiffFlux3D
+
+!==================================================================================================================================
+!> Compute Navier-Stokes diffusive flux using the primitive variables and derivatives.
+!==================================================================================================================================
+PPURE ATTRIBUTES(DEVICE,HOST) SUBROUTINE EvalNormalDiffFlux3D(UPrim,gradUx,gradUy,gradUz,f,nv,mu,lambda)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+REAL,DIMENSION(PP_nVarPrim   ),INTENT(IN)  :: UPrim                 !< Solution vector
+REAL,DIMENSION(PP_nVarLifting),INTENT(IN)  :: gradUx,gradUy,gradUz  !> Gradients in x,y,z directions
+REAL,DIMENSION(3             ),INTENT(IN)  :: nv                    !> Normal vector
+REAL,DIMENSION(PP_nVar       ),INTENT(OUT) :: f                     !> Physical fluxes in normal directions
+REAL,INTENT(IN)  :: mu      !< viscosity of fluid
+REAL,INTENT(IN)  :: lambda  !< thermal conductivity of fluid
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+REAL                :: tau_xx,tau_yy,tau_xy
+#if PP_dim==3
+REAL                :: tau_zz,tau_xz,tau_yz
+#endif
+REAL,PARAMETER      :: s23=2./3.
+REAL,PARAMETER      :: s43=4./3.
+!==================================================================================================================================
+#if PP_dim==3
+! Precompute entries of shear-stress tensor
+tau_xx = mu * ( s43 * gradUx(LIFT_VEL1) - s23 * gradUy(LIFT_VEL2) - s23 * gradUz(LIFT_VEL3)) ! 4/3*mu*u_x-2/3*mu*v_y -2/3*mu*w*z
+tau_yy = mu * (-s23 * gradUx(LIFT_VEL1) + s43 * gradUy(LIFT_VEL2) - s23 * gradUz(LIFT_VEL3)) !-2/3*mu*u_x+4/3*mu*v_y -2/3*mu*w*z
+tau_zz = mu * (-s23 * gradUx(LIFT_VEL1) - s23 * gradUy(LIFT_VEL2) + s43 * gradUz(LIFT_VEL3)) !-2/3*mu*u_x-2/3*mu*v_y +4/3*mu*w*z
+tau_xy = mu * (gradUy(LIFT_VEL1) + gradUx(LIFT_VEL2))  ! mu*(u_y+v_x)
+tau_xz = mu * (gradUz(LIFT_VEL1) + gradUx(LIFT_VEL3))  ! mu*(u_z+w_x)
+tau_yz = mu * (gradUz(LIFT_VEL2) + gradUy(LIFT_VEL3))  ! mu*(y_z+w_y)
+
+! viscous fluxes in x-direction
+f(DENS) = 0.
+
+f(MOM1) = -nv(1)*tau_xx &                                     ! F_euler-4/3*mu*u_x+2/3*mu*(v_y+w_z)
+          -nv(2)*tau_xy &                                     ! F_euler-mu*(u_y+v_x)
+          -nv(3)*tau_xz                                       ! F_euler-mu*(u_z+w_x)
+f(MOM2) = -nv(1)*tau_xy &                                     ! F_euler-mu*(u_y+v_x)
+          -nv(2)*tau_yy &                                     ! F_euler-4/3*mu*v_y+2/3*mu*(u_x+w_z)
+          -nv(3)*tau_yz                                       ! F_euler-mu*(y_z+w_y)
+f(MOM3) = -nv(1)*tau_xz &                                     ! F_euler-mu*(u_z+w_x)
+          -nv(2)*tau_yz &                                     ! F_euler-mu*(y_z+w_y)
+          -nv(3)*tau_zz                                       ! F_euler-4/3*mu*w_z+2/3*mu*(u_x+v_y)
+f(ENER) = -nv(1)*(tau_xx*UPrim(VEL1)+tau_xy*UPrim(VEL2)+tau_xz*UPrim(VEL3)+lambda*gradUx(LIFT_TEMP)) & ! F_euler-(tau_xx*u+tau_xy*v+tau_xz*w-q_x) with q_x=-lambda*T_x
+          -nv(2)*(tau_xy*UPrim(VEL1)+tau_yy*UPrim(VEL2)+tau_yz*UPrim(VEL3)+lambda*gradUy(LIFT_TEMP)) & ! F_euler-(tau_yx*u+tau_yy*v+tau_yz*w-q_y) with q_y=-lambda*T_y
+          -nv(3)*(tau_xz*UPrim(VEL1)+tau_yz*UPrim(VEL2)+tau_zz*UPrim(VEL3)+lambda*gradUz(LIFT_TEMP))   ! F_euler-(tau_zx*u+tau_zy*v+tau_zz*w-q_z) with q_z=-lambda*T_z
+#else
+! Precompute entries of shear-stress tensor
+tau_xx = mu * ( s43 * gradUx(LIFT_VEL1) - s23 * gradUy(LIFT_VEL2))  ! 4/3*mu*u_x-2/3*mu*v_y -2/3*mu*w*z
+tau_yy = mu * (-s23 * gradUx(LIFT_VEL1) + s43 * gradUy(LIFT_VEL2))  !-2/3*mu*u_x+4/3*mu*v_y -2/3*mu*w*z
+tau_xy = mu * (gradUy(LIFT_VEL1) + gradUx(LIFT_VEL2))               ! mu*(u_y+v_x)
+
+! viscous fluxes in x-direction
+f(DENS) = 0.
+f(MOM1) = -tau_xx                                    ! F_euler-4/3*mu*u_x+2/3*mu*(v_y+w_z)
+f(MOM2) = -tau_xy                                    ! F_euler-mu*(u_y+v_x)
+f(MOM3) = 0.
+f(ENER) = -tau_xx*UPrim(VEL1)-tau_xy*UPrim(VEL2) &   ! F_euler-(tau_xx*u+tau_xy*v+tau_xz*w-q_x) with q_x=-lambda*T_x
+          -lambda*gradUx(LIFT_TEMP)
+! viscous fluxes in y-direction
+g(DENS) = 0.
+g(MOM1) = -tau_xy                                    ! F_euler-mu*(u_y+v_x)
+g(MOM2) = -tau_yy                                    ! F_euler-4/3*mu*v_y+2/3*mu*(u_x+w_z)
+g(MOM3) = 0.
+g(ENER) = -tau_xy*UPrim(VEL1)-tau_yy*UPrim(VEL2) &   ! F_euler-(tau_yx*u+tau_yy*v+tau_yz*w-q_y) with q_y=-lambda*T_y
+          -lambda*gradUy(LIFT_TEMP)
+! viscous fluxes in z-direction
+h    = 0.
+STOP 'EvalNormalDiffFlux3D not implemented for 2D yet!' ! TODO: Not implemented for 2D yet!
+#endif
+END SUBROUTINE EvalNormalDiffFlux3D
 
 !==================================================================================================================================
 !> Wrapper routine to compute the diffusive part of the Navier-Stokes fluxes for a single side

@@ -569,40 +569,33 @@ REAL,VALUE,INTENT(IN)    :: mu,lambda  !< normal vector
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER :: i
-REAL,DEVICE,DIMENSION(PP_nVar)  :: diffFluxX_L,diffFluxY_L,diffFluxZ_L
-REAL,DEVICE,DIMENSION(PP_nVar)  :: diffFluxX_R,diffFluxY_R,diffFluxZ_R
+REAL,DEVICE,DIMENSION(PP_nVar) :: normalDiffFlux
 !==================================================================================================================================
 ! Don't forget the diffusion contribution, my young padawan
 ! Compute NSE Diffusion flux
-
 i = (blockidx%x-1) * blockdim%x + threadidx%x
 IF (i.LE.nDOF) THEN
   ! Left flux
-  CALL EvalDiffFlux3D(    UPrim_L(:,i), &
-                         gradUx_L(:,i), &
-                         gradUy_L(:,i), &
-                         gradUz_L(:,i), &
-                      diffFluxX_L(:  ), &
-                      diffFluxY_L(:  ), &
-                      diffFluxZ_L(:  ), &
-                      mu,lambda         &
-                      )
-  ! Right flux
-  CALL EvalDiffFlux3D(    UPrim_R(:,i), &
-                         gradUx_R(:,i), &
-                         gradUy_R(:,i), &
-                         gradUz_R(:,i), &
-                      diffFluxX_R(:  ), &
-                      diffFluxY_R(:  ), &
-                      diffFluxZ_R(:  ), &
-                      mu,lambda         &
-                      )
+  CALL EvalDiffFlux3D( UPrim_L(:,i), &
+                      gradUx_L(:,i), &
+                      gradUy_L(:,i), &
+                      gradUz_L(:,i), &
+                normalDiffFlux(:  ), &
+                            nv(:,i), &
+                          mu,lambda)
+  ! Arithmetic mean of the fluxes (Add directly to avoid additional temporary variables)
+  F(:,i) = F(:,i) + 0.5*normalDiffFlux ! F = F+0.5*(Flux_L+Flux_R)
 
-  ! Arithmetic mean of the fluxes
-  F(:,i) = F(:,i) + 0.5*( nv(1,i)*(diffFluxX_L(:)+diffFluxX_R(:)) &
-                         +nv(2,i)*(diffFluxY_L(:)+diffFluxY_R(:)) &
-                         +nv(3,i)*(diffFluxZ_L(:)+diffFluxZ_R(:)) &
-                         )
+  ! Right flux
+  CALL EvalDiffFlux3D( UPrim_R(:,i), &
+                      gradUx_R(:,i), &
+                      gradUy_R(:,i), &
+                      gradUz_R(:,i), &
+                normalDiffFlux(:  ), &
+                            nv(:,i), &
+                          mu,lambda)
+  ! Arithmetic mean of the fluxes (Add directly to avoid additional temporary variables)
+  F(:,i) = F(:,i) + 0.5*normalDiffFlux ! F = F+0.5*(Flux_L+Flux_R)
 END IF
 END SUBROUTINE ViscousFlux_Kernel_CUDA
 
@@ -614,7 +607,7 @@ END SUBROUTINE ViscousFlux_Kernel_CUDA
 PPURE ATTRIBUTES(DEVICE,HOST) SUBROUTINE Riemann_LF(F,F_L,F_R,U_LL,U_RR,Kappa)
 ! MODULES
 #ifdef SPLIT_DG
-USE MOD_SplitFlux     ,ONLY: SplitDGSurface_pointer
+USE MOD_SplitFlux     ,ONLY: SplitSurfaceFlux
 #endif /*SPLIT_DG*/
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -635,7 +628,7 @@ LambdaMax = MAX( ABS(U_RR(EXT_VEL1)),ABS(U_LL(EXT_VEL1)) ) + MAX( SPEEDOFSOUND_H
 F = 0.5*((F_L+F_R) - LambdaMax*(U_RR(CONS) - U_LL(CONS)))
 #else
 ! get split flux
-CALL SplitDGSurface_pointer(U_LL,U_RR,F)
+CALL SplitSurfaceFlux(U_LL,U_RR,F)
 ! compute surface flux
 F = F - 0.5*LambdaMax*(U_RR(CONS) - U_LL(CONS))
 #endif /*SPLIT_DG*/

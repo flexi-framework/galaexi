@@ -183,7 +183,7 @@ SUBROUTINE InitDGbasis(N_in,xGP,wGP,L_Minus,L_Plus,D,D_T,D_Hat,D_Hat_T,L_HatMinu
 USE MOD_Interpolation,    ONLY: GetNodesAndWeights
 USE MOD_Basis,            ONLY: PolynomialDerivativeMatrix,LagrangeInterpolationPolys,PolynomialMassMatrix
 #ifdef SPLIT_DG
-USE MOD_DG_Vars,          ONLY: DVolSurf ! Transpose of differentiation matrix used for calculating the strong form
+USE MOD_DG_Vars,          ONLY: DVolSurf,d_DVolSurf ! Transpose of differentiation matrix used for calculating the strong form
 #endif /*SPLIT_DG*/
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -231,6 +231,8 @@ DVolSurf = D_T
 ! For Gauss-Lobatto points, these inner flux contributions cancel exactly with entries in the DVolSurf matrix, resulting in zeros.
 DVolSurf(   0,   0) = DVolSurf(   0   ,0) + 1.0/(2.0 * wGP(   0))  ! = 0. (for LGL)
 DVolSurf(N_in,N_in) = DVolSurf(N_in,N_in) - 1.0/(2.0 * wGP(N_in))  ! = 0. (for LGL)
+ALLOCATE(d_DVolSurf(0:N_in,0:N_in))
+d_DVolSurf=DVolSurf
 #endif /*SPLIT_DG*/
 
 ! interpolate to left and right face (1 and -1 in reference space) and pre-divide by mass matrix
@@ -338,9 +340,7 @@ CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_U)        ! U_slave: slave -> m
 ! 5. Convert face data from conservative to primitive variables
 !    Attention: For FV with 2nd order reconstruction U_master/slave and therewith UPrim_master/slave are still only 1st order
 ! TODO: Linadv?
-!CALL GetPrimitiveStateSurface(U_master,U_slave,UPrim_master,UPrim_slave)
-CALL ConsToPrim(PP_N,nSides,d_UPrim_master,d_U_master) ! TODO: Skip non-filled MPI sides
-CALL ConsToPrim(PP_N,nSides,d_UPrim_slave ,d_U_slave )
+CALL GetPrimitiveStateSurface(d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave)
 
 #if PARABOLIC
 ! 6. Lifting
@@ -369,18 +369,20 @@ CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Flux )                       ! 
 #endif
 
 ! 11.5)
-CALL SurfIntCons(PP_N,d_Flux_master,d_Flux_slave,d_Ut,d_L_HatMinus,d_L_hatPlus)
+CALL SurfIntCons(PP_N,d_Flux_master,d_Flux_slave,d_Ut,d_L_HatMinus,d_L_hatPlus,doApplyJacobian=.TRUE.)
 
 ! 12. Swap to right sign :)
 CALL VAX_GPU(nTotalU,d_Ut,-1.) ! Multiply array by -1
 
 ! 13. Compute source terms and sponge (in physical space, conversion to reference space inside routines)
+! TODO: This can be used for latency hiding or not?
 !IF(doCalcSource) CALL CalcSource(Ut,t)
 !IF(doSponge)     CALL Sponge(Ut)
 !IF(doTCSource)   CALL TestcaseSource(Ut)
 
-! 14. apply Jacobian
-CALL ApplyJacobianCons(d_Ut,toPhysical=.TRUE.)
+!! 14. apply Jacobian
+! TODO: This is now accounted for in SurfaceIntegral to save memory bandwidth. This is not valid if sources are added afterwards.
+!CALL ApplyJacobianCons(d_Ut,toPhysical=.TRUE.)
 
 END SUBROUTINE DGTimeDerivative_weakForm
 

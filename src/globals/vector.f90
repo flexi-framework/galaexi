@@ -156,6 +156,33 @@ END IF
 END SUBROUTINE VAXPB_OUT_GPU
 
 !==================================================================================================================================
+!> Two fused operations:
+!> Y=a*Y+X
+!> Z=b*Y+Z
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE VAXPB_OUT_VAXPB_IN(nTotal,VecIn,VecOut1,VecOut2,Const1,Const2)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)    :: nTotal                                               !< vector length
+REAL,INTENT(IN)             :: VecIn(  nTotal)                                      !< input vector
+REAL,INTENT(INOUT)          :: VecOut1(nTotal)                                      !< output vector 1
+REAL,INTENT(INOUT)          :: VecOut2(nTotal)                                      !< output vector 2
+REAL,VALUE,INTENT(IN)       :: Const1                                               !< constant to multiply with output vec
+REAL,VALUE,INTENT(IN)       :: Const2                                               !< constant to multiply with output vec
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER               :: i
+!==================================================================================================================================
+i = (blockidx%x-1) * blockdim%x + threadidx%x
+IF (i.LE.nTotal) THEN
+  VecOut1(i)=VecOut1(i)*Const1+VecIn(i)
+  VecOut2(i)=VecOut2(i)+VecOut1(i)*Const2
+END IF
+END SUBROUTINE VAXPB_OUT_VAXPB_IN
+
+!==================================================================================================================================
 !> Y=AY+BX
 !==================================================================================================================================
 ATTRIBUTES(GLOBAL) SUBROUTINE VAXPB_IN_GPU(nTotal,VecOut,VecIn,ConstIn)
