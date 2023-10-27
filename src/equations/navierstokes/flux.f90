@@ -373,8 +373,10 @@ PPURE SUBROUTINE EvalTransformedFlux3D(nDOF,U,UPrim &
 #if PARABOLIC
                                       ,gradUx,gradUy,gradUz &
 #endif
-                                      ,f,g,h,Mf,Mg,Mh)
+                                      ,f,g,h,Mf,Mg,Mh,streamID)
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU     ,ONLY: DefaultStream
 #if PARABOLIC
 USE MOD_EOS_Vars,ONLY: mu0,cp,Pr
 #endif
@@ -389,23 +391,28 @@ REAL,DEVICE,DIMENSION(PP_nVar       ,1:nDOF),INTENT(OUT) :: f,g,h    !> Physical
 #if PARABOLIC
 REAL,DEVICE,DIMENSION(PP_nVarLifting,1:nDOF),INTENT(IN)  :: gradUx,gradUy,gradUz !> gradients in x,y,z
 #endif
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER,PARAMETER   :: nThreads=256
 #if PARABOLIC
 REAL                :: mu,lambda
 #endif
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 ! TODO: Impelment cleanly!
 #if PARABOLIC
 mu     = VISCOSITY_PRIM(UPrim(:,1))
 lambda = THERMAL_CONDUCTIVITY_H(mu)
 #endif
-CALL EvalTransformedFlux3D_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,U,UPrim &
+CALL EvalTransformedFlux3D_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nDOF,U,UPrim &
 #if PARABOLIC
-                                                               ,gradUx,gradUy,gradUz,mu,lambda &
+                                                                          ,gradUx,gradUy,gradUz,mu,lambda &
 #endif
-                                                               ,f,g,h,Mf,Mg,Mh)
+                                                                          ,f,g,h,Mf,Mg,Mh)
 END SUBROUTINE EvalTransformedFlux3D
 
 #if PARABOLIC
@@ -414,8 +421,10 @@ END SUBROUTINE EvalTransformedFlux3D
 !==================================================================================================================================
 PPURE SUBROUTINE EvalTransformedDiffFlux3D_CUDA(nDOF,UPrim &
                                           ,gradUx,gradUy,gradUz &
-                                          ,f,g,h,Mf,Mg,Mh)
+                                          ,f,g,h,Mf,Mg,Mh,streamID)
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU     ,ONLY: DefaultStream
 USE MOD_EOS_Vars,ONLY: mu0,cp,Pr
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -425,17 +434,22 @@ REAL,DEVICE,DIMENSION(PP_nVarPrim   ,1:nDOF),INTENT(IN)  :: UPrim    !< Primitiv
 REAL,DEVICE,DIMENSION(3             ,1:nDOF),INTENT(IN)  :: Mf,Mg,Mh !< Metrics in x,y,z
 REAL,DEVICE,DIMENSION(PP_nVar       ,1:nDOF),INTENT(OUT) :: f,g,h    !> Physical fluxes in x,y,z
 REAL,DEVICE,DIMENSION(PP_nVarLifting,1:nDOF),INTENT(IN)  :: gradUx,gradUy,gradUz !> gradients in x,y,z
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER,PARAMETER   :: nThreads=256
 #if PARABOLIC
 REAL                :: mu,lambda
 #endif
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 ! TODO: Impelment cleanly!
 mu     = VISCOSITY_PRIM(UPrim(:,1))
 lambda = THERMAL_CONDUCTIVITY_H(mu)
-CALL EvalTransformedDiffFlux3D_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,UPrim &
+CALL EvalTransformedDiffFlux3D_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nDOF,UPrim &
                                                                    ,gradUx,gradUy,gradUz,mu,lambda &
                                                                    ,f,g,h,Mf,Mg,Mh)
 END SUBROUTINE EvalTransformedDiffFlux3D_CUDA

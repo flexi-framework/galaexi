@@ -255,6 +255,7 @@ SUBROUTINE DGTimeDerivative_weakForm(t)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
 USE MOD_Globals
+USE MOD_GPU
 USE MOD_Preproc
 USE MOD_Vector
 USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave,L_HatMinus,L_HatPlus,nTotalU
@@ -350,7 +351,7 @@ CALL Lifting(d_UPrim,d_UPrim_master,d_UPrim_slave,t)
 #endif /* PARABOLIC */
 
 ! 8. Compute volume integral contribution and add to Ut
-CALL VolInt(d_Ut)
+CALL VolInt(d_Ut,streamID=stream1)
 
 #if PARABOLIC && USE_MPI
 ! Complete send / receive for gradUx, gradUy, gradUz, started in the lifting routines
@@ -360,10 +361,10 @@ CALL FinishExchangeMPIData(6*nNbProcs,MPIRequest_gradU) ! gradUx,y,z: slave -> m
 ! 11. Fill flux and Surface integral
 #if USE_MPI
 CALL StartReceiveMPIData_GPU(d_Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,SEND),SendID=1)
-CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.TRUE.)
-CALL StartSendMPIData_GPU(   d_Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,RECV),SendID=1)
+CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.TRUE.,streamID=stream3)
+CALL StartSendMPIData_GPU(   d_Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,RECV),SendID=1,streamID=stream3)
 #endif
-CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.)
+CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.,streamID=stream2)
 #if USE_MPI
 CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Flux )                       ! Flux_slave: master -> slave
 #endif

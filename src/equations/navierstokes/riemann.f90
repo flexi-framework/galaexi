@@ -387,8 +387,10 @@ END SUBROUTINE Riemann_Side_CUDA
 !> Conservative States are rotated into normal direction in this routine and are NOT backrotated: don't use it after this routine!!
 !> Attention 2: numerical flux is backrotated at the end of the routine!!
 !==================================================================================================================================
-PPURE SUBROUTINE Riemann_Sides_CUDA(Nloc,nSides,FOut,U_L,U_R,UPrim_L,UPrim_R,nv,t1,t2)
+PPURE SUBROUTINE Riemann_Sides_CUDA(Nloc,nSides,FOut,U_L,U_R,UPrim_L,UPrim_R,nv,t1,t2,streamID)
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU      ,ONLY:DefaultStream
 USE MOD_EOS_Vars, ONLY: Kappa
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -401,13 +403,18 @@ REAL,DEVICE,DIMENSION(PP_nVarPrim,0:Nloc,0:ZDIM(Nloc)  ,nSides),INTENT(IN)  :: U
 REAL,DEVICE,DIMENSION(PP_nVarPrim,0:Nloc,0:ZDIM(Nloc)  ,nSides),INTENT(IN)  :: UPrim_R  !< primitive solution at right side of the interface
 REAL,DEVICE,DIMENSION(3          ,0:Nloc,0:ZDIM(Nloc),1,nSides),INTENT(IN)  :: nv,t1,t2 !> normal vector and tangential vectors at side
 REAL,DEVICE,DIMENSION(PP_nVar    ,0:Nloc,0:ZDIM(Nloc)  ,nSides),INTENT(OUT) :: FOut     !< advective flux
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER           :: nDOF
 INTEGER,PARAMETER :: nThreads=256
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 nDOF=(Nloc+1)*(ZDIM(Nloc)+1)*nSides
-CALL Riemann_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,FOut,U_L,U_R,UPrim_L,UPrim_R,nv,t1,t2,Kappa)
+CALL Riemann_CUDA_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nDOF,FOut,U_L,U_R,UPrim_L,UPrim_R,nv,t1,t2,Kappa)
 END SUBROUTINE Riemann_Sides_CUDA
 
 #if PARABOLIC
@@ -508,8 +515,10 @@ END SUBROUTINE ViscousFlux_Side
 !==================================================================================================================================
 SUBROUTINE ViscousFlux_Sides_CUDA(Nloc,nSides,F,UPrim_L,UPrim_R, &
                                   gradUx_L,gradUy_L,gradUz_L,gradUx_R,gradUy_R,gradUz_R,nv &
-                                 )
+                                 ,streamID)
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU      ,ONLY:DefaultStream
 USE MOD_Flux, ONLY: EvalDiffFlux3D
 USE MOD_EOS_Vars,ONLY:mu0,cp,Pr
 IMPLICIT NONE
@@ -523,6 +532,7 @@ REAL,DEVICE,DIMENSION(PP_nVarPrim   ,0:Nloc,0:ZDIM(Nloc),  nSides),INTENT(IN)   
 REAL,DEVICE,DIMENSION(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc),  nSides),INTENT(IN)    :: gradUx_L,gradUx_R,gradUy_L,gradUy_R,gradUz_L,gradUz_R
 REAL,DEVICE,DIMENSION(3             ,0:Nloc,0:ZDIM(Nloc),1,nSides),INTENT(IN)    :: nv  !< normal vector
 REAL,DEVICE,DIMENSION(PP_nVar       ,0:Nloc,0:ZDIM(Nloc),  nSides),INTENT(INOUT) :: F   !< viscous flux
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -530,7 +540,11 @@ REAL,DEVICE,DIMENSION(PP_nVar       ,0:Nloc,0:ZDIM(Nloc),  nSides),INTENT(INOUT)
 REAL              :: mu,lambda
 INTEGER           :: nDOF
 INTEGER,PARAMETER :: nThreads=256
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 ! Don't forget the diffusion contribution, my young padawan
 ! TODO : Fix this!
 mu     = VISCOSITY_PRIM(UPrim(:,i,j,1))
@@ -539,7 +553,7 @@ lambda = THERMAL_CONDUCTIVITY_H(mu)
 nDOF = (Nloc+1)*(ZDIM(Nloc)+1)*nSides
 
 ! Compute NSE Diffusion flux
-CALL ViscousFlux_Kernel_CUDA<<<nDOF/nThreads+1,nThreads>>>(nDOF,F,UPrim_L,UPrim_R, &
+CALL ViscousFlux_Kernel_CUDA<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nDOF,F,UPrim_L,UPrim_R, &
                              gradUx_L,gradUy_L,gradUz_L,gradUx_R,gradUy_R,gradUz_R,nv &
                              ,mu,lambda)
 END SUBROUTINE ViscousFlux_Sides_CUDA
