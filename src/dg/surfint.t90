@@ -326,7 +326,6 @@ IF (PRESENT(doApplyJacobian)) doApplyJacobian_loc=doApplyJacobian
 nDOF = nElems*(Nloc+1)**2*(ZDIM(Nloc)+1)
 #if (PP_NodeType==1 || (PP_NodeType==2 && defined(EXACT_MM)))
 CALL SurfInt_Device_Single_Flux<<<nDOF/nThreads+1,nThreads,0,mystream>>>(&
->>>>>>> dwarfGALEXI
 #ifdef WITHnVars
         TP_nVar, &
 #endif

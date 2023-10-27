@@ -367,10 +367,10 @@ INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID          !< sent 
 INTEGER                     :: iNBProc
 !==================================================================================================================================
 ! Wait until computation of data is finished before sending. Else synchronize whole device. THIS IS COSTLY!!
-IF (PRESENT(streamID) THEN
-  CALL cudaStreamSynchronize(streamID)
+IF (PRESENT(streamID)) THEN
+  iError = cudaStreamSynchronize(streamID)
 ELSE
-  CALL cudaDeviceSynchronize()
+  iError = cudaDeviceSynchronize()
 ENDIF
 
 DO iNbProc=1,nNbProcs
