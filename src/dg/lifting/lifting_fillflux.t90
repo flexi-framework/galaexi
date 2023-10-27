@@ -36,8 +36,10 @@
 !> The flux is filled for the master side, the contribution for the slave side (which is different because the inner solution
 !> is equal to \f$ U^+ \f$) is taken into account in the SurfInt routine.
 !==================================================================================================================================
-PPURE SUBROUTINE Lifting_FillFlux(d_UPrimface_master,d_UPrimface_slave,d_Flux,doMPISides)
+PPURE SUBROUTINE Lifting_FillFlux(d_UPrimface_master,d_UPrimface_slave,d_Flux,doMPISides,streamID)
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU       ,ONLY:DefaultStream
 USE MOD_PreProc
 USE MOD_Lifting_Vars,    ONLY: d_LiftToPrim,doWeakLifting
 USE MOD_Mesh_Vars,       ONLY: d_SurfElem
@@ -51,11 +53,16 @@ LOGICAL,VALUE,INTENT(IN)  :: doMPISides                                         
 REAL,DEVICE,INTENT(INOUT) :: d_UPrimface_master(PP_nVarPrim   ,0:PP_N,0:PP_NZ,nSides) !< Solution on master sides
 REAL,DEVICE,INTENT(INOUT) :: d_UPrimface_slave( PP_nVarPrim   ,0:PP_N,0:PP_NZ,nSides) !< Solution on slave sides
 REAL,DEVICE,INTENT(INOUT) :: d_Flux(            PP_nVarLifting,0:PP_N,0:PP_NZ,nSides) !< Untransformed lifting flux
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER            :: SideID,p,q,firstSideID,lastSideID,iVar
 REAL               :: sig
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 ! fill flux for sides ranging between firstSideID and lastSideID using Riemann solver
 IF(doMPISides)THEN
   ! fill only flux for MINE MPISides
@@ -70,7 +77,7 @@ END IF
 ! for strong form subtract solution from the inside
 sig = MERGE(1., -1., doWeakLifting)
 
-!$cuf kernel do(3) <<< *, *>>>
+!$cuf kernel do(3) <<< *, *, 0, mystream>>>
 DO SideID=firstSideID,lastSideID
   ! BR1 uses arithmetic mean value of states for the Riemann flux
   ! Transformation with NormVec is applied in separate routine
@@ -155,8 +162,10 @@ END SUBROUTINE Lifting_FillFlux_BC
 !> The untransformed fluxes is multiplied for each gradient direction by the corresponding normal vector,
 !> which is the second step of the transformation. We end up with the lifting fluxes for X/Y/Z direction.
 !==================================================================================================================================
-PPURE SUBROUTINE Lifting_FillFlux_NormVec(d_Flux,d_FluxX,d_FluxY,d_FluxZ,doMPISides)
+PPURE SUBROUTINE Lifting_FillFlux_NormVec(d_Flux,d_FluxX,d_FluxY,d_FluxZ,doMPISides,streamID)
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU       ,ONLY:DefaultStream
 USE MOD_PreProc
 USE MOD_Mesh_Vars,       ONLY: d_NormVec,nSides
 USE MOD_Mesh_Vars,       ONLY: firstMPISide_YOUR,lastMPISide_MINE,lastMPISide_YOUR
@@ -169,10 +178,15 @@ REAL,DEVICE,INTENT(IN)    :: d_Flux( PP_nVarLifting,0:PP_N,0:PP_NZ,1:nSides) !< 
 REAL,DEVICE,INTENT(INOUT) :: d_FluxX(PP_nVarLifting,0:PP_N,0:PP_NZ,1:nSides) !< Lifting boundary flux in x direction
 REAL,DEVICE,INTENT(INOUT) :: d_FluxY(PP_nVarLifting,0:PP_N,0:PP_NZ,1:nSides) !< Lifting boundary flux in y direction
 REAL,DEVICE,INTENT(INOUT) :: d_FluxZ(PP_nVarLifting,0:PP_N,0:PP_NZ,1:nSides) !< Lifting boundary flux in z direction
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER            :: firstSideID,lastSideID,SideID,p,q
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 ! fill flux for sides ranging between firstSideID and lastSideID using Riemann solver
 IF(doMPISides)THEN
   ! apply normal vector to YOUR
@@ -184,7 +198,7 @@ ELSE
    lastSideID = lastMPISide_MINE
 END IF
 
-!$cuf kernel do(3) <<< *, * >>>
+!$cuf kernel do(3) <<< *, *, 0, mystream >>>
 DO SideID=firstSideID,lastSideID
   DO q=0,PP_NZ; DO p=0,PP_N
     d_FluxX(:,p,q,SideID)=d_Flux(:,p,q,SideID)*d_NormVec(1,p,q,0,SideID)

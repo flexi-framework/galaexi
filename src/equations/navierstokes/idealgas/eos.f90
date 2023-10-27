@@ -366,8 +366,10 @@ END SUBROUTINE ConsToPrim_Side_CUDA
 !==================================================================================================================================
 !> Transformation from conservative variables to primitive variables on a single side
 !==================================================================================================================================
-PPURE SUBROUTINE ConsToPrim_Sides_CUDA(Nloc,nSides,prim,cons)
+PPURE SUBROUTINE ConsToPrim_Sides_CUDA(Nloc,nSides,prim,cons,streamID)
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU     ,ONLY:DefaultStream
 USE MOD_EOS_Vars,ONLY:Kappa,R
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -376,13 +378,18 @@ INTEGER,INTENT(IN)      :: Nloc       !< local polynomial degree of solution rep
 INTEGER,INTENT(IN)      :: nSides     !< number of sides in input array
 REAL,DEVICE,INTENT(IN)  :: cons(PP_nVar    ,0:Nloc,0:ZDIM(Nloc),nSides) !< vector of conservative variables
 REAL,DEVICE,INTENT(OUT) :: prim(PP_nVarPrim,0:Nloc,0:ZDIM(Nloc),nSides) !< vector of primitive variables
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER           :: nDOF
 INTEGER,PARAMETER :: nThreads=256
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 nDOF=(Nloc+1)*(ZDIM(Nloc)+1)*nSides
-CALL ConsToPrim_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,prim,cons,Kappa,R)
+CALL ConsToPrim_CUDA_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nDOF,prim,cons,Kappa,R)
 END SUBROUTINE ConsToPrim_Sides_CUDA
 
 !==================================================================================================================================
@@ -409,8 +416,10 @@ END SUBROUTINE ConsToPrim_Elem_CUDA
 !==================================================================================================================================
 !> Transformation from conservative variables to primitive variables in the whole volume
 !==================================================================================================================================
-PPURE SUBROUTINE ConsToPrim_Volume_CUDA(Nloc,prim,cons)
+PPURE SUBROUTINE ConsToPrim_Volume_CUDA(Nloc,prim,cons,streamID)
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU     ,ONLY:DefaultStream
 USE MOD_EOS_Vars,ONLY:Kappa,R
 USE MOD_Mesh_Vars,ONLY:nElems
 IMPLICIT NONE
@@ -419,13 +428,18 @@ IMPLICIT NONE
 INTEGER,INTENT(IN) :: Nloc                                                  !< local polynomial degree of solution representation
 REAL,DEVICE,INTENT(IN)    :: cons(PP_nVar    ,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< vector of conservative variables
 REAL,DEVICE,INTENT(OUT)   :: prim(PP_nVarPrim,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< vector of primitive variables
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER           :: nDOF
 INTEGER,PARAMETER :: nThreads=256
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 nDOF=(Nloc+1)*(Nloc+1)*(ZDIM(Nloc)+1)*nElems
-CALL ConsToPrim_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,prim,cons,Kappa,R)
+CALL ConsToPrim_CUDA_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nDOF,prim,cons,Kappa,R)
 END SUBROUTINE ConsToPrim_Volume_CUDA
 
 

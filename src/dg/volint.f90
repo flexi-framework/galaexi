@@ -123,7 +123,7 @@ END SUBROUTINE VolInt_weakForm_Visc
 !> Attention 2: input Ut is overwritten with the volume flux derivatives
 !==================================================================================================================================
 #ifndef SPLIT_DG
-SUBROUTINE VolInt_weakForm(d_Ut)
+SUBROUTINE VolInt_weakForm(d_Ut,streamID)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
 USE CUDAFOR

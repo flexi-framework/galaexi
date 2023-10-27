@@ -368,9 +368,9 @@ INTEGER                     :: iNBProc
 !==================================================================================================================================
 ! Wait until computation of data is finished before sending. Else synchronize whole device. THIS IS COSTLY!!
 IF (PRESENT(streamID)) THEN
-  iError = cudaStreamSynchronize(streamID)
+  IF(SUM(nMPISides_send(:,SendID)).GT.0) iError = cudaStreamSynchronize(streamID)
 ELSE
-  iError = cudaDeviceSynchronize()
+  IF(SUM(nMPISides_send(:,SendID)).GT.0) iError = cudaDeviceSynchronize()
 ENDIF
 
 DO iNbProc=1,nNbProcs
