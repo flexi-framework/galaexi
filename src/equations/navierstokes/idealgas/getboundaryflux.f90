@@ -482,9 +482,9 @@ CASE(3,4,9,91,23,24,25,27)
 
       ! (47) Set boundary state
       UPrim_boundary(DENS,p,q) = pb/(R*Tb) ! density based on boundary state
-      UPrim_boundary(VEL1,p,q) = U*DOT_PRODUCT(nv(:)*Normvec( :,p,q)) ! Contribution of magnitude in side-normal coords
-      UPrim_boundary(VEL2,p,q) = U*DOT_PRODUCT(nv(:)*Tangvec1(:,p,q)) ! in all three directions. Will then be transformed
-      UPrim_boundary(VEL3,p,q) = U*DOT_PRODUCT(nv(:)*Tangvec2(:,p,q)) ! correctly into global coordinates below
+      UPrim_boundary(VEL1,p,q) = U*DOT_PRODUCT(nv(:),Normvec( :,p,q)) ! Contribution of magnitude in side-normal coords
+      UPrim_boundary(VEL2,p,q) = U*DOT_PRODUCT(nv(:),Tangvec1(:,p,q)) ! in all three directions. Will then be transformed
+      UPrim_boundary(VEL3,p,q) = U*DOT_PRODUCT(nv(:),Tangvec2(:,p,q)) ! correctly into global coordinates below
       UPrim_boundary(PRES,p,q) = pb
       UPrim_boundary(TEMP,p,q) = Tb
     END DO; END DO !p,q
