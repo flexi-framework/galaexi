@@ -127,16 +127,16 @@ DO iSide=1,nBCSides
   locType =BoundaryType(BC(iSide),BC_TYPE)
   locState=BoundaryType(BC(iSide),BC_STATE)
 
-  ! Check if current BC requires Refstate
+  ! Check for max. Refstate used if current BC requires Refstate
   IF((locType.EQ. 2).OR.(locType.EQ. 4).OR. &
      (locType.EQ.23).OR.(locType.EQ.24).OR. &
-     (locType.EQ.25).OR.(locType.EQ.26)     ) MaxBCState = MAX(MaxBCState,locState)
+     (locType.EQ.25).OR.(locType.EQ.27)     ) MaxBCState = MAX(MaxBCState,locState)
 
   ! If required, check if Refstate available
   IF (locState.LT.1) THEN
     SELECT CASE (locType)
     CASE(4)
-      CALL Abort(__STAMP__,'No refstate defined to compute temperature for BC_TYPE',locType)
+      CALL Abort(__STAMP__,'No refstate (rho,x,x,x,p) defined to compute temperature from density and pressure for BC_TYPE',locType)
     CASE(23)
       CALL Abort(__STAMP__,'No outflow Mach number in refstate (x,Ma,x,x,x) defined for BC_TYPE',locType)
     CASE(24,25)
@@ -427,7 +427,7 @@ CASE(3,4,9,91,23,24,25,27)
       ! (28) set velocity depending on local flow direction (inflow/outflow), i.e. force outflow by setting normal velocity
       !      always to point outwards.
       IF (UPrim_boundary(VEL1,p,q)<0.) THEN
-        UPrim_boundary(VEL1,p,q) = ABS(UPrim_boundary(VEL1,p,q)) ! Multiplication with normal vector of side happens by
+        UPrim_boundary(VEL1,p,q) = ABS(UPrim_boundary(VEL1,p,q)) ! Multiplication with normal vector of side happens
         UPrim_boundary(VEL2,p,q) = 0.                            ! below by rotating back into global coordinate system
         UPrim_boundary(VEL3,p,q) = 0.
       END IF
