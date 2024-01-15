@@ -52,10 +52,6 @@ INTERFACE GetBoundaryFlux
   MODULE PROCEDURE GetBoundaryFlux
 END INTERFACE
 
-INTERFACE GetBoundaryState
-  MODULE PROCEDURE GetBoundaryState
-END INTERFACE
-
 INTERFACE FinalizeBC
   MODULE PROCEDURE FinalizeBC
 END INTERFACE
@@ -76,7 +72,6 @@ PUBLIC :: Lifting_GetBoundaryFlux
 PUBLIC :: InitBC
 PUBLIC :: GetBoundaryFlux
 PUBLIC :: FinalizeBC
-PUBLIC :: GetBoundaryState
 #if FV_ENABLED && FV_RECONSTRUCT
 PUBLIC :: GetBoundaryFVgradient
 #endif
@@ -135,6 +130,8 @@ DO iSide=1,nBCSides
   ! If required, check if Refstate available
   IF (locState.LT.1) THEN
     SELECT CASE (locType)
+    CASE(2)
+      CALL Abort(__STAMP__,'No refstate (rho,velx,vely,velz,p) defined for BC_TYPE',locType)
     CASE(4)
       CALL Abort(__STAMP__,'No refstate (rho,x,x,x,p) defined to compute temperature from density and pressure for BC_TYPE',locType)
     CASE(23)
@@ -249,74 +246,67 @@ END SUBROUTINE InitBC
 !==================================================================================================================================
 !> Computes the boundary state for the different boundary conditions.
 !==================================================================================================================================
-SUBROUTINE GetBoundaryState(SideID,t,Nloc,UPrim_boundary,UPrim_master,NormVec,TangVec1,TangVec2,Face_xGP)
+PPURE ATTRIBUTES(DEVICE) SUBROUTINE GetBoundaryState(Nloc, BCType, &
+                                                     UPrim_Out,UPrim_master,RefStatePrim, &
+                                                     NormVec,       TangVec1,    TangVec2    , Kappa, R)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
-USE MOD_PreProc
-USE MOD_Globals      ,ONLY: Abort
-USE MOD_Mesh_Vars    ,ONLY: BoundaryType,BC
-USE MOD_EOS          ,ONLY: ConsToPrim,PrimtoCons
-USE MOD_EOS          ,ONLY: PRESSURE_RIEMANN
-USE MOD_EOS_Vars     ,ONLY: sKappaM1,Kappa,KappaM1,R
-USE MOD_ExactFunc    ,ONLY: ExactFunc
-USE MOD_Equation_Vars,ONLY: IniExactFunc,BCDataPrim,RefStatePrim
+USE MOD_EOS,ONLY: PRESSURE_RIEMANN
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
-INTEGER,INTENT(IN)      :: SideID                                   !< ID of current side
-REAL,INTENT(IN)         :: t                                        !< current time (provided by time integration scheme)
-INTEGER,INTENT(IN)      :: Nloc                                     !< polynomial degree
-REAL,INTENT(IN)         :: UPrim_master(  PRIM,0:Nloc,0:ZDIM(Nloc)) !< inner surface solution
-REAL,INTENT(IN)         :: NormVec(          3,0:Nloc,0:ZDIM(Nloc)) !< normal surface vectors
-REAL,INTENT(IN)         :: TangVec1(         3,0:Nloc,0:ZDIM(Nloc)) !< tangent surface vectors 1
-REAL,INTENT(IN)         :: TangVec2(         3,0:Nloc,0:ZDIM(Nloc)) !< tangent surface vectors 2
-REAL,INTENT(IN)         :: Face_xGP(         3,0:Nloc,0:ZDIM(Nloc)) !< positions of surface flux points
-REAL,INTENT(OUT)        :: UPrim_boundary(PRIM,0:Nloc,0:ZDIM(Nloc)) !< resulting boundary state
+INTEGER,VALUE,INTENT(IN)       :: Nloc     !< local polynomial degree
+INTEGER,VALUE,INTENT(IN)       :: BCType   !< type of BC
+REAL,VALUE,INTENT(IN)          :: Kappa    !< isentropic coefficient
+REAL,VALUE,INTENT(IN)          :: R        !< specific gas constant
+REAL,DEVICE,INTENT(IN)         :: UPrim_master(  PRIM,0:Nloc,0:ZDIM(Nloc)) !< inner surface solution
+REAL,DEVICE,INTENT(IN)         :: RefStatePrim(  PRIM                    ) !< RefState at boundary
+REAL,DEVICE,INTENT(IN)         :: NormVec(          3,0:Nloc,0:ZDIM(Nloc)) !< normal surface vectors
+REAL,DEVICE,INTENT(IN)         :: TangVec1(         3,0:Nloc,0:ZDIM(Nloc)) !< tangent surface vectors 1
+REAL,DEVICE,INTENT(IN)         :: TangVec2(         3,0:Nloc,0:ZDIM(Nloc)) !< tangent surface vectors 2
+REAL,DEVICE,INTENT(OUT)        :: UPrim_Out(     PRIM,0:Nloc,0:ZDIM(Nloc)) !< resulting boundary state
 ! INPUT / OUTPUT VARIABLES
 !-----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER                 :: p,q
-INTEGER                 :: BCType,BCState
 REAL,DIMENSION(PP_nVar) :: Cons
 REAL                    :: Ma,MaOut,c,cb,pt,pb ! for BCType==23,24,25.27
 REAL                    :: U,Tb,Tt,tmp1,tmp2,tmp3,A,Rplus,nv(3) ! for BCType==27
+REAL                    :: UPrim_boundary(PRIM,0:Nloc,0:ZDIM(Nloc)) !< resulting boundary state
 !===================================================================================================================================
-BCType  = Boundarytype(BC(SideID),BC_TYPE)
-BCState = Boundarytype(BC(SideID),BC_STATE)
-
 SELECT CASE(BCType)
 CASE(2) ! Exact function or refstate
-  IF(BCState.EQ.0)THEN
+  !IF(BCState.EQ.0)THEN
+  !  DO q=0,ZDIM(Nloc); DO p=0,Nloc
+  !    CALL ExactFunc(IniExactFunc,t,Face_xGP(:,p,q),Cons)
+  !    CALL ConsToPrim(UPrim_boundary(:,p,q),Cons)
+  !  END DO; END DO
+  !ELSE
     DO q=0,ZDIM(Nloc); DO p=0,Nloc
-      CALL ExactFunc(IniExactFunc,t,Face_xGP(:,p,q),Cons)
-      CALL ConsToPrim(UPrim_boundary(:,p,q),Cons)
+      UPrim_out(:,p,q) = RefStatePrim(:)
     END DO; END DO
-  ELSE
-    DO q=0,ZDIM(Nloc); DO p=0,Nloc
-      UPrim_boundary(:,p,q) = RefStatePrim(:,BCState)
-    END DO; END DO
-  END IF
+  !END IF
 
-CASE(12)  ! Dirichlet-type: BCState from readin state
-  UPrim_boundary(:,:,:) = BCDataPrim(:,:,:,SideID)
-
-CASE(121) ! Dirichlet-type:BCState from exact function computed once at the beginning of the simulation
-  UPrim_boundary(:,:,:) = BCDataPrim(:,:,:,SideID)
-
-CASE(22)  ! Dirichlet-type: BCState specifies exactfunc to be used
-  DO q=0,ZDIM(Nloc); DO p=0,Nloc
-    CALL ExactFunc(BCState,t,Face_xGP(:,p,q),Cons)
-    CALL ConsToPrim(UPrim_boundary(:,p,q),Cons)
-  END DO; END DO
+!CASE(12)  ! Dirichlet-type: BCState from readin state
+!  UPrim_boundary(:,:,:) = BCDataPrim(:,:,:,SideID)
+!
+!CASE(121) ! Dirichlet-type:BCState from exact function computed once at the beginning of the simulation
+!  UPrim_boundary(:,:,:) = BCDataPrim(:,:,:,SideID)
+!
+!CASE(22)  ! Dirichlet-type: BCState specifies exactfunc to be used
+!  DO q=0,ZDIM(Nloc); DO p=0,Nloc
+!    CALL ExactFunc(BCState,t,Face_xGP(:,p,q),Cons)
+!    CALL ConsToPrim(UPrim_boundary(:,p,q),Cons)
+!  END DO; END DO
 
 CASE(3,4,9,91,23,24,25,27)
   ! Initialize boundary state with rotated inner state
   DO q=0,ZDIM(Nloc); DO p=0,Nloc
     ! transform state into normal system
     UPrim_boundary(DENS,p,q)     = UPrim_master(DENS,p,q)
-    UPrim_boundary(VEL1,p,q)     = SUM(UPrim_master(VELV,p,q)*NormVec( :,p,q))
-    UPrim_boundary(VEL2,p,q)     = SUM(UPrim_master(VELV,p,q)*TangVec1(:,p,q))
-    UPrim_boundary(VEL3,p,q)     = SUM(UPrim_master(VELV,p,q)*TangVec2(:,p,q))
+    UPrim_boundary(VEL1,p,q)     = DOT_PRODUCT(UPrim_master(VELV,p,q),NormVec( :,p,q))
+    UPrim_boundary(VEL2,p,q)     = DOT_PRODUCT(UPrim_master(VELV,p,q),TangVec1(:,p,q))
+    UPrim_boundary(VEL3,p,q)     = DOT_PRODUCT(UPrim_master(VELV,p,q),TangVec2(:,p,q))
     UPrim_boundary(PRES,p,q)     = UPrim_master(PRES,p,q)
     UPrim_boundary(TEMP,p,q)     = UPrim_master(TEMP,p,q)
   END DO; END DO !p,q
@@ -326,7 +316,7 @@ CASE(3,4,9,91,23,24,25,27)
     ! For adiabatic wall all gradients are 0
     ! We reconstruct the BC State, rho=rho_L, velocity=0, rhoE_wall = p_Riemann/(Kappa-1)
     DO q=0,ZDIM(Nloc); DO p=0,Nloc
-      UPrim_boundary(PRES,p,q) = PRESSURE_RIEMANN(UPrim_boundary(:,p,q)) ! pressure from solving local Riemann problem
+      UPrim_boundary(PRES,p,q) = PRESSURE_RIEMANN(UPrim_boundary(:,p,q),Kappa) ! pressure from solving local Riemann problem
       UPrim_boundary(VELV,p,q) = 0.                                      ! no slip
       UPrim_boundary(TEMP,p,q) = UPrim_master(TEMP,p,q)                  ! adiabatic => temperature from the inside
       ! set density via ideal gas equation, consistent to pressure and temperature
@@ -338,9 +328,9 @@ CASE(3,4,9,91,23,24,25,27)
     ! We reconstruct the BC State, rho=rho_L, velocity=0, rhoE_wall =  rho_L*C_v*Twall
     DO q=0,ZDIM(Nloc); DO p=0,Nloc
       ! Set pressure by solving local Riemann problem
-      UPrim_boundary(PRES,p,q) = PRESSURE_RIEMANN(UPrim_boundary(:,p,q)) ! pressure from solving local Riemann problem
+      UPrim_boundary(PRES,p,q) = PRESSURE_RIEMANN(UPrim_boundary(:,p,q),Kappa) ! pressure from solving local Riemann problem
       UPrim_boundary(VELV,p,q) = 0.                                      ! no slip
-      UPrim_boundary(TEMP,p,q) = RefStatePrim(TEMP,BCState)              ! temperature from RefState
+      UPrim_boundary(TEMP,p,q) = RefStatePrim(TEMP)                      ! temperature from RefState
       ! set density via ideal gas equation, consistent to pressure and temperature
       UPrim_boundary(DENS,p,q) = UPrim_boundary(PRES,p,q)/(UPrim_boundary(TEMP,p,q)*R)
     END DO; END DO ! q,p
@@ -350,7 +340,7 @@ CASE(3,4,9,91,23,24,25,27)
     ! NOTE: from this state ONLY the velocities should actually be used for the diffusive flux
     DO q=0,ZDIM(Nloc); DO p=0,Nloc
       ! Set pressure by solving local Riemann problem
-      UPrim_boundary(PRES,p,q) = PRESSURE_RIEMANN(UPrim_boundary(:,p,q)) ! pressure from solving local Riemann problem
+      UPrim_boundary(PRES,p,q) = PRESSURE_RIEMANN(UPrim_boundary(:,p,q),Kappa) ! pressure from solving local Riemann problem
       UPrim_boundary(VEL1,p,q) = 0.                                      ! slip in tangential directions
       ! Density is chosen from the inside, following
       ! "Riemann Solvers and Numerical Methods for Fluid Dynamics", Toro (Chapter 6.3.3 Boundary Conditions)
@@ -369,19 +359,19 @@ CASE(3,4,9,91,23,24,25,27)
     ! NOTE: Should not be used with adjacent walls (destroys boundary layer profile, like exact function)
     ! Refstate for this case is special, VelocityX specifies outlet mach number
     ! State: (/dummy,MaOut,dummy,dummy,dummy/)
-    MaOut=RefStatePrim(2,BCState) ! Mach number prescribed by user. Corresponds to M_set in paper
+    MaOut=RefStatePrim(2) ! Mach number prescribed by user. Corresponds to M_set in paper
     DO q=0,ZDIM(Nloc); DO p=0,Nloc
       c  = SQRT(kappa*UPrim_boundary(PRES,p,q)/UPrim_boundary(DENS,p,q)) ! (19) local speed of sound from inside
       Ma = UPrim_Boundary(VEL1,p,q)/c                                    ! (20) Mach number based on (inner) side-normal component
       ! (23) set pressure depending on subsonic or supersonic case
       IF(Ma<1) THEN ! subsonic
         ! Compute local total pressure pt based on local (inner) Mach number and local (inner) pressure with isentropic relation
-        pt = UPrim_boundary(PRES,p,q)*((1+0.5*(kappa-1)*Ma   *Ma)   **( kappa*sKappaM1)) ! (21)
+        pt = UPrim_boundary(PRES,p,q)*((1+0.5*(kappa-1)*Ma   *Ma)   **( kappa/(kappa-1.))) ! (21)
         ! Compute local boundary pressure based on local total pressure pt and prescribed boundary Mach number MaOut
-        pb =                       pt*((1+0.5*(kappa-1)*MaOut*MaOut)**(-kappa*sKappaM1)) ! (22)
+        pb =                       pt*((1+0.5*(kappa-1)*MaOut*MaOut)**(-kappa/(kappa-1.))) ! (22)
       ELSE
         ! Supersonic: Use local (inner) total pressure instead
-        pb = UPrim_boundary(PRES,p,q)+0.5*UPrim_boundary(DENS,p,q)*NORM2(UPrim_Boundary(VELV,p,q))**2
+        pb = UPrim_boundary(PRES,p,q)+0.5*UPrim_boundary(DENS,p,q)*DOT_PRODUCT(UPrim_Boundary(VELV,p,q),UPrim_Boundary(VELV,p,q))
       END IF
       ! (24) Set boundary state
       UPrim_boundary(DENS,p,q) = kappa*pb/(c*c)           ! Density based on inner speed of sound and boundary pressure
@@ -399,7 +389,7 @@ CASE(3,4,9,91,23,24,25,27)
       ! (25) set pressure depending on subsonic or supersonic case
       IF(Ma<1) THEN ! subsonic
         ! (26) Set boundary state
-        pb = RefStatePrim(5,BCState)                        ! Pressure prescribed at boundary by user
+        pb = RefStatePrim(5)                                ! Pressure prescribed at boundary by user
         UPrim_boundary(DENS,p,q) = kappa*pb/(c*c)           ! Density based on inner speed of sound and boundary pressure
         UPrim_boundary(VELV,p,q) = UPrim_boundary(VELV,p,q) ! Velocity from inner state
         UPrim_boundary(PRES,p,q) = pb                       ! Pressure
@@ -419,10 +409,10 @@ CASE(3,4,9,91,23,24,25,27)
       ! (27) set pressure depending on subsonic or supersonic case
       IF(Ma<1) THEN
         ! Subsonic: pressure prescribed at boundary
-        pb = RefStatePrim(5,BCState)
+        pb = RefStatePrim(5)
       ELSE
         ! Supersonic: set local (inner) total pressure
-        pb = UPrim_boundary(PRES,p,q)+0.5*UPrim_boundary(DENS,p,q)*NORM2(UPrim_Boundary(VELV,p,q))
+        pb = UPrim_boundary(PRES,p,q)+0.5*UPrim_boundary(DENS,p,q)*DOT_PRODUCT(UPrim_Boundary(VELV,p,q),UPrim_Boundary(VELV,p,q))
       ENDIF
       ! (28) set velocity depending on local flow direction (inflow/outflow), i.e. force outflow by setting normal velocity
       !      always to point outwards.
@@ -433,7 +423,7 @@ CASE(3,4,9,91,23,24,25,27)
       END IF
       ! (29) Set boundary state
       UPrim_boundary(DENS,p,q) = kappa*pb/(c*c)
-      UPrim_boundary(PRES,p,q) = RefStatePrim(5,BCState) ! always outflow pressure
+      UPrim_boundary(PRES,p,q) = RefStatePrim(5) ! always outflow pressure
       ! set temperature via ideal gas equation, consistent to density and pressure
       UPrim_boundary(TEMP,p,q) = UPrim_boundary(PRES,p,q)/(R*UPrim_boundary(DENS,p,q))
     END DO; END DO !p,q
@@ -445,9 +435,9 @@ CASE(3,4,9,91,23,24,25,27)
     ! alpha and beta in (40), (41) and (43). Correction is proposed below based on the paper
     !   "Verification Assessment of Flow Boundary Conditions for CFD", John W. Slater, AIAA 3882, 2001.
 
-    Tt=RefStatePrim(1  ,BCState) ! Prescribed stagnation temperature
-    nv=RefStatePrim(2:4,BCState) ! Vector a(1:3) from AIAA paper. Was precomputed in ini routine. NOT the alpha and beta angle
-    pt=RefStatePrim(5  ,BCState) ! Prescribed stagnation pressure
+    Tt=RefStatePrim(1  ) ! Prescribed stagnation temperature
+    nv=RefStatePrim(2:4) ! Vector a(1:3) from AIAA paper. Was precomputed in ini routine. NOT the alpha and beta angle
+    pt=RefStatePrim(5  ) ! Prescribed stagnation pressure
 
     DO q=0,ZDIM(Nloc); DO p=0,Nloc
       ! Term A from AIAA paper. Describes projection of BC velocity in global coordinates to side-normal component.
@@ -455,8 +445,8 @@ CASE(3,4,9,91,23,24,25,27)
       A=-1.*DOT_PRODUCT(nv(:),NormVec(:,p,q)) ! (7) in AIAA paper
 
       c=SQRT(kappa*UPrim_boundary(PRES,p,q)/UPrim_boundary(DENS,p,q)) ! (19) local speed of sound from inside
-      ! 1D Riemann invariant: Rplus = U_i+2*c_i/kappaM1, Rminus = U_b-2c_b/kappaM1, normal component only!
-      Rplus=-UPrim_boundary(VEL1,p,q)-2.*c/KappaM1 ! (37) compute outward propagating invariant based on inner state
+      ! 1D Riemann invariant: Rplus = U_i+2*c_i/(kappa-1), Rminus = U_b-2c_b/(kappa-1), normal component only!
+      Rplus=-UPrim_boundary(VEL1,p,q)-2.*c/(kappa-1.) ! (37) compute outward propagating invariant based on inner state
 
       ! ATTENTION: Extrapolated Riemann invariant (39) must be computed based on NORMAL component of velocity U_b only.
       !            However, total enthalpy (38) must be computed based on overall MAGNITUDE of velocity U_b.
@@ -466,19 +456,19 @@ CASE(3,4,9,91,23,24,25,27)
       !                  H_t = c_b^2/(gamma-1) + 1/2*[1/A*(R^+ +2*c_b/(gamma-1))]^2
       !            This is identical to rewriting (5) from AIAA paper in terms of sound speed and solving resulting quad. equation.
       !            Re-arranging above equation as a quadratic equation in c_b yields the correct coefficients as
-      tmp1 = A**2 + 2./KappaM1                     ! (43) a
-      tmp2 = 2*Rplus                               ! (43) b
-      tmp3 = KappaM1/2.*Rplus**2 - Kappa*R*Tt*A**2 ! (43) c NOTE: for ideal gas: H = c_p*T = Kappa/(Kappa-1)*R*T
+      tmp1 = A**2 + 2./(kappa-1.)                     ! (43) a
+      tmp2 = 2*Rplus                                  ! (43) b
+      tmp3 = (kappa-1.)/2.*Rplus**2 - Kappa*R*Tt*A**2 ! (43) c NOTE: for ideal gas: H = c_p*T = Kappa/(Kappa-1)*R*T
 
       ! (44) The max. of the two solutions is the physical one
       cb=MAX( (-tmp2+SQRT(tmp2**2-4*tmp1*tmp3))/(2*tmp1),&  ! (42) solution 1
               (-tmp2-SQRT(tmp2**2-4*tmp1*tmp3))/(2*tmp1) )  ! (42) solution 2
 
       ! Compute remaining variables at boundary (different to paper)
-      Tb = cb**2/(Kappa*R)                             ! via c^2=kappa*R*T
-      Ma = SQRT(2./KappaM1*(Tt/Tb-1.))                 ! (46) yields Tt/Tb = 1+(kappa-1)/2*M^2
-      pb = pt*(1.+0.5*KappaM1*Ma**2)**(-kappa/kappam1) ! (46) ATTENTION: in paper wrong sign in exponent for pressure
-      U  = Ma*SQRT(Kappa*R*Tb)                         ! Velocity magnitude via Mach number
+      Tb = cb**2/(Kappa*R)                                   ! via c^2=kappa*R*T
+      Ma = SQRT(2./(kappa-1.)*(Tt/Tb-1.))                    ! (46) yields Tt/Tb = 1+(kappa-1)/2*M^2
+      pb = pt*(1.+0.5*(kappa-1.)*Ma**2)**(-kappa/(kappa-1.)) ! (46) ATTENTION: in paper wrong sign in exponent for pressure
+      U  = Ma*SQRT(Kappa*R*Tb)                               ! Velocity magnitude via Mach number
 
       ! (47) Set boundary state
       UPrim_boundary(DENS,p,q) = pb/(R*Tb) ! density based on boundary state
@@ -492,19 +482,15 @@ CASE(3,4,9,91,23,24,25,27)
 
   ! rotate state back to physical system
   DO q=0,ZDIM(Nloc); DO p=0,Nloc
-    UPrim_boundary(VELV,p,q) = UPrim_boundary(VEL1,p,q)*NormVec( :,p,q) &
-                             + UPrim_boundary(VEL2,p,q)*TangVec1(:,p,q) &
-                             + UPrim_boundary(VEL3,p,q)*TangVec2(:,p,q)
+    UPrim_Out(DENS,p,q) = UPrim_boundary(DENS,p,q)
+    UPrim_Out(VELV,p,q) = UPrim_boundary(VEL1,p,q)*NormVec( :,p,q) &
+                        + UPrim_boundary(VEL2,p,q)*TangVec1(:,p,q) &
+                        + UPrim_boundary(VEL3,p,q)*TangVec2(:,p,q)
+    UPrim_Out(PRES,p,q) = UPrim_boundary(PRES,p,q)
+    UPrim_Out(TEMP,p,q) = UPrim_boundary(TEMP,p,q)
   END DO; END DO
 
-CASE(1) !Periodic already filled!
-  CALL Abort(__STAMP__, &
-      "GetBoundaryState called for periodic side!")
-CASE DEFAULT ! unknown BCType
-  CALL Abort(__STAMP__,&
-       'no BC defined in navierstokes/getboundaryflux.f90!')
 END SELECT ! BCType
-
 END SUBROUTINE GetBoundaryState
 
 
@@ -513,49 +499,95 @@ END SUBROUTINE GetBoundaryState
 !> Calls GetBoundaryState and directly uses the returned values for all Riemann-type BCs.
 !> For other types of BCs, we directly compute the flux on the interface.
 !==================================================================================================================================
-SUBROUTINE GetBoundaryFlux(SideID,t,Nloc,Flux,UPrim_master,                   &
+SUBROUTINE GetBoundaryFlux(nSides,Nloc,Flux,UPrim_master,&
 #if PARABOLIC
                            gradUx_master,gradUy_master,gradUz_master,&
 #endif
-                           NormVec,TangVec1,TangVec2,Face_xGP)
+                           NormVec,TangVec1,TangVec2)
 ! MODULES
-USE MOD_PreProc
-USE MOD_Globals      ,ONLY: Abort
-USE MOD_Mesh_Vars    ,ONLY: BoundaryType,BC
-USE MOD_EOS          ,ONLY: PrimToCons,ConsToPrim
-USE MOD_ExactFunc    ,ONLY: ExactFunc
-#if PARABOLIC
-USE MOD_Flux         ,ONLY: EvalDiffFlux3D
-USE MOD_Riemann      ,ONLY: ViscousFlux
-#endif
-USE MOD_Riemann      ,ONLY: Riemann
-#if EDDYVISCOSITY
-USE MOD_EddyVisc_Vars,ONLY: muSGS_master
-#endif
-USE MOD_TestCase     ,ONLY: GetBoundaryFluxTestcase
-USE MOD_DG_Vars      ,ONLY: UPrim_Boundary
+USE MOD_Equation_Vars,ONLY: nRefState,RefStatePrim
+USE MOD_Mesh_Vars    ,ONLY: BoundaryType,BC,nBCs,nBCSides
+USE MOD_EOS_Vars     ,ONLY: Kappa,R
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
-INTEGER,INTENT(IN)   :: SideID                                         !< ID of current side
-REAL,INTENT(IN)      :: t                                              !< current time (provided by time integration scheme)
-INTEGER,INTENT(IN)   :: Nloc                                           !< polynomial degree
-REAL,INTENT(IN)      :: UPrim_master( PP_nVarPrim,0:Nloc,0:ZDIM(Nloc)) !< inner surface solution
+INTEGER,INTENT(IN)      :: nSides   !< number of sides to consider
+INTEGER,INTENT(IN)      :: Nloc     !< polynomial degree
+REAL,DEVICE,INTENT(IN)  :: UPrim_master( PP_nVarPrim   ,0:Nloc,0:ZDIM(Nloc),nSides) !< inner surface solution
 #if PARABOLIC
-REAL,INTENT(IN)      :: gradUx_master(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc)) !< inner surface solution gradients in x-direction
-REAL,INTENT(IN)      :: gradUy_master(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc)) !< inner surface solution gradients in y-direction
-REAL,INTENT(IN)      :: gradUz_master(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc)) !< inner surface solution gradients in z-direction
+REAL,DEVICE,INTENT(IN)  :: gradUx_master(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc),nSides) !< inner surface solution gradients in x-direction
+REAL,DEVICE,INTENT(IN)  :: gradUy_master(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc),nSides) !< inner surface solution gradients in y-direction
+REAL,DEVICE,INTENT(IN)  :: gradUz_master(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc),nSides) !< inner surface solution gradients in z-direction
 #endif /*PARABOLIC*/
-REAL,INTENT(IN)      :: NormVec (3,0:Nloc,0:ZDIM(Nloc))                !< normal vector on surfaces
-REAL,INTENT(IN)      :: TangVec1(3,0:Nloc,0:ZDIM(Nloc))                !< tangential1 vector on surfaces
-REAL,INTENT(IN)      :: TangVec2(3,0:Nloc,0:ZDIM(Nloc))                !< tangential2 vector on surfaces
-REAL,INTENT(IN)      :: Face_xGP(3,0:Nloc,0:ZDIM(Nloc))                !< positions of surface flux points
-REAL,INTENT(OUT)     :: Flux(PP_nVar,0:Nloc,0:ZDIM(Nloc))              !< resulting boundary fluxes
+REAL,DEVICE,INTENT(IN)  :: NormVec (  3,0:Nloc,0:ZDIM(Nloc),1,nSides) !< normal vector on surfaces
+REAL,DEVICE,INTENT(IN)  :: TangVec1(  3,0:Nloc,0:ZDIM(Nloc),1,nSides) !< tangential1 vector on surfaces
+REAL,DEVICE,INTENT(IN)  :: TangVec2(  3,0:Nloc,0:ZDIM(Nloc),1,nSides) !< tangential2 vector on surfaces
+REAL,DEVICE,INTENT(OUT) :: Flux(PP_nVar,0:Nloc,0:ZDIM(Nloc),nSides)   !< resulting boundary fluxes
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER                              :: p,q
-INTEGER                              :: BCType,BCState
-REAL                                 :: UCons_boundary(PP_nVar    ,0:Nloc,0:ZDIM(Nloc))
-REAL                                 :: UCons_master  (PP_nVar    ,0:Nloc,0:ZDIM(Nloc))
+INTEGER,PARAMETER :: nThreads=256
+INTEGER           :: nDOF,i
+INTEGER,DEVICE    :: d_BCType( nSides)
+INTEGER,DEVICE    :: d_BCState(nSides)
+REAL,DEVICE    :: d_RefStatePrim(PP_nVarPrim,nRefState)
+INTEGER           :: BCType( nSides)
+INTEGER           :: BCState(nSides)
+REAL,DEVICE     :: tmp1(nSides)
+REAL           :: tmp2(nSides)
+!==================================================================================================================================
+! TODO: Move to ini
+DO i=1,nSides
+  BCState(i) = Boundarytype(BC(i),BC_STATE)
+  BCType( i) = Boundarytype(BC(i),BC_TYPE )
+END DO
+d_BCType       = BCType
+d_BCState      = BCState
+d_RefStatePrim = RefStatePrim
+
+nDOF=(Nloc+1)*(ZDIM(Nloc)+1)*nSides
+
+CALL GetBoundaryFlux_GPU<<<nDOF/nThreads+1,nThreads>>>(nDOF,Nloc,Flux,UPrim_master,nRefState,d_RefStatePrim, &
+#if PARABOLIC
+                                                       gradUx_master,gradUy_master,gradUz_master,&
+#endif
+                                                       NormVec,TangVec1,TangVec2,nSides,d_BCType,d_BCState,Kappa,R)
+END SUBROUTINE GetBoundaryFlux
+
+!==================================================================================================================================
+!> Computes the boundary fluxes for a given face (defined by SideID).
+!> Calls GetBoundaryState and directly uses the returned values for all Riemann-type BCs.
+!> For other types of BCs, we directly compute the flux on the interface.
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE GetBoundaryFlux_GPU(nDOF,Nloc,Flux,UPrim_master,nRefState,RefStatePrim,&
+#if PARABOLIC
+                                                  gradUx_master,gradUy_master,gradUz_master,&
+#endif
+                                                  NormVec,TangVec1,TangVec2,nSides,BCType,BCState,Kappa,R)
+! MODULES
+USE MOD_EOS,     ONLY: PrimToCons
+USE MOD_Riemann, ONLY: Riemann
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN) :: nDOF       !< ID of current side
+INTEGER,VALUE,INTENT(IN) :: Nloc       !< polynomial degree
+INTEGER,VALUE,INTENT(IN) :: nSides     !< number of sides to consider
+INTEGER,VALUE,INTENT(IN) :: nRefState  !< number of RefStates provided
+REAL,VALUE,INTENT(IN)    :: Kappa      !< isentropic coefficient
+REAL,VALUE,INTENT(IN)    :: R          !< specific gas constant
+REAL,INTENT(IN)      :: UPrim_master( PP_nVarPrim   ,nDOF)      !< inner surface solution
+REAL,INTENT(IN)      :: RefStatePrim( PP_nVarPrim   ,nRefState) !< inner surface solution
+#if PARABOLIC
+REAL,INTENT(IN)      :: gradUx_master(PP_nVarLifting,nDOF) !< inner surface solution gradients in x-direction
+REAL,INTENT(IN)      :: gradUy_master(PP_nVarLifting,nDOF) !< inner surface solution gradients in y-direction
+REAL,INTENT(IN)      :: gradUz_master(PP_nVarLifting,nDOF) !< inner surface solution gradients in z-direction
+#endif /*PARABOLIC*/
+REAL,INTENT(IN)      :: NormVec (3,nDOF)     !< normal vector on surfaces
+REAL,INTENT(IN)      :: TangVec1(3,nDOF)     !< tangential1 vector on surfaces
+REAL,INTENT(IN)      :: TangVec2(3,nDOF)     !< tangential2 vector on surfaces
+INTEGER,INTENT(IN)   :: BCType( nSides)      !< positions of surface flux points
+INTEGER,INTENT(IN)   :: BCState(nSides)      !< positions of surface flux points
+REAL,INTENT(OUT)     :: Flux(PP_nVar,nDOF)   !< resulting boundary fluxes
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
 #if PARABOLIC
 INTEGER                              :: iVar
 REAL                                 :: nv(3),tv1(3),tv2(3)
@@ -573,29 +605,37 @@ REAL                                 :: gradUx_vTang2,gradUy_vTang2,gradUz_vNorm
 REAL                                 :: gradUn_vTang2,gradUt1_vTang2,gradUt2_vNormal,gradUt2_vTang1,gradUt2_vTang2
 #endif
 #endif /*PARABOLIC*/
+REAL                  :: UPrim_Boundary(PP_nVarPrim)
+INTEGER               :: i,SideID,myBCState,myBCType
+REAL                  :: UCons_boundary(PP_nVar)
+REAL                  :: UCons_master  (PP_nVar)
 !==================================================================================================================================
-BCType  = Boundarytype(BC(SideID),BC_TYPE)
-BCState = Boundarytype(BC(SideID),BC_STATE)
+i = (blockidx%x-1) * blockdim%x + threadidx%x ! But first, let me take a selfie!
+SideID = (i-1)/(Nloc+1)**2+1 ! Get own SideID
 
-IF (BCType.LT.0) THEN ! testcase boundary condition
-  CALL GetBoundaryFluxTestcase(SideID,t,Nloc,Flux,UPrim_master,              &
-#if PARABOLIC
-                               gradUx_master,gradUy_master,gradUz_master,&
-#endif
-                               NormVec,TangVec1,TangVec2,Face_xGP)
-ELSE
-  CALL GetBoundaryState(SideID,t,Nloc,UPrim_boundary,UPrim_master,&
-      NormVec,TangVec1,TangVec2,Face_xGP)
+IF (SideID.GT.nSides) RETURN ! Last partial wave. Do nothing if thread exceeds array limits
 
-  SELECT CASE(BCType)
+! Get BC state and type of current thread
+myBCState = BCState(SideID)
+myBCType  = BCType( SideID)
+
+!IF (BCType.LT.0) THEN ! testcase boundary condition
+!  CALL GetBoundaryFluxTestcase(SideID,t,Nloc,Flux,UPrim_master,              &
+!#if PARABOLIC
+!                               gradUx_master,gradUy_master,gradUz_master,&
+!#endif
+!                               NormVec,TangVec1,TangVec2,Face_xGP)
+!ELSE
+  CALL GetBoundaryState(0,myBCType,&
+                        UPrim_Boundary(:),UPrim_master(:,i),RefStatePrim(:,myBCState),&
+                             NormVec(:,i),    TangVec1(:,i),          TangVec2(:,i),&
+                        Kappa, R)
+  SELECT CASE(myBCType)
   CASE(2,12,121,22,23,24,25,27) ! Riemann-Type BCs
-    DO q=0,ZDIM(Nloc); DO p=0,Nloc
-      CALL PrimToCons(UPrim_master(:,p,q),  UCons_master(:,p,q))
-      CALL PrimToCons(UPrim_boundary(:,p,q),UCons_boundary(:,p,q))
-    END DO; END DO ! p,q=0,PP_N
-    CALL ABORT(__STAMP__,"Commented out due to inconsistent interfaces.")
-    !CALL Riemann(Nloc,Flux,UCons_master,UCons_boundary,UPrim_master,UPrim_boundary, &
-    !    NormVec,TangVec1,TangVec2,doBC=.TRUE.)
+    CALL PrimToCons(UPrim_master(:,i),  UCons_master(:),Kappa)
+    CALL PrimToCons(UPrim_boundary(:),UCons_boundary(:),Kappa)
+    CALL Riemann(Flux(:,i),UCons_master,UCons_boundary,UPrim_master(:,i),UPrim_boundary, &
+        NormVec(:,i),TangVec1(:,i),TangVec2(:,i),Kappa)
 #if PARABOLIC
     CALL ViscousFlux(Nloc,Fd_Face_loc,UPrim_master,UPrim_boundary,&
          gradUx_master,gradUy_master,gradUz_master,&
@@ -612,13 +652,11 @@ ELSE
 #if EDDYVISCOSITY
     muSGS_master(:,:,:,SideID)=0.
 #endif
-    DO q=0,ZDIM(Nloc); DO p=0,Nloc
-      ! Now we compute the 1D Euler flux, but use the info that the normal component u=0
-      ! we directly tranform the flux back into the Cartesian coords: F=(0,n1*p,n2*p,n3*p,0)^T
-      Flux(DENS,p,q) = 0.
-      Flux(MOMV,p,q) = UPrim_boundary(PRES,p,q)*NormVec(:,p,q)
-      Flux(ENER,p,q) = 0.
-    END DO; END DO !p,q
+    ! Now we compute the 1D Euler flux, but use the info that the normal component u=0
+    ! we directly tranform the flux back into the Cartesian coords: F=(0,n1*p,n2*p,n3*p,0)^T
+    Flux(DENS,i) = 0.
+    Flux(MOMV,i) = UPrim_boundary(PRES)*NormVec(:,i)
+    Flux(ENER,i) = 0.
     ! Diffusion
 #if PARABOLIC
     SELECT CASE(BCType)
@@ -808,13 +846,9 @@ ELSE
     END DO ! iVar
 #endif /*PARABOLIC*/
 
-  CASE(1) !Periodic already filled!
-  CASE DEFAULT ! unknown BCType
-    CALL Abort(__STAMP__,&
-        'no BC defined in navierstokes/getboundaryflux.f90!')
   END SELECT
-END IF ! BCType < 0
-END SUBROUTINE GetBoundaryFlux
+!END IF ! BCType < 0
+END SUBROUTINE GetBoundaryFlux_GPU
 
 
 #if FV_ENABLED && FV_RECONSTRUCT
@@ -1042,7 +1076,6 @@ DEALLOCATE(U_local)
 
 SWRITE(UNIT_stdOut,'(A)')'  done initializing BC state!'
 END SUBROUTINE ReadBCFlow
-
 
 !==================================================================================================================================
 !> Finalize arrays used for boundary conditions.
