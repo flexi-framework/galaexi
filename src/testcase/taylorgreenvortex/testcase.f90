@@ -257,6 +257,10 @@ USE MOD_Mesh_Vars,      ONLY: nElems
 #if USE_MPI
 USE MOD_MPI_Vars
 #endif
+!@cuf USE MOD_DG_Vars       ,ONLY: d_U
+#if PARABOLIC
+!@cuf USE MOD_Lifting_Vars    ,ONLY: d_gradUx,d_gradUy,d_gradUz
+#endif
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -303,6 +307,10 @@ Volume=0.
 Ekin=0.
 Ekin_comp=0.
 
+!@cuf U = d_U
+!@cuf gradUx = d_gradUx
+!@cuf gradUy = d_gradUy
+!@cuf gradUz = d_gradUz
 #if PARABOLIC
 DR_u=0.;DR_S=0.;DR_Sd=0.;DR_p=0.
 Enstrophy_comp=0.

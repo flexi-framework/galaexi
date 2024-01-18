@@ -165,6 +165,7 @@ nTotalU=PP_nVar*nDOFElem*nElems
 ! Fill the solution vector U with the initial solution by interpolation, if not filled through restart already
 IF(.NOT.DoRestart)THEN
   CALL FillIni(PP_N,Elem_xGP,U)
+  d_U =U !Todo second copy of data to the GPU, skip previous one and move data to the GPU last?
 END IF
 
 DGInitIsDone=.TRUE.
