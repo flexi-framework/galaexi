@@ -149,6 +149,8 @@ IF(nRefState .GT. 0)THEN
     RefStatePrim(TEMP,i) = TEMPERATURE_HE(UE)
     CALL PrimToCons(RefStatePrim(:,i),RefStateCons(:,i))
   END DO
+  ALLOCATE(d_RefStatePrim(PP_nVarPrim,nRefState))
+  d_RefStatePrim = RefStatePrim
 END IF
 
 ! boundary state filename if present
@@ -314,6 +316,7 @@ CALL FinalizeEddyVisc()
 #endif /*EDDYVISCOSITY*/
 CALL FinalizeBC()
 SDEALLOCATE(RefStatePrim)
+SDEALLOCATE(d_RefStatePrim)
 SDEALLOCATE(RefStateCons)
 EquationInitIsDone = .FALSE.
 END SUBROUTINE FinalizeEquation

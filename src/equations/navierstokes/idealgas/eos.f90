@@ -103,6 +103,7 @@ USE MOD_Globals
 USE MOD_ReadInTools
 USE MOD_EOS_Vars      ,ONLY: Kappa,KappaM1,KappaP1,cp,cv
 USE MOD_EOS_Vars      ,ONLY: R,sKappaM1,sKappaP1
+USE MOD_EOS_Vars      ,ONLY: EOS_Vars,d_EOS_Vars
 #if PARABOLIC
 USE MOD_EOS_Vars      ,ONLY: mu0,Pr,KappaSpr
 #if PP_VISC == 1
@@ -185,6 +186,15 @@ ExpoSuth=GETREAL('ExpoSuth')
 mu0     =mu0/Tref**ExpoSuth
 #endif
 #endif /*PARABOLIC*/
+
+! Fill global EOS array
+EOS_Vars(EOS_KAPPA) = Kappa
+EOS_Vars(EOS_R    ) = R
+#if PARABOLIC
+EOS_Vars(EOS_PR   ) = Pr
+EOS_Vars(EOS_MU0  ) = mu0
+#endif
+d_EOS_Vars = EOS_Vars
 
 SWRITE(UNIT_stdOut,'(A)')' INIT IDEAL-GAS DONE!'
 SWRITE(UNIT_stdOut,'(132("-"))')

@@ -28,6 +28,7 @@ INTEGER           :: IniExactFunc      !< number identifying the used exact func
 INTEGER           :: IniRefState       !< RefState for initialization (case IniExactFunc=1 only)
 INTEGER           :: nRefState         !< number of refstates defined in parameter file
 REAL,ALLOCATABLE  :: RefStatePrim(:,:) !< refstates in primitive variables (as read from ini file)
+REAL,DEVICE,ALLOCATABLE  :: d_RefStatePrim(:,:) !< refstates in primitive variables (as read from ini file)
 REAL,ALLOCATABLE  :: RefStateCons(:,:) !< refstates in conservative variables
 CHARACTER(LEN=255):: BCStateFile       !< file containing the reference solution on the boundary to be used as BC
 
