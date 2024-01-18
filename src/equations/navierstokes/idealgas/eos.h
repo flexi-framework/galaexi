@@ -99,6 +99,9 @@
 #endif
 
 #define THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)   (mu*EOS_Vars(EOS_R)*EOS_Vars(EOS_KAPPA)/((EOS_Vars(EOS_KAPPA)-1.)*EOS_Vars(EOS_PR)))
+#define PRESSURE_UE_EOS(UE,EOS_Vars)            ((EOS_Vars(EOS_KAPPA)-1.)*(UE(EXT_ENER)-0.5*DOT_PRODUCT(UE(EXT_VELV),UE(EXT_MOMV))))
+#define TEMPERATURE_UE_EOS(UE,EOS_Vars)         (UE(EXT_PRES)*UE(EXT_SRHO)/EOS_Vars(EOS_R))
+#define SPEEDOFSOUND_UE_EOS(UE,EOS_Vars)        (SQRT(EOS_Vars(EOS_KAPPA)*UE(EXT_PRES)*UE(EXT_SRHO)))
 
 #define EXT_CONS    1:PP_nVar                  /* all ext cons variables */
 #define EXT_PRIM    PP_nVarPrim:PP_2Var        /* all ext prim variables */
