@@ -92,6 +92,7 @@ USE MOD_Viscosity
 USE MOD_ReadInTools
 USE MOD_Equation_Vars     ,ONLY: EquationInitIsDone
 USE MOD_Equation_Vars     ,ONLY: nRefState,BCData,BCDataPrim,nBCByType,BCSideID
+USE MOD_Equation_Vars     ,ONLY: BCSides,d_BCSides
 USE MOD_Equation_Vars     ,ONLY: BCStateFile,RefStatePrim
 USE MOD_Interpolation_Vars,ONLY: InterpolationInitIsDone
 USE MOD_Mesh_Vars         ,ONLY: MeshInitIsDone,nBCSides,BC,BoundaryType,nBCs,Face_xGP
@@ -240,20 +241,15 @@ DO iSide=1,nBCSides
   END DO
 END DO
 
-!! Move relevant info to GPU
-!ALLOCATE(BCType( nBCSides)
-!ALLOCATE(BCState(nBCSides)
-!DO i=1,nSides
-!  BCState(i) = Boundarytype(BC(i),BC_STATE)
-!  BCType( i) = Boundarytype(BC(i),BC_TYPE )
-!END DO
-!! Now move to GPU
-!ALLOCATE(d_BCType( nBCSides)
-!ALLOCATE(d_BCState(nBCSides)
-!d_BCType       = BCType
-!d_BCState      = BCState
-!DEALLOCATE(BCType)
-!DEALLOCATE(BCState)
+! Move relevant info to GPU
+ALLOCATE(BCSides(2,nBCSides))
+DO i=1,nBCSides
+  BCSides(BC_TYPE ,i) = Boundarytype(BC(i),BC_TYPE )
+  BCSides(BC_STATE,i) = Boundarytype(BC(i),BC_STATE)
+END DO
+! Now move to GPU
+ALLOCATE(d_BCSides(2,nBCSides))
+d_BCSides = BCSides
 
 END SUBROUTINE InitBC
 
@@ -524,8 +520,7 @@ SUBROUTINE GetBoundaryFlux(nSides,Nloc,Flux,UPrim_master,&
 #endif
                            NormVec,TangVec1,TangVec2)
 ! MODULES
-USE MOD_Equation_Vars,ONLY: nRefState,d_RefStatePrim
-USE MOD_Mesh_Vars    ,ONLY: BoundaryType,BC,nBCs,nBCSides
+USE MOD_Equation_Vars,ONLY: nRefState,d_RefStatePrim,d_BCSides
 USE MOD_EOS_Vars     ,ONLY: d_EOS_Vars
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -545,26 +540,14 @@ REAL,DEVICE,INTENT(OUT) :: Flux(PP_nVar,0:Nloc,0:ZDIM(Nloc),nSides)   !< resulti
 ! LOCAL VARIABLES
 INTEGER,PARAMETER :: nThreads=256
 INTEGER           :: nDOF,i
-INTEGER,DEVICE    :: d_BCType( nSides)
-INTEGER,DEVICE    :: d_BCState(nSides)
-INTEGER           :: BCType( nSides)
-INTEGER           :: BCState(nSides)
 !==================================================================================================================================
-! TODO: Move to ini
-DO i=1,nSides
-  BCState(i) = Boundarytype(BC(i),BC_STATE)
-  BCType( i) = Boundarytype(BC(i),BC_TYPE )
-END DO
-d_BCType       = BCType
-d_BCState      = BCState
-
 nDOF=(Nloc+1)*(ZDIM(Nloc)+1)*nSides
 
 CALL GetBoundaryFlux_GPU<<<nDOF/nThreads+1,nThreads>>>(nDOF,Nloc,Flux,UPrim_master,nRefState,d_RefStatePrim, &
 #if PARABOLIC
                                                        gradUx_master,gradUy_master,gradUz_master,&
 #endif
-                                                       NormVec,TangVec1,TangVec2,nSides,d_BCType,d_BCState,d_EOS_Vars)
+                                                       NormVec,TangVec1,TangVec2,nSides,d_BCSides,d_EOS_Vars)
 END SUBROUTINE GetBoundaryFlux
 
 !==================================================================================================================================
@@ -576,7 +559,7 @@ ATTRIBUTES(GLOBAL) SUBROUTINE GetBoundaryFlux_GPU(nDOF,Nloc,Flux,UPrim_master,nR
 #if PARABOLIC
                                                   gradUx_master,gradUy_master,gradUz_master,&
 #endif
-                                                  NormVec,TangVec1,TangVec2,nSides,BCType,BCState,EOS_Vars)
+                                                  NormVec,TangVec1,TangVec2,nSides,BCSides,EOS_Vars)
 ! MODULES
 USE MOD_EOS,     ONLY: PrimToCons
 USE MOD_Riemann, ONLY: Riemann
@@ -600,9 +583,8 @@ REAL,INTENT(IN)      :: gradUz_master(PP_nVarLifting,nDOF) !< inner surface solu
 REAL,INTENT(IN)      :: NormVec (3,nDOF)     !< normal vector on surfaces
 REAL,INTENT(IN)      :: TangVec1(3,nDOF)     !< tangential1 vector on surfaces
 REAL,INTENT(IN)      :: TangVec2(3,nDOF)     !< tangential2 vector on surfaces
-INTEGER,INTENT(IN)   :: BCType( nSides)      !< positions of surface flux points
-INTEGER,INTENT(IN)   :: BCState(nSides)      !< positions of surface flux points
-REAL,INTENT(IN)      :: EOS_Vars(PP_nVarEOS)  !< EOS-specific variables
+REAL,INTENT(IN)      :: EOS_Vars(PP_nVarEOS) !< EOS-specific variables
+INTEGER,INTENT(IN)   :: BCSides(2,nSides)    !< BCType and BCState per BCSide
 REAL,INTENT(OUT)     :: Flux(PP_nVar,nDOF)   !< resulting boundary fluxes
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
@@ -634,8 +616,8 @@ SideID = (i-1)/(Nloc+1)**2+1 ! Get own SideID
 IF (SideID.GT.nSides) RETURN ! Last partial wave. Do nothing if thread exceeds array limits
 
 ! Get BC state and type of current thread
-myBCState = BCState(SideID)
-myBCType  = BCType( SideID)
+myBCState = BCSides(BC_STATE,SideID)
+myBCType  = BCSides(BC_TYPE ,SideID)
 
 !IF (BCType.LT.0) THEN ! testcase boundary condition
 !  CALL GetBoundaryFluxTestcase(SideID,t,Nloc,Flux,UPrim_master,              &
@@ -929,8 +911,8 @@ PPURE SUBROUTINE Lifting_GetBoundaryFlux(Nloc,nSides,d_Flux,d_UPrim_master,nRefS
                                                             d_NormVec,d_TangVec1,d_TangVec2,d_SurfElem, &
                                                             doWeakLifting)
 ! MODULES
-USE MOD_Mesh_Vars,ONLY: BoundaryType,BC
-USE MOD_EOS_Vars, ONLY: d_EOS_Vars
+USE MOD_EOS_Vars,     ONLY: d_EOS_Vars
+USE MOD_Equation_Vars,ONLY: d_BCSides
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -949,19 +931,7 @@ REAL,DEVICE,INTENT(OUT)   :: d_Flux(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc),nSides) !
 ! LOCAL VARIABLES
 INTEGER,PARAMETER :: nThreads=256
 INTEGER           :: nDOF,i
-INTEGER,DEVICE    :: d_BCType( nSides)
-INTEGER,DEVICE    :: d_BCState(nSides)
-INTEGER           :: BCType( nSides)
-INTEGER           :: BCState(nSides)
 !==================================================================================================================================
-! TODO: Move to ini
-DO i=1,nSides
-  BCState(i) = Boundarytype(BC(i),BC_STATE)
-  BCType( i) = Boundarytype(BC(i),BC_TYPE )
-END DO
-d_BCType       = BCType
-d_BCState      = BCState
-
 nDOF = (PP_N+1)*(PP_NZ+1)*nSides
 
 CALL Lifting_GetBoundaryFlux_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,PP_N &
@@ -971,14 +941,14 @@ CALL Lifting_GetBoundaryFlux_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,PP_N &
                                       ,d_TangVec1 &
                                       ,d_TangVec2 &
                                       ,d_SurfElem &
-                                      ,nSides,d_BCType,d_BCState,d_EOS_Vars,doWeakLifting)
+                                      ,nSides,d_BCSides,d_EOS_Vars,doWeakLifting)
 END SUBROUTINE Lifting_GetBoundaryFlux
 
 !==================================================================================================================================
 !> Computes the boundary fluxes for the lifting procedure for a given Cartesian mesh face (defined by SideID).
 !==================================================================================================================================
 PPURE ATTRIBUTES(GLOBAL) SUBROUTINE Lifting_GetBoundaryFlux_Kernel(nDOF,Nloc,Flux,UPrim_master,nRefState,RefStatePrim,       &
-                                                            NormVec,TangVec1,TangVec2,SurfElem,nSides,BCType,BCState, &
+                                                            NormVec,TangVec1,TangVec2,SurfElem,nSides,BCSides, &
                                                             EOS_Vars,doWeakLifting)
 ! MODULES
 IMPLICIT NONE
@@ -995,9 +965,8 @@ REAL,INTENT(IN)          :: NormVec (3,nDOF)     !< normal vector on surfaces
 REAL,INTENT(IN)          :: TangVec1(3,nDOF)     !< tangential1 vector on surfaces
 REAL,INTENT(IN)          :: TangVec2(3,nDOF)     !< tangential2 vector on surfaces
 REAL,INTENT(IN)          :: SurfElem(  nDOF)     !< surface element to multiply with flux
-INTEGER,INTENT(IN)       :: BCType( nSides)      !< positions of surface flux points
-INTEGER,INTENT(IN)       :: BCState(nSides)      !< positions of surface flux points
 REAL,INTENT(IN)          :: EOS_Vars(PP_nVarEOS) !< EOS-specific variables
+INTEGER,INTENT(IN)       :: BCSides(2,nSides)    !< BCType and BCState per BCSide
 REAL,INTENT(OUT)         :: Flux(PP_nVarLifting,nDOF) !< resulting boundary fluxes
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
@@ -1011,8 +980,8 @@ SideID = (i-1)/(Nloc+1)**2+1 ! Get own SideID
 IF (SideID.GT.nSides) RETURN ! Last partial wave. Do nothing if thread exceeds array limits
 
 ! Get BC state and type of current thread
-myBCState = BCState(SideID)
-myBCType  = BCType( SideID)
+myBCState = BCSides(BC_STATE,SideID)
+myBCType  = BCSides(BC_TYPE ,SideID)
 
 !IF (BCType.LT.0) THEN ! testcase boundary conditions
 !  CALL Lifting_GetBoundaryFluxTestcase(SideID,t,UPrim_master,Flux)
@@ -1152,7 +1121,7 @@ END SUBROUTINE ReadBCFlow
 !==================================================================================================================================
 SUBROUTINE FinalizeBC()
 ! MODULES
-USE MOD_Equation_Vars,ONLY: BCData,BCDataPrim,nBCByType,BCSideID
+USE MOD_Equation_Vars,ONLY: BCData,BCDataPrim,nBCByType,BCSideID,BCSides,d_BCSides
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -1163,6 +1132,8 @@ SDEALLOCATE(BCData)
 SDEALLOCATE(BCDataPrim)
 SDEALLOCATE(nBCByType)
 SDEALLOCATE(BCSideID)
+SDEALLOCATE(BCSides)
+SDEALLOCATE(d_BCSides)
 END SUBROUTINE FinalizeBC
 
 END MODULE MOD_GetBoundaryFlux

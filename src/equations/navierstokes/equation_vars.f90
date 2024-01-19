@@ -37,6 +37,8 @@ REAL,ALLOCATABLE     :: BCData(:,:,:,:) !< array with precomputed BC values (con
 REAL,ALLOCATABLE     :: BCDataPrim(:,:,:,:) !< array with precomputed BC values (primitive)
 INTEGER,ALLOCATABLE  :: nBCByType(:)   !< number of sides with specific BC type
 INTEGER,ALLOCATABLE  :: BCSideID(:,:)  !< array storing side IDs of sides with different BCs
+INTEGER,ALLOCATABLE  :: BCSides(:,:)   !< array storing BC_State and BC_Type for each BCSide
+INTEGER,DEVICE,ALLOCATABLE  :: d_BCSides(:,:)  !< array storing BC_State and BC_Type for each BCSide
 
 REAL                 :: s43            !< precomputed 4./3.
 REAL                 :: s23            !< precomputed 2./3.
