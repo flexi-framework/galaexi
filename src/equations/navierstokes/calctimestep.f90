@@ -117,17 +117,23 @@ REAL                         :: CalcTimeStep
 INTEGER,INTENT(OUT)          :: errType
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER                        :: iElem
+INTEGER                        :: iElem,SHMEM_SIZE
 REAL                           :: LambdaConv,LambdaVisc,Timestep(3)
 REAL,DEVICE                    :: d_Lambda_max(2,nElems)
 !==================================================================================================================================
 errType=0
 
+#if PARABOLIC
+SHMEM_SIZE=(PP_N+1)**2*6*SIZEOF(LambdaConv) ! No of entries times size of real
+#else
+SHMEM_SIZE=(PP_N+1)**2*3*SIZEOF(LambdaConv) ! No of entries times size of real
+#endif
+
 ! Compute maximum eigenvalue within each element
-CALL CalcMaxEigenvalue<<<nElems,(PP_N+1)**2,(PP_N+1)**2*6*8>>>(PP_N,nElems,d_U,d_EOS_Vars,&
-                                                      d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,&
-                                                      d_MetricsAdv,d_MetricsVisc,d_sJ,&
-                                                      d_Lambda_max)
+CALL CalcMaxEigenvalue<<<nElems,(PP_N+1)**2,SHMEM_SIZE>>>(PP_N,nElems,d_U,d_EOS_Vars,&
+                                                          d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,&
+                                                          d_MetricsAdv,d_MetricsVisc,d_sJ,&
+                                                          d_Lambda_max)
 LambdaConv = 0.
 LambdaVisc = 0.
 
@@ -244,12 +250,12 @@ CALL SYNCTHREADS()
 ! Only Root thread computes the maximum
 IF ((j.GT.0).OR.(k.GT.0)) RETURN
 
-! Compute convective timestep (still has to be scaled by CFL)
+! Compute maximum convective eigenvalue (still has to be scaled by CFL)
 MaxEigenvalue(1,ElemID)= MAXVAL(Max_Lambda(1,:,:)) &
                        + MAXVAL(Max_Lambda(2,:,:)) &
                        + MAXVAL(Max_Lambda(3,:,:))
 
-! Compute viscous timestep (still has to be scaled by CFL)
+! Compute maximum viscous eigenvalue (still has to be scaled by CFL)
 #if PARABOLIC
 MaxEigenvalue(2,ElemID)= MAXVAL(Max_Lambda(4,:,:)) &
                        + MAXVAL(Max_Lambda(5,:,:)) &
