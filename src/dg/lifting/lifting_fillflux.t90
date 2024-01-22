@@ -106,9 +106,11 @@ END SUBROUTINE Lifting_FillFlux
 !> The flux is filled for the master side, the contribution for the slave side (which is different because the inner solution
 !> is equal to \f$ U^+ \f$) is taken into account in the SurfInt routine.
 !==================================================================================================================================
-SUBROUTINE Lifting_FillFlux_BC(d_UPrim_master,d_Flux)
+SUBROUTINE Lifting_FillFlux_BC(d_UPrim_master,d_Flux,streamID)
 ! MODULES
 USE MOD_PreProc
+USE CUDAFOR
+USE MOD_GPU,             ONLY: DefaultStream
 USE MOD_Mesh_Vars,       ONLY: d_NormVec,d_TangVec1,d_TangVec2,d_SurfElem,nSides,nBCSides
 USE MOD_Equation_Vars,   ONLY: nRefState,d_RefStatePrim
 USE MOD_Lifting_Vars,    ONLY: doWeakLifting
@@ -118,9 +120,14 @@ IMPLICIT NONE
 ! INPUT/OUTPUT VARIABLES
 REAL,DEVICE,INTENT(IN)    :: d_UPrim_master(PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides) !< Primitive solution from the inside
 REAL,DEVICE,INTENT(OUT)   :: d_Flux(     PP_nVarLifting,0:PP_N,0:PP_NZ,1:nSides) !< gradient flux
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 CALL Lifting_GetBoundaryFlux(PP_N,nBCSides &
                             ,d_Flux(:,:,:,1:nBCSides) &
                             ,d_UPrim_master(:,:,:,1:nBCSides),nRefState,d_RefStatePrim &
@@ -128,7 +135,8 @@ CALL Lifting_GetBoundaryFlux(PP_N,nBCSides &
                             ,d_TangVec1(:,:,:,:,1:nBCSides)&
                             ,d_TangVec2(:,:,:,:,1:nBCSides)&
                             ,d_SurfElem(  :,:,:,1:nBCSides)&
-                            ,doWeakLifting)
+                            ,doWeakLifting &
+                            ,mystream)
 END SUBROUTINE Lifting_FillFlux_BC
 
 !!==================================================================================================================================

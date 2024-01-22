@@ -107,16 +107,34 @@ END IF
 ! =============================
 ! Workflow:
 !
-!  1.  compute flux for non-BC sides
-!  1.1) advective flux
-!  1.2) viscous flux
-!  1.3) add up viscous flux to Flux_master
-!  2.  compute flux for BC sides
+!  1.  compute flux for BC sides first
+!  2.  compute flux for non-BC sides
+!  2.1) advective flux
+!  2.2) add viscous flux
 !  3.  multiply by SurfElem and copy flux from master side to slave side
 !==============================
-! 1.  compute flux for non-BC sides
+
+! 1. Compute the fluxes at the boundary conditions: 1..nBCSides
+! ATTENTION: This kernel is typically very small. Hence, compute first when there ist still volume work to fill the GPU
+IF(firstSideID.LT.firstSideID_wo_BC)THEN
+  CALL GetBoundaryFlux(PP_N, &
+     nBCSides, & ! Number of sides in array
+     d_Flux_master(  :,:,:,1:nBCSides),&
+     d_UPrim_master( :,:,:,1:nBCSides),&
+#if PARABOLIC
+     d_gradUx_master(:,:,:,1:nBCSides),&
+     d_gradUy_master(:,:,:,1:nBCSides),&
+     d_gradUz_master(:,:,:,1:nBCSides),&
+#endif
+     d_NormVec(    :,:,:,:,1:nBCSides),&
+     d_TangVec1(   :,:,:,:,1:nBCSides),&
+     d_TangVec2(   :,:,:,:,1:nBCSides),&
+     streamID=mystream)
+END IF ! .NOT. MPISIDES
+
+! 2.  compute flux for non-BC sides
 IF (firstSideID_wo_BC.LE.lastSideID) THEN
-  ! 1.1) advective flux
+  ! 2.1) advective flux
   CALL Riemann(PP_N, &
                lastSideID-firstSideID_wo_BC+1, & ! Number of sides in array
                d_Flux_master (:,:,:,firstSideID_wo_BC:lastSideID), &
@@ -129,7 +147,7 @@ IF (firstSideID_wo_BC.LE.lastSideID) THEN
                d_TangVec2  (:,:,:,:,firstSideID_wo_BC:lastSideID), &
                streamID=mystream)
 #if PARABOLIC
-  ! 1.2) viscous flux
+  ! 2.2) viscous flux
   CALL ViscousFlux(PP_N, &
                    lastSideID-firstSideID_wo_BC+1, & ! Number of sides in array
                    d_Flux_master  (:,:,:,firstSideID_wo_BC:lastSideID), &
@@ -145,23 +163,6 @@ IF (firstSideID_wo_BC.LE.lastSideID) THEN
                    streamID=mystream)
 #endif
 END IF
-
-! 2. Compute the fluxes at the boundary conditions: 1..nBCSides
-IF(firstSideID.LT.firstSideID_wo_BC)THEN
-  CALL GetBoundaryFlux(nBCSides, &
-     PP_N, & ! Number of sides in array
-     d_Flux_master(  :,:,:,1:nBCSides),&
-     d_UPrim_master( :,:,:,1:nBCSides),&
-#if PARABOLIC
-     d_gradUx_master(:,:,:,1:nBCSides),&
-     d_gradUy_master(:,:,:,1:nBCSides),&
-     d_gradUz_master(:,:,:,1:nBCSides),&
-#endif
-     d_NormVec(    :,:,:,:,1:nBCSides),&
-     d_TangVec1(   :,:,:,:,1:nBCSides),&
-     d_TangVec2(   :,:,:,:,1:nBCSides))
-END IF ! .NOT. MPISIDES
-
 
 ! 3. multiply by SurfElem and copy flux from master side to slave side
 !$cuf kernel do(3) <<< *, 256, 0, mystream>>>

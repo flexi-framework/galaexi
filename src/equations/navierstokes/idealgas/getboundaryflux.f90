@@ -514,18 +514,20 @@ END SUBROUTINE GetBoundaryState
 !> Calls GetBoundaryState and directly uses the returned values for all Riemann-type BCs.
 !> For other types of BCs, we directly compute the flux on the interface.
 !==================================================================================================================================
-SUBROUTINE GetBoundaryFlux(nSides,Nloc,Flux,UPrim_master,&
+SUBROUTINE GetBoundaryFlux(Nloc,nSides,Flux,UPrim_master,&
 #if PARABOLIC
                            gradUx_master,gradUy_master,gradUz_master,&
 #endif
-                           NormVec,TangVec1,TangVec2)
+                           NormVec,TangVec1,TangVec2,streamID)
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU          ,ONLY: DefaultStream
 USE MOD_Equation_Vars,ONLY: nRefState,d_RefStatePrim,d_BCSides
 USE MOD_EOS_Vars     ,ONLY: d_EOS_Vars
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
-INTEGER,INTENT(IN)      :: nSides   !< number of sides to consider
 INTEGER,INTENT(IN)      :: Nloc     !< polynomial degree
+INTEGER,INTENT(IN)      :: nSides   !< number of sides to consider
 REAL,DEVICE,INTENT(IN)  :: UPrim_master( PP_nVarPrim   ,0:Nloc,0:ZDIM(Nloc),nSides) !< inner surface solution
 #if PARABOLIC
 REAL,DEVICE,INTENT(IN)  :: gradUx_master(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc),nSides) !< inner surface solution gradients in x-direction
@@ -536,18 +538,22 @@ REAL,DEVICE,INTENT(IN)  :: NormVec (  3,0:Nloc,0:ZDIM(Nloc),1,nSides) !< normal 
 REAL,DEVICE,INTENT(IN)  :: TangVec1(  3,0:Nloc,0:ZDIM(Nloc),1,nSides) !< tangential1 vector on surfaces
 REAL,DEVICE,INTENT(IN)  :: TangVec2(  3,0:Nloc,0:ZDIM(Nloc),1,nSides) !< tangential2 vector on surfaces
 REAL,DEVICE,INTENT(OUT) :: Flux(PP_nVar,0:Nloc,0:ZDIM(Nloc),nSides)   !< resulting boundary fluxes
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER,PARAMETER :: nThreads=256
-INTEGER           :: nDOF,i
+INTEGER           :: nDOF
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
-nDOF=(Nloc+1)*(ZDIM(Nloc)+1)*nSides
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
 
-CALL GetBoundaryFlux_GPU<<<nDOF/nThreads+1,nThreads>>>(nDOF,Nloc,Flux,UPrim_master,nRefState,d_RefStatePrim, &
+nDOF=(Nloc+1)*(ZDIM(Nloc)+1)*nSides
+CALL GetBoundaryFlux_GPU<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nDOF,Nloc,Flux,UPrim_master,nRefState,d_RefStatePrim, &
 #if PARABOLIC
-                                                       gradUx_master,gradUy_master,gradUz_master,&
+                                                                  gradUx_master,gradUy_master,gradUz_master,&
 #endif
-                                                       NormVec,TangVec1,TangVec2,nSides,d_BCSides,d_EOS_Vars)
+                                                                  NormVec,TangVec1,TangVec2,nSides,d_BCSides,d_EOS_Vars)
 END SUBROUTINE GetBoundaryFlux
 
 !==================================================================================================================================
@@ -909,8 +915,10 @@ END SUBROUTINE GetBoundaryFVgradient
 !==================================================================================================================================
 PPURE SUBROUTINE Lifting_GetBoundaryFlux(Nloc,nSides,d_Flux,d_UPrim_master,nRefState,d_RefStatePrim, &
                                                             d_NormVec,d_TangVec1,d_TangVec2,d_SurfElem, &
-                                                            doWeakLifting)
+                                                            doWeakLifting,streamID)
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU          ,ONLY: DefaultStream
 USE MOD_EOS_Vars,     ONLY: d_EOS_Vars
 USE MOD_Equation_Vars,ONLY: d_BCSides
 IMPLICIT NONE
@@ -927,14 +935,18 @@ REAL,DEVICE,INTENT(IN)    :: d_TangVec1(3,0:Nloc,0:ZDIM(Nloc),1,nSides) !< tange
 REAL,DEVICE,INTENT(IN)    :: d_TangVec2(3,0:Nloc,0:ZDIM(Nloc),1,nSides) !< tangential2 vector on surfaces
 REAL,DEVICE,INTENT(IN)    :: d_SurfElem(  0:Nloc,0:ZDIM(Nloc),1,nSides)     !< surface element to multiply with flux
 REAL,DEVICE,INTENT(OUT)   :: d_Flux(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc),nSides) !< resulting boundary fluxes
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER,PARAMETER :: nThreads=256
-INTEGER           :: nDOF,i
+INTEGER           :: nDOF
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
-nDOF = (PP_N+1)*(PP_NZ+1)*nSides
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
 
-CALL Lifting_GetBoundaryFlux_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,PP_N &
+nDOF = (PP_N+1)*(PP_NZ+1)*nSides
+CALL Lifting_GetBoundaryFlux_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nDOF,PP_N &
                                       ,d_Flux &
                                       ,d_UPrim_master,nRefState,d_RefStatePrim &
                                       ,d_NormVec  &

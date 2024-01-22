@@ -529,8 +529,8 @@ SUBROUTINE ViscousFlux_Sides_CUDA(Nloc,nSides,F,UPrim_L,UPrim_R, &
                                  ,streamID)
 ! MODULES
 USE CUDAFOR
-USE MOD_GPU      ,ONLY:DefaultStream
-USE MOD_Flux, ONLY: EvalDiffFlux3D
+USE MOD_GPU     ,ONLY:DefaultStream
+USE MOD_Flux    ,ONLY:EvalDiffFlux3D
 USE MOD_EOS_Vars,ONLY:d_EOS_Vars
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
