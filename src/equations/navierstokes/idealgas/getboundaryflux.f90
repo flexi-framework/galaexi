@@ -241,15 +241,17 @@ DO iSide=1,nBCSides
   END DO
 END DO
 
-! Move relevant info to GPU
-ALLOCATE(BCSides(2,nBCSides))
-DO i=1,nBCSides
-  BCSides(BC_TYPE ,i) = Boundarytype(BC(i),BC_TYPE )
-  BCSides(BC_STATE,i) = Boundarytype(BC(i),BC_STATE)
-END DO
-! Now move to GPU
-ALLOCATE(d_BCSides(2,nBCSides))
-d_BCSides = BCSides
+IF (nBCSides.GT.0) THEN
+  ! Move relevant info to GPU
+  ALLOCATE(BCSides(2,nBCSides))
+  DO i=1,nBCSides
+    BCSides(BC_TYPE ,i) = Boundarytype(BC(i),BC_TYPE )
+    BCSides(BC_STATE,i) = Boundarytype(BC(i),BC_STATE)
+  END DO
+  ! Now move to GPU
+  ALLOCATE(d_BCSides(2,nBCSides))
+  d_BCSides = BCSides
+END IF
 
 END SUBROUTINE InitBC
 
