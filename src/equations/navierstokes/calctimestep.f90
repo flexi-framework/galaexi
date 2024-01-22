@@ -38,9 +38,9 @@ END INTERFACE
 PUBLIC :: InitCalctimestep,CALCTIMESTEP,FinalizeCalctimestep
 !==================================================================================================================================
 
-REAL,DEVICE,ALLOCATABLE :: MetricsAdv(:,:,:,:,:,:)  !< support variable: NORM2(Metricsfgh)/J
+REAL,DEVICE,ALLOCATABLE :: d_MetricsAdv(:,:,:,:,:,:)  !< support variable: NORM2(Metricsfgh)/J
 #if PARABOLIC
-REAL,DEVICE,ALLOCATABLE :: MetricsVisc(:,:,:,:,:,:) !< support variable: kappa/Pr*(SUM((Metricsfgh/J)**2))
+REAL,DEVICE,ALLOCATABLE :: d_MetricsVisc(:,:,:,:,:,:) !< support variable: kappa/Pr*(SUM((Metricsfgh/J)**2))
 #endif
 
 CONTAINS
@@ -64,27 +64,27 @@ REAL                         :: KappasPr_max
 #endif /*PARABOLIC*/
 !==================================================================================================================================
 
-ALLOCATE(MetricsAdv(3,0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
+ALLOCATE(d_MetricsAdv(3,0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
 !$cuf kernel do(5) <<< *, * >>>
 DO FVE=0,FV_SIZE
   DO iElem=1,nElems
     DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      MetricsAdv(1,i,j,k,iElem,FVE)=d_sJ(i,j,k,iElem,FVE)*SQRT(DOT_PRODUCT(d_Metrics_fTilde(:,i,j,k,iElem,FVE),d_Metrics_fTilde(:,i,j,k,iElem,FVE)))
-      MetricsAdv(2,i,j,k,iElem,FVE)=d_sJ(i,j,k,iElem,FVE)*SQRT(DOT_PRODUCT(d_Metrics_gTilde(:,i,j,k,iElem,FVE),d_Metrics_gTilde(:,i,j,k,iElem,FVE)))
-      MetricsAdv(3,i,j,k,iElem,FVE)=d_sJ(i,j,k,iElem,FVE)*SQRT(DOT_PRODUCT(d_Metrics_hTilde(:,i,j,k,iElem,FVE),d_Metrics_hTilde(:,i,j,k,iElem,FVE)))
+      d_MetricsAdv(1,i,j,k,iElem,FVE)=d_sJ(i,j,k,iElem,FVE)*SQRT(DOT_PRODUCT(d_Metrics_fTilde(:,i,j,k,iElem,FVE),d_Metrics_fTilde(:,i,j,k,iElem,FVE)))
+      d_MetricsAdv(2,i,j,k,iElem,FVE)=d_sJ(i,j,k,iElem,FVE)*SQRT(DOT_PRODUCT(d_Metrics_gTilde(:,i,j,k,iElem,FVE),d_Metrics_gTilde(:,i,j,k,iElem,FVE)))
+      d_MetricsAdv(3,i,j,k,iElem,FVE)=d_sJ(i,j,k,iElem,FVE)*SQRT(DOT_PRODUCT(d_Metrics_hTilde(:,i,j,k,iElem,FVE),d_Metrics_hTilde(:,i,j,k,iElem,FVE)))
     END DO; END DO; END DO
   END DO
 END DO
 #if PARABOLIC
-ALLOCATE(MetricsVisc(3,0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
+ALLOCATE(d_MetricsVisc(3,0:PP_N,0:PP_N,0:PP_NZ,nElems,0:FV_SIZE))
 KappasPr_max=KAPPASPR_MAX_TIMESTEP_H()
 !$cuf kernel do(5) <<< *, * >>>
 DO FVE=0,FV_SIZE
   DO iElem=1,nElems
     DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      MetricsVisc(1,i,j,k,iElem,FVE)=KappasPR_max*(SUM((d_Metrics_fTilde(:,i,j,k,iElem,FVE)*d_sJ(i,j,k,iElem,FVE))**2))
-      MetricsVisc(2,i,j,k,iElem,FVE)=KappasPR_max*(SUM((d_Metrics_gTilde(:,i,j,k,iElem,FVE)*d_sJ(i,j,k,iElem,FVE))**2))
-      MetricsVisc(3,i,j,k,iElem,FVE)=KappasPR_max*(SUM((d_Metrics_hTilde(:,i,j,k,iElem,FVE)*d_sJ(i,j,k,iElem,FVE))**2))
+      d_MetricsVisc(1,i,j,k,iElem,FVE)=KappasPR_max*(SUM((d_Metrics_fTilde(:,i,j,k,iElem,FVE)*d_sJ(i,j,k,iElem,FVE))**2))
+      d_MetricsVisc(2,i,j,k,iElem,FVE)=KappasPR_max*(SUM((d_Metrics_gTilde(:,i,j,k,iElem,FVE)*d_sJ(i,j,k,iElem,FVE))**2))
+      d_MetricsVisc(3,i,j,k,iElem,FVE)=KappasPR_max*(SUM((d_Metrics_hTilde(:,i,j,k,iElem,FVE)*d_sJ(i,j,k,iElem,FVE))**2))
     END DO; END DO; END DO
   END DO
 END DO
@@ -100,22 +100,12 @@ FUNCTION CALCTIMESTEP(errType)
 USE MOD_Globals
 USE MOD_PreProc
 USE MOD_DG_Vars      ,ONLY:d_U
-USE MOD_EOS_Vars
-USE MOD_Mesh_Vars    ,ONLY:d_sJ,d_Metrics_fTilde,d_Metrics_gTilde,Elem_xGP,nElems
-USE MOD_TimeDisc_Vars,ONLY:d_CFLScale,ViscousTimeStep,d_dtElem
-#ifndef GNU
-USE, INTRINSIC :: IEEE_ARITHMETIC,ONLY:IEEE_IS_NAN
-#endif
-#if PP_dim==3
-USE MOD_Mesh_Vars    ,ONLY:d_Metrics_hTilde
-#endif
+USE MOD_EOS_Vars     ,ONLY:d_EOS_Vars
+USE MOD_Mesh_Vars    ,ONLY:d_sJ,d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,nElems
+USE MOD_TimeDisc_Vars,ONLY:CFLScale,ViscousTimeStep,d_dtElem
 #if PARABOLIC
 USE MOD_TimeDisc_Vars,ONLY:DFLScale
-USE MOD_Viscosity
 #endif /*PARABOLIC*/
-#if FV_ENABLED
-USE MOD_FV_Vars      ,ONLY: FV_Elems
-#endif
 #if EDDYVISCOSITY
 USE MOD_EddyVisc_Vars, ONLY: muSGS
 #endif
@@ -127,46 +117,45 @@ REAL                         :: CalcTimeStep
 INTEGER,INTENT(OUT)          :: errType
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER                        :: i,j,k,iElem
-REAL,DIMENSION(PP_2Var),DEVICE :: UE
-REAL,DEVICE                    :: TimeStepConv, TimeStepVisc
-REAL                           :: TimeStep(3)
-REAL,DEVICE                    :: LambdaTmp(3),c,vsJ(3)
-#if EDDYVISCOSITY
-REAL                           :: muSGSmax
-#endif
-#if PARABOLIC
-REAL                           :: Max_Lambda_v(3),mu,prim(PP_nVarPrim)
-#endif /*PARABOLIC*/
-INTEGER,DEVICE                 :: FVE
+INTEGER                        :: iElem,SHMEM_SIZE
+REAL                           :: LambdaConv,LambdaVisc,Timestep(3)
+REAL,DEVICE                    :: d_Lambda_max(2,nElems)
 !==================================================================================================================================
 errType=0
 
-TimeStepConv=HUGE(1.)
-TimeStepVisc=HUGE(1.)
-!$cuf kernel do(4) <<< *, * >>> reduce(min:TimeStepConv)
-DO iElem=1,nElems
-  DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-    ! TODO: ATTENTION: Temperature of UE not filled!!!
-    UE(EXT_CONS)=d_U(:,i,j,k,iElem)
-    UE(EXT_SRHO)=1./UE(EXT_DENS)
-    UE(EXT_VELV)=VELOCITY_HE(UE)
-    UE(EXT_PRES)=PRESSURE_HE(UE)
-    UE(EXT_TEMP)=TEMPERATURE_HE(UE)
-    c=SPEEDOFSOUND_HE(UE)
-    vsJ=UE(EXT_VELV)*d_sJ(i,j,k,iElem,FV_Elems(iElem))
-    LambdaTmp(1)=ABS(SUM(d_Metrics_fTilde(:,i,j,k,iElem,FV_Elems(iElem))*vsJ)) + &
-                          c*MetricsAdv(1,i,j,k,iElem,FV_Elems(iElem))
-    LambdaTmp(2)=ABS(SUM(d_Metrics_gTilde(:,i,j,k,iElem,FV_Elems(iElem))*vsJ)) + &
-                          c*MetricsAdv(2,i,j,k,iElem,FV_Elems(iElem))
-    LambdaTmp(3)=ABS(SUM(d_Metrics_hTilde(:,i,j,k,iElem,FV_Elems(iElem))*vsJ)) + &
-                          c*MetricsAdv(3,i,j,k,iElem,FV_Elems(iElem))
-    TimeStepConv=d_CFLScale(FV_Elems(iElem))*2./SUM(LambdaTmp)
-  END DO; END DO; END DO ! i,j,k
-END DO ! iElem=1,nElems
+#if PARABOLIC
+SHMEM_SIZE=(PP_N+1)**2*6*SIZEOF(LambdaConv) ! No of entries times size of real
+#else
+SHMEM_SIZE=(PP_N+1)**2*3*SIZEOF(LambdaConv) ! No of entries times size of real
+#endif
 
-TimeStep(1)=TimeStepConv
-TimeStep(2)=TimeStepVisc
+! Compute maximum eigenvalue within each element
+CALL CalcMaxEigenvalue<<<nElems,(PP_N+1)**2,SHMEM_SIZE>>>(PP_N,nElems,d_U,d_EOS_Vars,&
+                                                          d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,&
+                                                          d_MetricsAdv,d_MetricsVisc,d_sJ,&
+                                                          d_Lambda_max)
+LambdaConv = 0.
+LambdaVisc = 0.
+
+! Compute maximum eigenvalue across elements
+!$cuf kernel do <<< *, * >>>
+DO iElem=1,nElems
+  !d_dtElem(iElem) = MINVAL(d_TimeStep(:,iElem))
+  LambdaConv=MAX(LambdaConv,d_Lambda_max(1,iElem))
+#if PARABOLIC
+  LambdaVisc=MAX(LambdaVisc,d_Lambda_max(2,iElem))
+#endif
+END DO
+
+! Multiply by CFL/DFL scaling
+#if FV_ENABLED
+TimeStep(1)=MINVAL(CFLScale(:))*2./LambdaConv
+TimeStep(2)=MINVAL(DFLScale(:))*4./LambdaVisc
+#else
+TimeStep(1)=       CFLScale(0) *2./LambdaConv
+TimeStep(2)=       DFLScale(0) *4./LambdaVisc
+#endif
+
 #if USE_MPI
 TimeStep(3)=-errType ! reduce with timestep, minus due to MPI_MIN
 CALL MPI_ALLREDUCE(MPI_IN_PLACE,TimeStep,3,MPI_DOUBLE_PRECISION,MPI_MIN,MPI_COMM_FLEXI,iError)
@@ -178,15 +167,113 @@ END FUNCTION CALCTIMESTEP
 
 
 !==================================================================================================================================
+!> Compute the maximum convective/viscous Eigenvalue per element
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE CalcMaxEigenvalue(Nloc,nElems,U,EOS_Vars,&
+                                                     Metrics_fTilde,Metrics_gTilde,Metrics_hTilde,&
+                                                     MetricsAdv,MetricsVisc,sJ,&
+                                                     MaxEigenvalue)
+! MODULES
+! IMPLICIT VARIABLE HANDLING
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)          :: Nloc
+INTEGER,VALUE,INTENT(IN)          :: nElems
+REAL,DEVICE,INTENT(IN)            :: U(PP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),nElems)
+REAL,DEVICE,INTENT(IN)            :: Metrics_fTilde(3,0:Nloc,0:Nloc,0:ZDIM(Nloc),nElems)
+REAL,DEVICE,INTENT(IN)            :: Metrics_gTilde(3,0:Nloc,0:Nloc,0:ZDIM(Nloc),nElems)
+REAL,DEVICE,INTENT(IN)            :: Metrics_hTilde(3,0:Nloc,0:Nloc,0:ZDIM(Nloc),nElems)
+REAL,DEVICE,INTENT(IN)            :: MetricsAdv(    3,0:Nloc,0:Nloc,0:ZDIM(Nloc),nElems)
+REAL,DEVICE,INTENT(IN)            :: MetricsVisc(   3,0:Nloc,0:Nloc,0:ZDIM(Nloc),nElems)
+REAL,DEVICE,INTENT(IN)            :: sJ(              0:Nloc,0:Nloc,0:ZDIM(Nloc),nElems)
+REAL,DEVICE,INTENT(IN)            :: EOS_Vars(PP_nVarEOS)
+REAL,DEVICE,INTENT(OUT)           :: MaxEigenvalue(2,nElems)
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                        :: i,j,k,ElemID
+INTEGER                        :: threadID,rest
+REAL                           :: UE(PP_2Var)
+REAL                           :: vsJ(3)
+REAL                           :: c
+#if PARABOLIC
+REAL                           :: mu
+REAL,SHARED                    :: Max_Lambda(6,0:Nloc,0:ZDIM(Nloc))
+REAL                           :: Max_LambdaTmp(6)
+#else
+REAL,SHARED                    :: Max_Lambda(3,0:Nloc,0:ZDIM(Nloc))
+REAL                           :: Max_LambdaTmp(3)
+#endif
+!==================================================================================================================================
+! Get thread indices
+threadID = (blockidx%x-1) * blockdim%x + threadidx%x
+! Get ElemID of current thread
+ElemID   =        (threadID-1)/((Nloc+1)**2)+1 ! Elems are 1-indexed
+rest     = threadID-(ElemID-1)*((Nloc+1)**2)
+! Get jk indices of current thread
+k        = (rest-1)/(Nloc+1)!**1
+rest     =  rest- k*(Nloc+1)!**1
+j        = (rest-1)!/(Nloc+1)**0
+rest     =  rest- j!*(Nloc+1)**0
+
+IF (ElemID.GT.nElems) RETURN
+
+! Each Thread gets whole i-slice to compute to save shared memory space
+Max_LambdaTmp=0.
+DO i=0,PP_N
+  ! TODO: ATTENTION: Temperature of UE not filled!!!
+  UE(EXT_CONS)=U(:,i,j,k,ElemID)
+  UE(EXT_SRHO)=1./UE(EXT_DENS)
+  UE(EXT_VELV)=VELOCITY_HE(UE)
+  UE(EXT_PRES)=PRESSURE_UE_EOS(UE,EOS_Vars)
+  UE(EXT_TEMP)=TEMPERATURE_UE_EOS(UE,EOS_Vars)
+  c=SPEEDOFSOUND_UE_EOS(UE,EOS_Vars)
+  vsJ=UE(EXT_VELV)*sJ(i,j,k,ElemID)
+  Max_LambdaTmp(  1)=MAX(Max_LambdaTmp(1),ABS(SUM(Metrics_fTilde(:,i,j,k,ElemID)*vsJ)) &
+                                          + c*MetricsAdv(1,i,j,k,ElemID))
+  Max_LambdaTmp(  2)=MAX(Max_LambdaTmp(2),ABS(SUM(Metrics_gTilde(:,i,j,k,ElemID)*vsJ)) &
+                                          + c*MetricsAdv(2,i,j,k,ElemID))
+  Max_LambdaTmp(  3)=MAX(Max_LambdaTmp(3),ABS(SUM(Metrics_hTilde(:,i,j,k,ElemID)*vsJ)) &
+                                          + c*MetricsAdv(3,i,j,k,ElemID))
+#if PARABOLIC
+  mu=VISCOSITY_PRIM_EOS(UE(EXT_PRIM,i,j,k,ElemID),EOS_Vars)
+  Max_LambdaTmp(4:6)=MAX(Max_LambdaTmp(4:6),mu*UE(EXT_SRHO)*MetricsVisc(:,i,j,k,ElemID))
+#endif
+END DO ! i
+
+! Write maximum of own i-slice to shared memory
+Max_Lambda(:,j,k) = Max_LambdaTmp(:)
+
+! Ensure that every Thread of current element has written to shared memory
+CALL SYNCTHREADS()
+
+! Only Root thread computes the maximum
+IF ((j.GT.0).OR.(k.GT.0)) RETURN
+
+! Compute maximum convective eigenvalue (still has to be scaled by CFL)
+MaxEigenvalue(1,ElemID)= MAXVAL(Max_Lambda(1,:,:)) &
+                       + MAXVAL(Max_Lambda(2,:,:)) &
+                       + MAXVAL(Max_Lambda(3,:,:))
+
+! Compute maximum viscous eigenvalue (still has to be scaled by CFL)
+#if PARABOLIC
+MaxEigenvalue(2,ElemID)= MAXVAL(Max_Lambda(4,:,:)) &
+                       + MAXVAL(Max_Lambda(5,:,:)) &
+                       + MAXVAL(Max_Lambda(6,:,:))
+#endif
+
+END SUBROUTINE CalcMaxEigenvalue
+
+!==================================================================================================================================
 !> Deallocate CalcTimeStep arrays
 !==================================================================================================================================
 SUBROUTINE FinalizeCalctimestep()
 ! MODULES
 IMPLICIT NONE
 !==================================================================================================================================
-SDEALLOCATE(MetricsAdv)
+SDEALLOCATE(d_MetricsAdv)
 #if PARABOLIC
-SDEALLOCATE(MetricsVisc)
+SDEALLOCATE(d_MetricsVisc)
 #endif
 END SUBROUTINE
 

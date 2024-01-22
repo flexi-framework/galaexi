@@ -303,7 +303,7 @@ END SUBROUTINE EvalFlux3D_CUDA_Kernel
 !==================================================================================================================================
 PPURE ATTRIBUTES(GLOBAL) SUBROUTINE EvalTransformedFlux3D_Kernel(nDOF,U,UPrim &
 #if PARABOLIC
-                                                                ,gradUx,gradUy,gradUz,mu,lambda &
+                                                                ,gradUx,gradUy,gradUz,EOS_Vars &
 #endif
                                                                 ,f,g,h,Mf,Mg,Mh)
 ! MODULES
@@ -317,14 +317,17 @@ REAL,DEVICE,DIMENSION(3             ,1:nDOF),INTENT(IN)  :: Mf,Mg,Mh !< Metrics 
 REAL,DEVICE,DIMENSION(PP_nVar       ,1:nDOF),INTENT(OUT) :: f,g,h    !> Physical fluxes in x,y,z
 #if PARABOLIC
 REAL,DEVICE,DIMENSION(PP_nVarLifting,1:nDOF),INTENT(IN)  :: gradUx,gradUy,gradUz !> gradients in x,y,z
-REAL,VALUE,INTENT(IN) :: mu,lambda
+REAL,DEVICE,DIMENSION(PP_nVarEOS),INTENT(IN) :: EOS_Vars
 #endif
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER             :: i
+REAL                :: mu,lambda
 !==================================================================================================================================
 i = (blockidx%x-1) * blockdim%x + threadidx%x
 IF (i.LE.nDOF) THEN
+  mu=VISCOSITY_PRIM_EOS(UPrim(:,i),EOS_Vars)
+  lambda=THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)
 #if PARABOLIC
   CALL EvalTransformedEulerDiffFlux3D(U(:,i),UPrim(:,i),gradUx(:,i),gradUy(:,i),gradUz(:,i) &
                                      ,f(:,i),g(:,i),h(:,i),Mf(:,i),Mg(:,i),Mh(:,i),mu,lambda)
@@ -339,7 +342,7 @@ END SUBROUTINE EvalTransformedFlux3D_Kernel
 !> Wrapper routine to compute the advection part of the Navier-Stokes fluxes for a single volume cell
 !==================================================================================================================================
 PPURE ATTRIBUTES(GLOBAL) SUBROUTINE EvalTransformedDiffFlux3D_Kernel(nDOF,UPrim &
-                                                           ,gradUx,gradUy,gradUz,mu,lambda &
+                                                           ,gradUx,gradUy,gradUz,EOS_Vars &
                                                            ,f,g,h,Mf,Mg,Mh)
 ! MODULES
 IMPLICIT NONE
@@ -350,13 +353,16 @@ REAL,DEVICE,DIMENSION(PP_nVarPrim   ,1:nDOF),INTENT(IN)  :: UPrim    !< Primitiv
 REAL,DEVICE,DIMENSION(3             ,1:nDOF),INTENT(IN)  :: Mf,Mg,Mh !< Metrics in x,y,z
 REAL,DEVICE,DIMENSION(PP_nVar       ,1:nDOF),INTENT(OUT) :: f,g,h    !> Physical fluxes in x,y,z
 REAL,DEVICE,DIMENSION(PP_nVarLifting,1:nDOF),INTENT(IN)  :: gradUx,gradUy,gradUz !> gradients in x,y,z
-REAL,VALUE,INTENT(IN) :: mu,lambda
+REAL,DEVICE,DIMENSION(PP_nVarEOS),INTENT(IN) :: EOS_Vars
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER             :: i
+REAL                :: mu,lambda
 !==================================================================================================================================
 i = (blockidx%x-1) * blockdim%x + threadidx%x
 IF (i.LE.nDOF) THEN
+  mu=VISCOSITY_PRIM_EOS(UPrim(:,i),EOS_Vars)
+  lambda=THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)
   CALL EvalTransformedDiffFlux3D( UPrim(:,i) &
                                 ,gradUx(:,i),gradUy(:,i),gradUz(:,i) &
                                 ,     f(:,i),     g(:,i),     h(:,i) &
@@ -378,7 +384,7 @@ PPURE SUBROUTINE EvalTransformedFlux3D(nDOF,U,UPrim &
 USE CUDAFOR
 USE MOD_GPU     ,ONLY: DefaultStream
 #if PARABOLIC
-USE MOD_EOS_Vars,ONLY: mu0,cp,Pr
+USE MOD_EOS_Vars,ONLY: d_EOS_Vars
 #endif
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -395,22 +401,14 @@ INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER,PARAMETER   :: nThreads=256
-#if PARABOLIC
-REAL                :: mu,lambda
-#endif
 INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
 mystream=DefaultStream
 IF (PRESENT(streamID)) mystream=streamID
 
-! TODO: Impelment cleanly!
-#if PARABOLIC
-mu     = VISCOSITY_PRIM(UPrim(:,1))
-lambda = THERMAL_CONDUCTIVITY_H(mu)
-#endif
 CALL EvalTransformedFlux3D_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nDOF,U,UPrim &
 #if PARABOLIC
-                                                                          ,gradUx,gradUy,gradUz,mu,lambda &
+                                                                          ,gradUx,gradUy,gradUz,d_EOS_Vars &
 #endif
                                                                           ,f,g,h,Mf,Mg,Mh)
 END SUBROUTINE EvalTransformedFlux3D
@@ -425,7 +423,7 @@ PPURE SUBROUTINE EvalTransformedDiffFlux3D_CUDA(nDOF,UPrim &
 ! MODULES
 USE CUDAFOR
 USE MOD_GPU     ,ONLY: DefaultStream
-USE MOD_EOS_Vars,ONLY: mu0,cp,Pr
+USE MOD_EOS_Vars,ONLY: d_EOS_Vars
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -434,24 +432,17 @@ REAL,DEVICE,DIMENSION(PP_nVarPrim   ,1:nDOF),INTENT(IN)  :: UPrim    !< Primitiv
 REAL,DEVICE,DIMENSION(3             ,1:nDOF),INTENT(IN)  :: Mf,Mg,Mh !< Metrics in x,y,z
 REAL,DEVICE,DIMENSION(PP_nVar       ,1:nDOF),INTENT(OUT) :: f,g,h    !> Physical fluxes in x,y,z
 REAL,DEVICE,DIMENSION(PP_nVarLifting,1:nDOF),INTENT(IN)  :: gradUx,gradUy,gradUz !> gradients in x,y,z
-INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER,PARAMETER   :: nThreads=256
-#if PARABOLIC
-REAL                :: mu,lambda
-#endif
 INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
 mystream=DefaultStream
 IF (PRESENT(streamID)) mystream=streamID
 
-! TODO: Impelment cleanly!
-mu     = VISCOSITY_PRIM(UPrim(:,1))
-lambda = THERMAL_CONDUCTIVITY_H(mu)
 CALL EvalTransformedDiffFlux3D_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nDOF,UPrim &
-                                                                   ,gradUx,gradUy,gradUz,mu,lambda &
-                                                                   ,f,g,h,Mf,Mg,Mh)
+                                                                              ,gradUx,gradUy,gradUz,d_EOS_Vars &
+                                                                              ,f,g,h,Mf,Mg,Mh)
 END SUBROUTINE EvalTransformedDiffFlux3D_CUDA
 #endif
 
@@ -872,7 +863,7 @@ END SUBROUTINE EvalDiffFlux3D_Point
 !==================================================================================================================================
 PPURE SUBROUTINE EvalDiffFlux3D_Surface(Nloc,UPrim,gradUx,gradUy,gradUz,f,g,h)
 ! MODULES
-USE MOD_EOS_Vars,ONLY:mu0,cp,Pr
+USE MOD_EOS_Vars,ONLY:EOS_Vars
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -889,8 +880,8 @@ INTEGER             :: i,j
 REAL                :: mu,lambda
 !==================================================================================================================================
 DO j=0,ZDIM(Nloc); DO i=0,Nloc
-  mu     = VISCOSITY_PRIM(UPrim(:,i,j))
-  lambda = THERMAL_CONDUCTIVITY_H(mu)
+  mu=VISCOSITY_PRIM_EOS(UPrim(:,i,j),EOS_Vars)
+  lambda=THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)
   CALL EvalDiffFlux3D(UPrim(:,i,j),gradUx(:,i,j),gradUy(:,i,j),gradUz(:,i,j), &
                                         f(:,i,j),     g(:,i,j),     h(:,i,j), &
                                         mu, lambda)
@@ -903,7 +894,7 @@ END SUBROUTINE EvalDiffFlux3D_Surface
 PPURE SUBROUTINE EvalDiffFlux3D_Elem(UPrim,gradUx,gradUy,gradUz,f,g,h)
 ! MODULES
 USE MOD_PreProc
-USE MOD_EOS_Vars,ONLY:mu0,cp,Pr
+USE MOD_EOS_Vars,ONLY:EOS_Vars
 #if EDDYVISCOSITY
 USE MOD_EddyVisc_Vars,ONLY: muSGS
 #endif
@@ -919,8 +910,8 @@ INTEGER             :: i,j,k
 REAL                :: mu,lambda
 !==================================================================================================================================
 DO k=0,PP_NZ;  DO j=0,PP_N; DO i=0,PP_N
-  mu     = VISCOSITY_PRIM(UPrim(:,i,j,k))
-  lambda = THERMAL_CONDUCTIVITY_H(mu)
+  mu=VISCOSITY_PRIM_EOS(UPrim(:,i,j,k),EOS_Vars)
+  lambda=THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)
   CALL EvalDiffFlux3D(UPrim(:,i,j,k),gradUx(:,i,j,k),gradUy(:,i,j,k),gradUz(:,i,j,k), &
                                           f(:,i,j,k),     g(:,i,j,k),     h(:,i,j,k), &
                                           mu, lambda)
@@ -930,25 +921,30 @@ END SUBROUTINE EvalDiffFlux3D_Elem
 !==================================================================================================================================
 !> Wrapper routine to compute the diffusive part of the Navier-Stokes fluxes for a single side
 !==================================================================================================================================
-PPURE ATTRIBUTES(GLOBAL) SUBROUTINE EvalDiffFlux3D_CUDA_Kernel(nDOF,UPrim,gradUx,gradUy,gradUz,f,g,h,mu,lambda)
+PPURE ATTRIBUTES(GLOBAL) SUBROUTINE EvalDiffFlux3D_CUDA_Kernel(nDOF,UPrim,gradUx,gradUy,gradUz,f,g,h,EOS_Vars)
 ! MODULES
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
 INTEGER,VALUE,INTENT(IN)   :: nDOF    !< Polynomial degree of input solution
-REAL,VALUE,INTENT(IN)      :: mu      !< viscosity of fluid
-REAL,VALUE,INTENT(IN)      :: lambda  !< thermal conductivity of fluid
+REAL,DEVICE,DIMENSION(PP_nVarEOS         ),INTENT(IN)  :: EOS_Vars !< EOS-specific variables
 REAL,DEVICE,DIMENSION(PP_nVarPrim   ,nDOF),INTENT(IN)  :: UPrim                !< Solution vector
 REAL,DEVICE,DIMENSION(PP_nVarLifting,nDOF),INTENT(IN)  :: gradUx,gradUy,gradUz !> Gradients in x,y,z directions
 REAL,DEVICE,DIMENSION(PP_nVar       ,nDOF),INTENT(OUT) :: f,g,h                !> Physical fluxes in x,y,z directions
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER             :: i
+REAL                :: mu,lambda
 !==================================================================================================================================
 i = (blockidx%x-1) * blockdim%x + threadidx%x
-IF(i.LE.nDOF) CALL EvalDiffFlux3D(UPrim(:,i),gradUx(:,i),gradUy(:,i),gradUz(:,i), &
-                                                  f(:,i),     g(:,i),     h(:,i), &
-                                                  mu, lambda)
+IF (i.LE.nDOF) THEN
+  ! Compute 
+  mu=VISCOSITY_PRIM_EOS(UPrim(:,i),EOS_Vars)
+  lambda=THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)
+  CALL EvalDiffFlux3D(UPrim(:,i),gradUx(:,i),gradUy(:,i),gradUz(:,i), &
+                                      f(:,i),     g(:,i),     h(:,i), &
+                                      mu, lambda)
+END IF
 END SUBROUTINE EvalDiffFlux3D_CUDA_Kernel
 
 !==================================================================================================================================
@@ -956,7 +952,7 @@ END SUBROUTINE EvalDiffFlux3D_CUDA_Kernel
 !==================================================================================================================================
 PPURE SUBROUTINE EvalDiffFlux3D_Surface_CUDA(Nloc,UPrim,gradUx,gradUy,gradUz,f,g,h)
 ! MODULES
-USE MOD_EOS_Vars,ONLY:mu0,cp,Pr
+USE MOD_EOS_Vars, ONLY: d_EOS_Vars
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -973,12 +969,8 @@ REAL              :: mu,lambda
 INTEGER           :: nDOF
 INTEGER,PARAMETER :: nThreads=256
 !==================================================================================================================================
-!TODO: Implement cleanly!
-mu     = VISCOSITY_PRIM(UPrim(:,i,j))
-lambda = THERMAL_CONDUCTIVITY_H(mu)
-
 nDOF=(Nloc+1)*(ZDIM(Nloc)+1)
-CALL EvalDiffFlux3D_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,UPrim,gradUx,gradUy,gradUz,f,g,h,mu,lambda)
+CALL EvalDiffFlux3D_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,UPrim,gradUx,gradUy,gradUz,f,g,h,d_EOS_Vars)
 END SUBROUTINE EvalDiffFlux3D_Surface_CUDA
 
 !==================================================================================================================================
@@ -986,7 +978,7 @@ END SUBROUTINE EvalDiffFlux3D_Surface_CUDA
 !==================================================================================================================================
 PPURE SUBROUTINE EvalDiffFlux3D_Sides_CUDA(Nloc,nSides,UPrim,gradUx,gradUy,gradUz,f,g,h)
 ! MODULES
-USE MOD_EOS_Vars,ONLY:mu0,cp,Pr
+USE MOD_EOS_Vars, ONLY: d_EOS_Vars
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -997,16 +989,11 @@ REAL,DEVICE,DIMENSION(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc),nSides),INTENT(IN)  :: 
 REAL,DEVICE,DIMENSION(PP_nVar       ,0:Nloc,0:ZDIM(Nloc),nSides),INTENT(OUT) :: f,g,h                !> Physical fluxes in x,y,z directions
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-REAL              :: mu,lambda
 INTEGER           :: nDOF
 INTEGER,PARAMETER :: nThreads=256
 !==================================================================================================================================
-!TODO: Implement cleanly!
-mu     = VISCOSITY_PRIM(UPrim(:,i,j,1))
-lambda = THERMAL_CONDUCTIVITY_H(mu)
-
 nDOF=(Nloc+1)*(ZDIM(Nloc)+1)*nSides
-CALL EvalDiffFlux3D_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,UPrim,gradUx,gradUy,gradUz,f,g,h,mu,lambda)
+CALL EvalDiffFlux3D_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,UPrim,gradUx,gradUy,gradUz,f,g,h,d_EOS_Vars)
 END SUBROUTINE EvalDiffFlux3D_Sides_CUDA
 
 !==================================================================================================================================
@@ -1015,7 +1002,7 @@ END SUBROUTINE EvalDiffFlux3D_Sides_CUDA
 SUBROUTINE EvalDiffFlux3D_Elem_CUDA(UPrim,gradUx,gradUy,gradUz,f,g,h)
 ! MODULES
 USE MOD_PreProc
-USE MOD_EOS_Vars,ONLY:mu0,cp,Pr
+USE MOD_EOS_Vars, ONLY: d_EOS_Vars
 #if EDDYVISCOSITY
 USE MOD_EddyVisc_Vars,ONLY: muSGS
 #endif
@@ -1031,12 +1018,8 @@ REAL              :: mu,lambda
 INTEGER           :: nDOF
 INTEGER,PARAMETER :: nThreads=256
 !==================================================================================================================================
-!TODO: Implement cleanly!
-mu     = VISCOSITY_PRIM(UPrim(:,i,j))
-lambda = THERMAL_CONDUCTIVITY_H(mu)
-
 nDOF=(PP_N+1)*(PP_N+1)*(ZDIM(PP_N)+1)
-CALL EvalDiffFlux3D_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,UPrim,gradUx,gradUy,gradUz,f,g,h,mu,lambda)
+CALL EvalDiffFlux3D_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,UPrim,gradUx,gradUy,gradUz,f,g,h,d_EOS_Vars)
 END SUBROUTINE EvalDiffFlux3D_Elem_CUDA
 
 !==================================================================================================================================
@@ -1045,7 +1028,7 @@ END SUBROUTINE EvalDiffFlux3D_Elem_CUDA
 SUBROUTINE EvalDiffFlux3D_Elems_CUDA(nElems,UPrim,gradUx,gradUy,gradUz,f,g,h)
 ! MODULES
 USE MOD_PreProc
-USE MOD_EOS_Vars,ONLY:mu0,cp,Pr
+USE MOD_EOS_Vars, ONLY: d_EOS_Vars
 #if EDDYVISCOSITY
 USE MOD_EddyVisc_Vars,ONLY: muSGS
 #endif
@@ -1062,12 +1045,8 @@ REAL              :: mu,lambda
 INTEGER           :: nDOF
 INTEGER,PARAMETER :: nThreads=256
 !==================================================================================================================================
-!TODO: Implement cleanly!
-mu     = VISCOSITY_PRIM(UPrim(:,i,j))
-lambda = THERMAL_CONDUCTIVITY_H(mu)
-
 nDOF=(PP_N+1)*(PP_N+1)*(ZDIM(PP_N)+1)*nElems
-CALL EvalDiffFlux3D_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,UPrim,gradUx,gradUy,gradUz,f,g,h,mu,lambda)
+CALL EvalDiffFlux3D_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,UPrim,gradUx,gradUy,gradUz,f,g,h,d_EOS_Vars)
 END SUBROUTINE EvalDiffFlux3D_Elems_CUDA
 #endif /*PARABOLIC*/
 

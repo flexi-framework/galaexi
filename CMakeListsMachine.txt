@@ -308,7 +308,7 @@ CMAKE_DEPENDENT_OPTION(FLEXI_PERFORMANCE_IPA "Enable Interprocedural Analysis (I
                                              "FLEXI_PERFORMANCE" OFF)
 IF (FLEXI_PERFORMANCE_IPA)
   IF (CMAKE_Fortran_COMPILER_ID MATCHES "NVHPC")
-    SET(CMAKE_Fortran_FLAGS_RELEASE "${CMAKE_Fortran_FLAGS_RELEASE} -Minline=${CMAKE_BINARY_DIR}/flexi.il,reshape")
+    SET(CMAKE_Fortran_FLAGS_RELEASE "${CMAKE_Fortran_FLAGS_RELEASE} -Minline=${CMAKE_BINARY_DIR}/flexi.il,reshape,except:getboundarystate")
     SET(CMAKE_Fortran_FLAGS_PROFILE "${CMAKE_Fortran_FLAGS_PROFILE} -Mextract=lib:${CMAKE_BINARY_DIR}/flexi.il")
   ELSE()
     MESSAGE( SEND_ERROR "Interprocedural Analysis (IPA) and optimization  currently only supported for NVHPC compiler. Either set FLEXI_PERFORMANCE_IPA=OFF or use the NVHPC compiler." )

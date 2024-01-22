@@ -147,23 +147,19 @@ IF (firstSideID_wo_BC.LE.lastSideID) THEN
 END IF
 
 ! 2. Compute the fluxes at the boundary conditions: 1..nBCSides
-IF(.NOT.doMPISides)THEN
-  DO SideID=1,nBCSides
-    CALL ABORT(__STAMP__,"No boundaries currently supported!")
-!    FVEM = FV_Elems_master(SideID)
-!    CALL GetBoundaryFlux(SideID,t,PP_N,&
-!       Flux_master(  :,:,:,     SideID),&
-!       UPrim_master( :,:,:,     SideID),&
-!#if PARABOLIC
-!       gradUx_master(:,:,:,     SideID),&
-!       gradUy_master(:,:,:,     SideID),&
-!       gradUz_master(:,:,:,     SideID),&
-!#endif
-!       NormVec(      :,:,:,FVEM,SideID),&
-!       TangVec1(     :,:,:,FVEM,SideID),&
-!       TangVec2(     :,:,:,FVEM,SideID),&
-!       Face_xGP(     :,:,:,FVEM,SideID))
-  END DO
+IF(firstSideID.LT.firstSideID_wo_BC)THEN
+  CALL GetBoundaryFlux(nBCSides, &
+     PP_N, & ! Number of sides in array
+     d_Flux_master(  :,:,:,1:nBCSides),&
+     d_UPrim_master( :,:,:,1:nBCSides),&
+#if PARABOLIC
+     d_gradUx_master(:,:,:,1:nBCSides),&
+     d_gradUy_master(:,:,:,1:nBCSides),&
+     d_gradUz_master(:,:,:,1:nBCSides),&
+#endif
+     d_NormVec(    :,:,:,:,1:nBCSides),&
+     d_TangVec1(   :,:,:,:,1:nBCSides),&
+     d_TangVec2(   :,:,:,:,1:nBCSides))
 END IF ! .NOT. MPISIDES
 
 
