@@ -84,8 +84,8 @@ CALL StartSendMPIData_GPU(   d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest
 #endif /*USE_MPI*/
 
 ! fill the all inner surface fluxes on this proc
-!CALL Lifting_FillFlux_BC(t,UPrim_master,             Flux=gradUz_slave) ! TODO: BCs
-CALL Lifting_FillFlux(d_UPrim_master,d_UPrim_slave,d_gradUz_slave,doMPISides=.FALSE.)
+CALL Lifting_FillFlux_BC(d_UPrim_master,d_gradUz_slave)
+CALL Lifting_FillFlux(   d_UPrim_master,d_UPrim_slave,d_gradUz_slave,doMPISides=.FALSE.)
 ! at this point BC, inner and MPI MINE are filled
 CALL Lifting_FillFlux_NormVec(d_gradUz_slave,d_gradUx_master,d_gradUy_master,d_gradUz_master,doMPISides=.FALSE.)
 

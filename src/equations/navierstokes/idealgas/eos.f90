@@ -44,6 +44,7 @@ END INTERFACE
 
 INTERFACE PrimToCons
   MODULE PROCEDURE PrimToCons
+  MODULE PROCEDURE PrimToCons_Point
   MODULE PROCEDURE PrimToCons_Side
   MODULE PROCEDURE PrimToCons_Elem
   MODULE PROCEDURE PrimToCons_Volume
@@ -51,6 +52,7 @@ END INTERFACE
 
 INTERFACE PRESSURE_RIEMANN
   MODULE PROCEDURE PRESSURE_RIEMANN
+  MODULE PROCEDURE PRESSURE_RIEMANN_PURE
 END INTERFACE
 
 PUBLIC::InitEos
@@ -101,6 +103,7 @@ USE MOD_Globals
 USE MOD_ReadInTools
 USE MOD_EOS_Vars      ,ONLY: Kappa,KappaM1,KappaP1,cp,cv
 USE MOD_EOS_Vars      ,ONLY: R,sKappaM1,sKappaP1
+USE MOD_EOS_Vars      ,ONLY: EOS_Vars,d_EOS_Vars
 #if PARABOLIC
 USE MOD_EOS_Vars      ,ONLY: mu0,Pr,KappaSpr
 #if PP_VISC == 1
@@ -183,6 +186,15 @@ ExpoSuth=GETREAL('ExpoSuth')
 mu0     =mu0/Tref**ExpoSuth
 #endif
 #endif /*PARABOLIC*/
+
+! Fill global EOS array
+EOS_Vars(EOS_KAPPA) = Kappa
+EOS_Vars(EOS_R    ) = R
+#if PARABOLIC
+EOS_Vars(EOS_PR   ) = Pr
+EOS_Vars(EOS_MU0  ) = mu0
+#endif
+d_EOS_Vars = EOS_Vars
 
 SWRITE(UNIT_stdOut,'(A)')' INIT IDEAL-GAS DONE!'
 SWRITE(UNIT_stdOut,'(132("-"))')
@@ -432,14 +444,14 @@ END SUBROUTINE ConsToPrim_Volume_CUDA
 !==================================================================================================================================
 !> Transformation from primitive to conservative variables for a single state
 !==================================================================================================================================
-PPURE SUBROUTINE PrimToCons(prim,cons)
+PPURE ATTRIBUTES(HOST,DEVICE) SUBROUTINE PrimToCons(prim,cons,Kappa)
 ! MODULES
-USE MOD_EOS_Vars,ONLY:sKappaM1
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
 REAL,INTENT(IN)  :: prim(PP_nVarPrim) !< vector of primitive variables
 REAL,INTENT(OUT) :: cons(PP_nVar)     !< vector of conservative variables
+REAL,INTENT(IN)  :: Kappa             !< isentropic coefficient
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 !==================================================================================================================================
@@ -453,14 +465,32 @@ cons(MOM3)=prim(VEL3)*prim(DENS)
 cons(MOM3)=0.
 #endif
 ! energy
-cons(ENER)=sKappaM1*prim(PRES)+0.5*SUM(cons(MOMV)*prim(VELV))
+cons(ENER)=prim(PRES)/(Kappa-1.)+0.5*SUM(cons(MOMV)*prim(VELV))
 END SUBROUTINE PrimToCons
+
+!==================================================================================================================================
+!> Transformation from primitive to conservative variables for a single state
+!==================================================================================================================================
+PPURE SUBROUTINE PrimToCons_Point(prim,cons)
+! MODULES
+USE MOD_EOS_Vars,ONLY:Kappa
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+REAL,INTENT(IN)  :: prim(PP_nVarPrim) !< vector of primitive variables
+REAL,INTENT(OUT) :: cons(PP_nVar)     !< vector of conservative variables
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+!==================================================================================================================================
+CALL PrimToCons(prim,cons,Kappa)
+END SUBROUTINE PrimToCons_Point
 
 !==================================================================================================================================
 !> Transformation from primitive to conservative variables on a single side
 !==================================================================================================================================
 PPURE SUBROUTINE PrimToCons_Side(Nloc,prim,cons)
 ! MODULES
+USE MOD_EOS_Vars,ONLY:Kappa
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -472,7 +502,7 @@ REAL,INTENT(OUT)   :: cons(PP_nVar    ,0:Nloc,0:ZDIM(Nloc)) !< vector of conserv
 INTEGER            :: p,q
 !==================================================================================================================================
 DO q=0,ZDIM(Nloc); DO p=0,Nloc
-  CALL PrimToCons(prim(:,p,q),cons(:,p,q))
+  CALL PrimToCons(prim(:,p,q),cons(:,p,q),Kappa)
 END DO; END DO ! p,q=0,Nloc
 END SUBROUTINE PrimToCons_Side
 
@@ -481,6 +511,7 @@ END SUBROUTINE PrimToCons_Side
 !==================================================================================================================================
 PPURE SUBROUTINE PrimToCons_Elem(Nloc,prim,cons)
 ! MODULES
+USE MOD_EOS_Vars,ONLY:Kappa
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -492,7 +523,7 @@ REAL,INTENT(OUT)   :: cons(PP_nVar    ,0:Nloc,0:Nloc,0:ZDIM(Nloc))     !< vector
 INTEGER            :: i,j,k
 !==================================================================================================================================
 DO k=0,ZDIM(Nloc); DO j=0,Nloc; DO i=0,Nloc
-  CALL PrimToCons(prim(:,i,j,k),cons(:,i,j,k))
+  CALL PrimToCons(prim(:,i,j,k),cons(:,i,j,k),Kappa)
 END DO; END DO; END DO
 END SUBROUTINE PrimToCons_Elem
 
@@ -501,6 +532,7 @@ END SUBROUTINE PrimToCons_Elem
 !==================================================================================================================================
 PPURE SUBROUTINE PrimToCons_Volume(Nloc,prim,cons)
 ! MODULES
+USE MOD_EOS_Vars,ONLY:Kappa
 USE MOD_Mesh_Vars,ONLY:nElems
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -514,7 +546,7 @@ INTEGER            :: i,j,k,iElem
 !==================================================================================================================================
 DO iElem=1,nElems
   DO k=0,ZDIM(Nloc); DO j=0,Nloc; DO i=0,Nloc
-    CALL PrimToCons(prim(:,i,j,k,iElem),cons(:,i,j,k,iElem))
+    CALL PrimToCons(prim(:,i,j,k,iElem),cons(:,i,j,k,iElem),Kappa)
   END DO; END DO; END DO
 END DO
 END SUBROUTINE PrimToCons_Volume
@@ -547,5 +579,32 @@ END IF
 PRESSURE_RIEMANN=P_RP
 END FUNCTION PRESSURE_RIEMANN
 
+!==================================================================================================================================
+!> Riemann solver function to get pressure at BCs
+!==================================================================================================================================
+PPURE ATTRIBUTES(DEVICE) FUNCTION PRESSURE_RIEMANN_PURE(U_Prim,Kappa)
+!==================================================================================================================================
+! MODULES
+! IMPLICIT VARIABLE HANDLING
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+REAL,INTENT(IN) :: U_Prim(PP_nVarPrim)   !< vector of primitive variables
+REAL,INTENT(IN) :: Kappa                 !< isentropic coefficient
+REAL            :: PRESSURE_RIEMANN_PURE !< pressure as the return value of the Riemann problem
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+REAL            :: kappaFac,ar,br,P_RP
+!==================================================================================================================================
+IF(U_Prim(VEL1) .LE. 0.) THEN ! rarefaction
+  kappaFac=2.*Kappa/(Kappa-1.)
+  P_RP=U_Prim(PRES) * MAX(0.0001,(1.+0.5*(Kappa-1.)*U_Prim(VEL1)/SQRT(Kappa*U_Prim(PRES)/U_Prim(DENS))))**kappaFac
+ELSE ! shock
+  ar=2./((Kappa+1.)*U_Prim(DENS))
+  br=(Kappa-1.)/(Kappa+1.)*U_Prim(PRES)
+  P_RP=U_Prim(PRES)+U_Prim(VEL1)/ar*0.5*(U_Prim(VEL1)+SQRT(U_Prim(VEL1)*U_Prim(VEL1)+4.*ar*(U_Prim(PRES)+br)))
+END IF
+PRESSURE_RIEMANN_PURE=P_RP
+END FUNCTION PRESSURE_RIEMANN_PURE
 
 END MODULE MOD_EOS
