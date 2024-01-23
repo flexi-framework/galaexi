@@ -257,6 +257,7 @@ SUBROUTINE DGTimeDerivative_weakForm(t)
 ! MODULES
 USE MOD_Globals
 USE MOD_GPU
+USE CUDAFOR
 USE MOD_Preproc
 USE MOD_Vector
 USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave,L_HatMinus,L_HatPlus,nTotalU
@@ -343,9 +344,10 @@ CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_U)        ! U_slave: slave -> m
 #endif
 
 ! 5. Convert face data from conservative to primitive variables
-!    Attention: For FV with 2nd order reconstruction U_master/slave and therewith UPrim_master/slave are still only 1st order
-! TODO: Linadv?
-CALL GetPrimitiveStateSurface(d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,streamID=stream2)
+#if USE_MPI
+CALL GetPrimitiveStateSurface(d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.TRUE. ,streamID=stream3)
+#endif
+CALL GetPrimitiveStateSurface(d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.,streamID=stream2)
 
 #if PARABOLIC
 ! 6. Lifting
@@ -357,10 +359,15 @@ CALL Lifting(d_UPrim,d_UPrim_master,d_UPrim_slave,t)
 ! 8. Compute volume integral contribution and add to Ut
 CALL VolInt(d_Ut,streamID=stream1)
 
-#if PARABOLIC && USE_MPI
+#if PARABOLIC
+#if USE_MPI
 ! Complete send / receive for gradUx, gradUy, gradUz, started in the lifting routines
 CALL FinishExchangeMPIData(6*nNbProcs,MPIRequest_gradU) ! gradUx,y,z: slave -> master
-#endif /*PARABOLIC && USE_MPI*/
+#else
+! Without MPI we still have to wait for all streams in lifting to end
+iError=CudaDeviceSynchronize()
+#endif /* USE_MPI */
+#endif /* PARABOLIC */
 
 ! 11. Fill flux and Surface integral
 #if USE_MPI
@@ -375,6 +382,11 @@ CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d
 CALL StartSendMPIData_GPU(   d_Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,RECV),SendID=1,streamID=stream3)
 CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Flux )                       ! Flux_slave: master -> slave
 #endif
+
+! =================================================================================
+! DEVICE SYNCHRONIZE: All streams have to be ready (fluxes and Ut)
+iError=CudaDeviceSynchronize()
+! =================================================================================
 
 ! 11.5)
 CALL SurfIntCons(PP_N,d_Flux_master,d_Flux_slave,d_Ut,d_L_HatMinus,d_L_hatPlus,doApplyJacobian=.TRUE.)
