@@ -238,12 +238,14 @@ PPURE SUBROUTINE SurfInt_CUDA(&
 #ifdef WITHnVars
         TP_nVar, &
 #endif
-        Nloc,d_Flux_master,d_Flux_slave,d_Ut,d_L_HatMinus,d_L_HatPlus,doApplyJacobian)
+        Nloc,d_Flux_master,d_Flux_slave,d_Ut,d_L_HatMinus,d_L_HatPlus,doApplyJacobian,streamID)
 ! MODULES
+USE CUDAFOR
 USE MOD_Globals
 USE MOD_PreProc
-USE MOD_Mesh_Vars ,ONLY: nElems,nSides
-USE MOD_Mesh_Vars ,ONLY: d_S2V2_inv,d_ElemToSide,d_sJ
+USE MOD_GPU       ,ONLY:DefaultStream
+USE MOD_Mesh_Vars ,ONLY:nElems,nSides
+USE MOD_Mesh_Vars ,ONLY:d_S2V2_inv,d_ElemToSide,d_sJ
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -257,24 +259,29 @@ REAL,DEVICE,INTENT(IN)      :: d_Flux_slave (1:TP_nVar,0:Nloc,0:ZDIM(Nloc),nSide
 REAL,DEVICE,INTENT(IN)      :: d_L_HatPlus(0:Nloc),d_L_HatMinus(0:Nloc)
 REAL,DEVICE,INTENT(INOUT)   :: d_Ut(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)   !< (INOUT) Time derivative of the solution
 LOGICAL,OPTIONAL,INTENT(IN) :: doApplyJacobian
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER            :: nDOF
 INTEGER,PARAMETER  :: nThreads=128
 LOGICAL            :: doApplyJacobian_loc
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 doApplyJacobian_loc = .FALSE.
 IF (PRESENT(doApplyJacobian)) doApplyJacobian_loc=doApplyJacobian
 
 nDOF = nElems*(Nloc+1)**2*(ZDIM(Nloc)+1)
 #if (PP_NodeType==1 || (PP_NodeType==2 && defined(EXACT_MM)))
-CALL SurfInt_Device<<<nDOF/nThreads+1,nThreads>>>(&
+CALL SurfInt_Device<<<nDOF/nThreads+1,nThreads,0,mystream>>>(&
 #ifdef WITHnVars
         TP_nVar, &
 #endif
         Nloc,nSides,nElems,d_Flux_master,d_Flux_slave,d_Ut,d_sJ,d_L_HatMinus,d_L_HatPlus,d_ElemToSide,d_S2V2_inv,doApplyJacobian_loc)
 #elif (PP_NodeType==2 && !defined(EXACT_MM))
-CALL SurfInt_Device<<<nDOF/nThreads+1,nThreads>>>(&
+CALL SurfInt_Device<<<nDOF/nThreads+1,nThreads,0,mystream>>>(&
 #ifdef WITHnVars
         TP_nVar, &
 #endif
@@ -289,12 +296,13 @@ PPURE SUBROUTINE SurfInt_CUDA_Single_Flux(&
 #ifdef WITHnVars
         TP_nVar, &
 #endif
-        Nloc,d_Flux,d_Ut,d_L_HatMinus,d_L_HatPlus,weak,doApplyJacobian)
+        Nloc,d_Flux,d_Ut,d_L_HatMinus,d_L_HatPlus,weak,doApplyJacobian,streamID)
 ! MODULES
-USE MOD_Globals
+USE CUDAFOR
 USE MOD_PreProc
-USE MOD_Mesh_Vars ,ONLY: nElems,nSides
-USE MOD_Mesh_Vars ,ONLY: d_S2V2_inv,d_ElemToSide,d_sJ
+USE MOD_GPU      ,ONLY:DefaultStream
+USE MOD_Mesh_Vars,ONLY:nElems,nSides
+USE MOD_Mesh_Vars,ONLY:d_S2V2_inv,d_ElemToSide,d_sJ
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -308,24 +316,29 @@ REAL,DEVICE,INTENT(IN)      :: d_L_HatPlus(0:Nloc),d_L_HatMinus(0:Nloc)
 REAL,DEVICE,INTENT(INOUT)   :: d_Ut(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems)   !< (INOUT) Time derivative of the solution
 LOGICAL,INTENT(IN)          :: weak
 LOGICAL,OPTIONAL,INTENT(IN) :: doApplyJacobian
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER            :: nDOF
 INTEGER,PARAMETER  :: nThreads=128
 LOGICAL            :: doApplyJacobian_loc
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 doApplyJacobian_loc = .FALSE.
 IF (PRESENT(doApplyJacobian)) doApplyJacobian_loc=doApplyJacobian
 
 nDOF = nElems*(Nloc+1)**2*(ZDIM(Nloc)+1)
 #if (PP_NodeType==1 || (PP_NodeType==2 && defined(EXACT_MM)))
-CALL SurfInt_Device_Single_Flux<<<nDOF/nThreads+1,nThreads>>>(&
+CALL SurfInt_Device_Single_Flux<<<nDOF/nThreads+1,nThreads,0,mystream>>>(&
 #ifdef WITHnVars
         TP_nVar, &
 #endif
         Nloc,nSides,nElems,d_Flux,d_Ut,d_sJ,d_L_HatMinus,d_L_HatPlus,d_ElemToSide,d_S2V2_inv,weak,doApplyJacobian_loc)
 #elif (PP_NodeType==2 && !defined(EXACT_MM))
-CALL SurfInt_Device_Single_Flux<<<nDOF/nThreads+1,nThreads>>>(&
+CALL SurfInt_Device_Single_Flux<<<nDOF/nThreads+1,nThreads,0,mystream>>>(&
 #ifdef WITHnVars
         TP_nVar, &
 #endif

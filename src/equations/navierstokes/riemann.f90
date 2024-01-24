@@ -191,14 +191,13 @@ REAL,DIMENSION(PP_nVar    ),INTENT(OUT) :: FOut       !< advective flux
 REAL,DIMENSION(PP_nVar) :: F_L,F_R,F
 REAL,DIMENSION(PP_2Var) :: U_LL,U_RR
 !==================================================================================================================================
-! Momentum has to be rotatet using the normal system individual for each
+! Momentum has to be rotated using the normal system individual for each
+
 ! left state: U_L
 U_LL(EXT_DENS)=U_L(DENS)
 U_LL(EXT_SRHO)=1./U_LL(EXT_DENS)
 U_LL(EXT_ENER)=U_L(ENER)
 U_LL(EXT_PRES)=UPrim_L(PRES)
-
-
 ! rotate velocity in normal and tangential direction
 U_LL(EXT_VEL1)=DOT_PRODUCT(UPrim_L(VELV),nv(:))
 U_LL(EXT_VEL2)=DOT_PRODUCT(UPrim_L(VELV),t1(:))
@@ -211,6 +210,7 @@ U_LL(EXT_MOM3)=U_LL(EXT_DENS)*U_LL(EXT_VEL3)
 U_LL(EXT_VEL3)=0.
 U_LL(EXT_MOM3)=0.
 #endif
+
 ! right state: U_R
 U_RR(EXT_DENS)=U_R(DENS)
 U_RR(EXT_SRHO)=1./U_RR(EXT_DENS)
@@ -387,8 +387,10 @@ END SUBROUTINE Riemann_Side_CUDA
 !> Conservative States are rotated into normal direction in this routine and are NOT backrotated: don't use it after this routine!!
 !> Attention 2: numerical flux is backrotated at the end of the routine!!
 !==================================================================================================================================
-PPURE SUBROUTINE Riemann_Sides_CUDA(Nloc,nSides,FOut,U_L,U_R,UPrim_L,UPrim_R,nv,t1,t2)
+PPURE SUBROUTINE Riemann_Sides_CUDA(Nloc,nSides,FOut,U_L,U_R,UPrim_L,UPrim_R,nv,t1,t2,streamID)
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU      ,ONLY:DefaultStream
 USE MOD_EOS_Vars, ONLY: Kappa
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -401,13 +403,18 @@ REAL,DEVICE,DIMENSION(PP_nVarPrim,0:Nloc,0:ZDIM(Nloc)  ,nSides),INTENT(IN)  :: U
 REAL,DEVICE,DIMENSION(PP_nVarPrim,0:Nloc,0:ZDIM(Nloc)  ,nSides),INTENT(IN)  :: UPrim_R  !< primitive solution at right side of the interface
 REAL,DEVICE,DIMENSION(3          ,0:Nloc,0:ZDIM(Nloc),1,nSides),INTENT(IN)  :: nv,t1,t2 !> normal vector and tangential vectors at side
 REAL,DEVICE,DIMENSION(PP_nVar    ,0:Nloc,0:ZDIM(Nloc)  ,nSides),INTENT(OUT) :: FOut     !< advective flux
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER           :: nDOF
 INTEGER,PARAMETER :: nThreads=256
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 nDOF=(Nloc+1)*(ZDIM(Nloc)+1)*nSides
-CALL Riemann_CUDA_Kernel<<<nDOF/nThreads+1,nThreads>>>(nDOF,FOut,U_L,U_R,UPrim_L,UPrim_R,nv,t1,t2,Kappa)
+CALL Riemann_CUDA_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nDOF,FOut,U_L,U_R,UPrim_L,UPrim_R,nv,t1,t2,Kappa)
 END SUBROUTINE Riemann_Sides_CUDA
 
 #if PARABOLIC
@@ -415,14 +422,15 @@ END SUBROUTINE Riemann_Sides_CUDA
 !> Computes the viscous NSE diffusion fluxes in all directions to approximate the numerical flux
 !> Actually not a Riemann solver, only here for coding reasons
 !==================================================================================================================================
-PPURE SUBROUTINE ViscousFlux(F,UPrim_L,UPrim_R, &
+PPURE ATTRIBUTES(DEVICE,HOST) SUBROUTINE ViscousFlux(F,UPrim_L,UPrim_R, &
                              gradUx_L,gradUy_L,gradUz_L,gradUx_R,gradUy_R,gradUz_R,nv &
 #if EDDYVISCOSITY
                             ,muSGS_L,muSGS_R &
 #endif
+                            ,EOS_Vars &
                             )
 ! MODULES
-USE MOD_Flux         ,ONLY: EvalDiffFlux3D
+USE MOD_Flux,ONLY: EvalDiffFlux3D
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -431,6 +439,7 @@ REAL,DIMENSION(PP_nVarPrim   ),INTENT(IN)  :: UPrim_L,UPrim_R
                                            !> solution gradients in x/y/z-direction left/right of the interface
 REAL,DIMENSION(PP_nVarLifting),INTENT(IN)  :: gradUx_L,gradUx_R,gradUy_L,gradUy_R,gradUz_L,gradUz_R
 REAL,DIMENSION(3             ),INTENT(IN)  :: nv  !< normal vector
+REAL,DIMENSION(PP_nVarEOS    ),INTENT(IN)  :: EOS_Vars   !< EOS-specific variables
 REAL,DIMENSION(PP_nVar       ),INTENT(OUT) :: F   !< viscous flux
 #if EDDYVISCOSITY
 REAL,INTENT(IN)                            :: muSGS_L,muSGS_R    !> eddy viscosity left/right of the interface
@@ -441,20 +450,27 @@ REAL,INTENT(IN)                            :: muSGS_L,muSGS_R    !> eddy viscosi
 ! LOCAL VARIABLES
 REAL,DIMENSION(PP_nVar)  :: diffFluxX_L,diffFluxY_L,diffFluxZ_L
 REAL,DIMENSION(PP_nVar)  :: diffFluxX_R,diffFluxY_R,diffFluxZ_R
+REAL                     :: mu,lambda
 !==================================================================================================================================
 ! Don't forget the diffusion contribution, my young padawan
 ! Compute NSE Diffusion flux
+mu=VISCOSITY_PRIM_EOS(UPrim_L(:,i),EOS_Vars)
+lambda=THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)
 CALL EvalDiffFlux3D(UPrim_L,   gradUx_L,   gradUy_L,   gradUz_L  &
                            ,diffFluxX_L,diffFluxY_L,diffFluxZ_L  &
 #if EDDYVISCOSITY
                    ,muSGS_L &
 #endif
+                   ,mu,lambda&
       )
+mu=VISCOSITY_PRIM_EOS(UPrim_R(:,i),EOS_Vars)
+lambda=THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)
 CALL EvalDiffFlux3D(UPrim_R,   gradUx_R,   gradUy_R,   gradUz_R  &
                            ,diffFluxX_R,diffFluxY_R,diffFluxZ_R  &
 #if EDDYVISCOSITY
                    ,muSGS_R&
 #endif
+                   ,mu,lambda&
       )
 ! Arithmetic mean of the fluxes
 F(:)=0.5*(nv(1)*(diffFluxX_L(:)+diffFluxX_R(:)) &
@@ -473,6 +489,7 @@ SUBROUTINE ViscousFlux_Side(Nloc,F,UPrim_L,UPrim_R, &
 #endif
                            )
 ! MODULES
+USE MOD_EOS_Vars,ONLY:EOS_Vars
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -498,6 +515,7 @@ DO q=0,ZDIM(Nloc); DO p=0,Nloc
 #if EDDYVISCOSITY
                    ,muSGS_L(:,p,q),muSGS_R(:,p,q) &
 #endif
+                   ,EOS_Vars &
                    )
 END DO; END DO
 END SUBROUTINE ViscousFlux_Side
@@ -508,10 +526,12 @@ END SUBROUTINE ViscousFlux_Side
 !==================================================================================================================================
 SUBROUTINE ViscousFlux_Sides_CUDA(Nloc,nSides,F,UPrim_L,UPrim_R, &
                                   gradUx_L,gradUy_L,gradUz_L,gradUx_R,gradUy_R,gradUz_R,nv &
-                                 )
+                                 ,streamID)
 ! MODULES
-USE MOD_Flux, ONLY: EvalDiffFlux3D
-USE MOD_EOS_Vars,ONLY:mu0,cp,Pr
+USE CUDAFOR
+USE MOD_GPU     ,ONLY:DefaultStream
+USE MOD_Flux    ,ONLY:EvalDiffFlux3D
+USE MOD_EOS_Vars,ONLY:d_EOS_Vars
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -523,6 +543,7 @@ REAL,DEVICE,DIMENSION(PP_nVarPrim   ,0:Nloc,0:ZDIM(Nloc),  nSides),INTENT(IN)   
 REAL,DEVICE,DIMENSION(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc),  nSides),INTENT(IN)    :: gradUx_L,gradUx_R,gradUy_L,gradUy_R,gradUz_L,gradUz_R
 REAL,DEVICE,DIMENSION(3             ,0:Nloc,0:ZDIM(Nloc),1,nSides),INTENT(IN)    :: nv  !< normal vector
 REAL,DEVICE,DIMENSION(PP_nVar       ,0:Nloc,0:ZDIM(Nloc),  nSides),INTENT(INOUT) :: F   !< viscous flux
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -530,18 +551,18 @@ REAL,DEVICE,DIMENSION(PP_nVar       ,0:Nloc,0:ZDIM(Nloc),  nSides),INTENT(INOUT)
 REAL              :: mu,lambda
 INTEGER           :: nDOF
 INTEGER,PARAMETER :: nThreads=256
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
-! Don't forget the diffusion contribution, my young padawan
-! TODO : Fix this!
-mu     = VISCOSITY_PRIM(UPrim(:,i,j,1))
-lambda = THERMAL_CONDUCTIVITY_H(mu)
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
 
+! Don't forget the diffusion contribution, my young padawan
 nDOF = (Nloc+1)*(ZDIM(Nloc)+1)*nSides
 
 ! Compute NSE Diffusion flux
-CALL ViscousFlux_Kernel_CUDA<<<nDOF/nThreads+1,nThreads>>>(nDOF,F,UPrim_L,UPrim_R, &
+CALL ViscousFlux_Kernel_CUDA<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nDOF,F,UPrim_L,UPrim_R, &
                              gradUx_L,gradUy_L,gradUz_L,gradUx_R,gradUy_R,gradUz_R,nv &
-                             ,mu,lambda)
+                             ,d_EOS_Vars)
 END SUBROUTINE ViscousFlux_Sides_CUDA
 
 !==================================================================================================================================
@@ -550,31 +571,35 @@ END SUBROUTINE ViscousFlux_Sides_CUDA
 !==================================================================================================================================
 PPURE ATTRIBUTES(GLOBAL) SUBROUTINE ViscousFlux_Kernel_CUDA(nDOF,F,UPrim_L,UPrim_R, &
                                     gradUx_L,gradUy_L,gradUz_L,gradUx_R,gradUy_R,gradUz_R,nv &
-                                    ,mu,lambda)
+                                    ,EOS_Vars)
 ! MODULES
 USE MOD_Flux, ONLY: EvalDiffFlux3D
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
 INTEGER,VALUE,INTENT(IN)  :: nDOF     !< local polynomial degree
-                                                                               !> solution in primitive variables at left/right side of interface
+                                                         !> solution in primitive variables at left/right side of interface
 REAL,DEVICE,DIMENSION(PP_nVarPrim   ,nDOF),INTENT(IN)    :: UPrim_L,UPrim_R
                                                          !> solution gradients in x/y/z-direction left/right of interface
 REAL,DEVICE,DIMENSION(PP_nVarLifting,nDOF),INTENT(IN)    :: gradUx_L,gradUx_R,gradUy_L,gradUy_R,gradUz_L,gradUz_R
 REAL,DEVICE,DIMENSION(3             ,nDOF),INTENT(IN)    :: nv  !< normal vector
 REAL,DEVICE,DIMENSION(PP_nVar       ,nDOF),INTENT(INOUT) :: F   !< viscous flux
-REAL,VALUE,INTENT(IN)    :: mu,lambda  !< normal vector
+REAL,DEVICE,DIMENSION(PP_nVarEOS),INTENT(IN) :: EOS_Vars !< EOS-specific variables
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER :: i
+REAL    :: mu,lambda
 REAL,DEVICE,DIMENSION(PP_nVar) :: normalDiffFlux
 !==================================================================================================================================
 ! Don't forget the diffusion contribution, my young padawan
 ! Compute NSE Diffusion flux
 i = (blockidx%x-1) * blockdim%x + threadidx%x
 IF (i.LE.nDOF) THEN
+  ! Left material parameters
+  mu=VISCOSITY_PRIM_EOS(UPrim_L(:,i),EOS_Vars)
+  lambda=THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)
   ! Left flux
   CALL EvalDiffFlux3D( UPrim_L(:,i), &
                       gradUx_L(:,i), &
@@ -586,6 +611,9 @@ IF (i.LE.nDOF) THEN
   ! Arithmetic mean of the fluxes (Add directly to avoid additional temporary variables)
   F(:,i) = F(:,i) + 0.5*normalDiffFlux ! F = F+0.5*(Flux_L+Flux_R)
 
+  ! Right material parameters
+  mu=VISCOSITY_PRIM_EOS(UPrim_L(:,i),EOS_Vars)
+  lambda=THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)
   ! Right flux
   CALL EvalDiffFlux3D( UPrim_R(:,i), &
                       gradUx_R(:,i), &

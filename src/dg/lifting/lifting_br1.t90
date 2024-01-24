@@ -46,6 +46,8 @@
 !==================================================================================================================================
 SUBROUTINE Lifting_BR1(d_UPrim,d_UPrim_master,d_UPrim_slave,t)
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU
 USE MOD_Globals
 USE MOD_Preproc
 USE MOD_Lifting_Vars
@@ -77,17 +79,17 @@ REAL,VALUE,INTENT(IN)     :: t                                                  
 ! Receive YOUR
 CALL StartReceiveMPIData_GPU(d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest_Flux(:,RECV),SendID=1)
 ! Compute lifting MPI fluxes
-CALL Lifting_FillFlux(d_UPrim_master,d_UPrim_slave,d_gradUz_slave,doMPISides=.TRUE.)
-! Start Send MINE
-CALL cudaDeviceSynchronize() ! TODO: Move CudaSynchronize into MPI send
-CALL StartSendMPIData_GPU(   d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest_Flux(:,SEND),SendID=1)
+CALL Lifting_FillFlux(d_UPrim_master,d_UPrim_slave,d_gradUz_slave,doMPISides=.TRUE.,streamID=stream3)
+! TODO: For GPU we first launch all kernels and then block communication
+!! Start Send MINE
+!CALL StartSendMPIData_GPU(   d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest_Flux(:,SEND),SendID=1)
 #endif /*USE_MPI*/
 
 ! fill the all inner surface fluxes on this proc
-!CALL Lifting_FillFlux_BC(t,UPrim_master,             Flux=gradUz_slave) ! TODO: BCs
-CALL Lifting_FillFlux(d_UPrim_master,d_UPrim_slave,d_gradUz_slave,doMPISides=.FALSE.)
+CALL Lifting_FillFlux_BC(d_UPrim_master,d_gradUz_slave,streamID=stream2)
+CALL Lifting_FillFlux(d_UPrim_master,d_UPrim_slave,d_gradUz_slave,doMPISides=.FALSE.,streamID=stream2)
 ! at this point BC, inner and MPI MINE are filled
-CALL Lifting_FillFlux_NormVec(d_gradUz_slave,d_gradUx_master,d_gradUy_master,d_gradUz_master,doMPISides=.FALSE.)
+CALL Lifting_FillFlux_NormVec(d_gradUz_slave,d_gradUx_master,d_gradUy_master,d_gradUz_master,doMPISides=.FALSE.,streamID=stream2)
 
 ! compute volume integral contribution and add to ut
 IF(doWeakLifting.OR.doConservativeLifting)THEN
@@ -97,28 +99,38 @@ IF(doWeakLifting.OR.doConservativeLifting)THEN
   CALL Lifting_VolInt(3,d_UPrim,d_GradUz)
 #endif
 ELSE
-  CALL Lifting_VolInt(d_UPrim,d_GradUx,d_GradUy,d_GradUz)
+  CALL Lifting_VolInt(d_UPrim,d_GradUx,d_GradUy,d_GradUz,streamID=stream1)
 END IF
 
 #if USE_MPI
+! TODO: First start all kernels before we block with CUDA Barrier here! For CPU of course worst case....
+! Start Send MINE
+CALL StartSendMPIData_GPU(   d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest_Flux(:,SEND),SendID=1,streamID=stream3)
 ! Complete send / receive
 CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Flux)
 CALL Lifting_FillFlux_NormVec(d_gradUz_slave,d_gradUx_master,d_gradUy_master,d_gradUz_master,doMPISides=.TRUE.)
 #endif /*USE_MPI*/
 
+! =================================================================================
+! DEVICE SYNCHRONIZE: All streams have to be ready (fluxes and Ut)
+iError=CudaDeviceSynchronize()
+! =================================================================================
+
 ! Compute surface integral contribution and add to ut
-CALL SurfIntLifting(PP_N,d_gradUx_master,d_gradUx,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,doApplyJacobian=.TRUE.)
-CALL SurfIntLifting(PP_N,d_gradUy_master,d_gradUy,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,doApplyJacobian=.TRUE.)
-CALL SurfIntLifting(PP_N,d_gradUz_master,d_gradUz,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,doApplyJacobian=.TRUE.)
+CALL SurfIntLifting(PP_N,d_gradUx_master,d_gradUx,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,doApplyJacobian=.TRUE.,streamID=stream1)
+CALL SurfIntLifting(PP_N,d_gradUy_master,d_gradUy,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,doApplyJacobian=.TRUE.,streamID=stream2)
+#if (PP_dim==3)
+CALL SurfIntLifting(PP_N,d_gradUz_master,d_gradUz,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,doApplyJacobian=.TRUE.,streamID=stream3)
+#endif
 
 ! Account for the jacobian
 ! TODO: This is already done in surfaceintegral to save memory bandwidth!
 ! The Lifting already has the right sign
 ! For FV elements no Jacobian is needed here, since already applied in Lifting_Volint (hidden in FV_Metrics_f/g/hTilde_sJ)
-!CALL ApplyJacobianLifting(d_gradUx,toPhysical=.TRUE.)
-!CALL ApplyJacobianLifting(d_gradUy,toPhysical=.TRUE.)
+!CALL ApplyJacobianLifting(d_gradUx,toPhysical=.TRUE.,streamID=stream1)
+!CALL ApplyJacobianLifting(d_gradUy,toPhysical=.TRUE.,streamID=stream2)
 !#if (PP_dim==3)
-!CALL ApplyJacobianLifting(d_gradUz,toPhysical=.TRUE.)
+!CALL ApplyJacobianLifting(d_gradUz,toPhysical=.TRUE.,streamID=stream3)
 !#endif
 
 ! We need the gradients at the face of the grid cells
@@ -132,19 +144,18 @@ CALL StartReceiveMPIData_GPU(d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest
 #endif /*USE_MPI*/
 
 ! Prolong to face
-CALL ProlongToFaceLifting(PP_N,d_gradUx,d_gradUx_master,d_gradUx_slave,d_L_Minus,d_L_Plus)
-CALL ProlongToFaceLifting(PP_N,d_gradUy,d_gradUy_master,d_gradUy_slave,d_L_Minus,d_L_Plus)
+CALL ProlongToFaceLifting(PP_N,d_gradUx,d_gradUx_master,d_gradUx_slave,d_L_Minus,d_L_Plus,streamID=stream1)
+CALL ProlongToFaceLifting(PP_N,d_gradUy,d_gradUy_master,d_gradUy_slave,d_L_Minus,d_L_Plus,streamID=stream2)
 #if (PP_dim==3)
-CALL ProlongToFaceLifting(PP_N,d_gradUz,d_gradUz_master,d_gradUz_slave,d_L_Minus,d_L_Plus)
+CALL ProlongToFaceLifting(PP_N,d_gradUz,d_gradUz_master,d_gradUz_slave,d_L_Minus,d_L_Plus,streamID=stream3)
 #endif
 
 #if USE_MPI
 ! TODO: Improve latency hiding by moving send directly after computation of respective gradients
-CALL cudaDeviceSynchronize() ! TODO: Move CudaSynchronize into MPI send
-CALL StartSendMPIData_GPU(d_gradUx_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,1,SEND),SendID=2)
-CALL StartSendMPIData_GPU(d_gradUy_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,2,SEND),SendID=2)
+CALL StartSendMPIData_GPU(d_gradUx_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,1,SEND),SendID=2,streamID=stream1)
+CALL StartSendMPIData_GPU(d_gradUy_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,2,SEND),SendID=2,streamID=stream2)
 #if (PP_dim==3)
-CALL StartSendMPIData_GPU(d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,3,SEND),SendID=2)
+CALL StartSendMPIData_GPU(d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,3,SEND),SendID=2,streamID=stream3)
 #endif
 #endif /*USE_MPI*/
 

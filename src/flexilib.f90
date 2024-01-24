@@ -39,7 +39,7 @@ SUBROUTINE InitFlexi(nArgs_In,Args_In,mpi_comm_loc)
 USE MOD_Globals
 USE MOD_PreProc
 USE MOD_Commandline_Arguments
-USE MOD_GPU,               ONLY:InitGPU
+USE MOD_GPU,               ONLY:DefineParametersGPU,InitGPU
 USE MOD_Restart,           ONLY:DefineParametersRestart,InitRestart,Restart
 USE MOD_Interpolation,     ONLY:DefineParametersInterpolation,InitInterpolation
 USE MOD_Mesh,              ONLY:DefineParametersMesh,InitMesh
@@ -116,6 +116,7 @@ ELSE IF (STRICMP(GetFileExtension(ParameterFile), "h5")) THEN
   RestartFile_loc = Args(1)
 END IF
 CALL DefineParametersMPI()
+CALL DefineParametersGPU()
 CALL DefineParametersIO_HDF5()
 CALL DefineParametersInterpolation()
 CALL DefineParametersRestart()
@@ -189,6 +190,8 @@ SWRITE(UNIT_stdOut,'(132("="))')
 ! Measure init duration
 StartTime=FLEXITIME()
 
+! GPU
+CALL InitGPU()
 ! Initialization
 CALL InitInterpolation()
 #if FV_ENABLED
@@ -220,8 +223,6 @@ CALL InitRecordpoints()
 CALL IgnoredParameters()
 CALL Restart()
 
-! GPU
-CALL InitGPU()
 
 ! Measure init duration
 Time=FLEXITIME()

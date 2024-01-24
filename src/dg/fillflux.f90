@@ -48,11 +48,13 @@ CONTAINS
 !> The flux computation is performed separately for advection and diffusion fluxes in case
 !> parabolic terms are considered.
 !==================================================================================================================================
-SUBROUTINE FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides)
+SUBROUTINE FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides,streamID)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
 USE MOD_PreProc
 USE MOD_Globals
+USE CUDAFOR
+USE MOD_GPU
 USE MOD_DG_Vars,         ONLY: nDOFFace,Flux_master
 USE MOD_Mesh_Vars,       ONLY: d_NormVec, d_TangVec1, d_TangVec2, d_SurfElem, Face_xGP
 USE MOD_Mesh_Vars,       ONLY: firstInnerSide,lastInnerSide,firstMPISide_MINE,lastMPISide_MINE
@@ -78,11 +80,16 @@ REAL,INTENT(INOUT) :: d_U_slave(     PP_nVar,0:PP_N, 0:PP_NZ,1:nSides)      !< s
 REAL,INTENT(IN)    :: d_UPrim_master(PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< primitive solution on master sides
 REAL,INTENT(IN)    :: d_UPrim_slave( PP_nVarPrim,0:PP_N, 0:PP_NZ, 1:nSides) !< primitive solution on slave sides
 !@cuf ATTRIBUTES(DEVICE) :: d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,d_Flux_master,d_Flux_slave
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER :: firstSideID_wo_BC,firstSideID,lastSideID
 INTEGER :: SideID,p,q
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 ! fill flux for sides ranging between firstSideID and lastSideID using Riemann solver for advection and viscous terms
 ! Set the side range according to MPI or no MPI
 IF(doMPISides)THEN
@@ -100,16 +107,34 @@ END IF
 ! =============================
 ! Workflow:
 !
-!  1.  compute flux for non-BC sides
-!  1.1) advective flux
-!  1.2) viscous flux
-!  1.3) add up viscous flux to Flux_master
-!  2.  compute flux for BC sides
+!  1.  compute flux for BC sides first
+!  2.  compute flux for non-BC sides
+!  2.1) advective flux
+!  2.2) add viscous flux
 !  3.  multiply by SurfElem and copy flux from master side to slave side
 !==============================
-! 1.  compute flux for non-BC sides
+
+! 1. Compute the fluxes at the boundary conditions: 1..nBCSides
+! ATTENTION: This kernel is typically very small. Hence, compute first when there ist still volume work to fill the GPU
+IF(firstSideID.LT.firstSideID_wo_BC)THEN
+  CALL GetBoundaryFlux(PP_N, &
+     nBCSides, & ! Number of sides in array
+     d_Flux_master(  :,:,:,1:nBCSides),&
+     d_UPrim_master( :,:,:,1:nBCSides),&
+#if PARABOLIC
+     d_gradUx_master(:,:,:,1:nBCSides),&
+     d_gradUy_master(:,:,:,1:nBCSides),&
+     d_gradUz_master(:,:,:,1:nBCSides),&
+#endif
+     d_NormVec(    :,:,:,:,1:nBCSides),&
+     d_TangVec1(   :,:,:,:,1:nBCSides),&
+     d_TangVec2(   :,:,:,:,1:nBCSides),&
+     streamID=mystream)
+END IF ! .NOT. MPISIDES
+
+! 2.  compute flux for non-BC sides
 IF (firstSideID_wo_BC.LE.lastSideID) THEN
-  ! 1.1) advective flux
+  ! 2.1) advective flux
   CALL Riemann(PP_N, &
                lastSideID-firstSideID_wo_BC+1, & ! Number of sides in array
                d_Flux_master (:,:,:,firstSideID_wo_BC:lastSideID), &
@@ -119,9 +144,10 @@ IF (firstSideID_wo_BC.LE.lastSideID) THEN
                d_UPrim_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
                d_NormVec   (:,:,:,:,firstSideID_wo_BC:lastSideID), &
                d_TangVec1  (:,:,:,:,firstSideID_wo_BC:lastSideID), &
-               d_TangVec2  (:,:,:,:,firstSideID_wo_BC:lastSideID))
+               d_TangVec2  (:,:,:,:,firstSideID_wo_BC:lastSideID), &
+               streamID=mystream)
 #if PARABOLIC
-  ! 1.2) viscous flux
+  ! 2.2) viscous flux
   CALL ViscousFlux(PP_N, &
                    lastSideID-firstSideID_wo_BC+1, & ! Number of sides in array
                    d_Flux_master  (:,:,:,firstSideID_wo_BC:lastSideID), &
@@ -133,33 +159,13 @@ IF (firstSideID_wo_BC.LE.lastSideID) THEN
                    d_gradUx_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
                    d_gradUy_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
                    d_gradUz_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
-                   d_NormVec    (:,:,:,:,firstSideID_wo_BC:lastSideID))
+                   d_NormVec    (:,:,:,:,firstSideID_wo_BC:lastSideID), &
+                   streamID=mystream)
 #endif
 END IF
 
-! 2. Compute the fluxes at the boundary conditions: 1..nBCSides
-IF(.NOT.doMPISides)THEN
-  DO SideID=1,nBCSides
-    CALL ABORT(__STAMP__,"No boundaries currently supported!")
-!    FVEM = FV_Elems_master(SideID)
-!    CALL GetBoundaryFlux(SideID,t,PP_N,&
-!       Flux_master(  :,:,:,     SideID),&
-!       UPrim_master( :,:,:,     SideID),&
-!#if PARABOLIC
-!       gradUx_master(:,:,:,     SideID),&
-!       gradUy_master(:,:,:,     SideID),&
-!       gradUz_master(:,:,:,     SideID),&
-!#endif
-!       NormVec(      :,:,:,FVEM,SideID),&
-!       TangVec1(     :,:,:,FVEM,SideID),&
-!       TangVec2(     :,:,:,FVEM,SideID),&
-!       Face_xGP(     :,:,:,FVEM,SideID))
-  END DO
-END IF ! .NOT. MPISIDES
-
-
 ! 3. multiply by SurfElem and copy flux from master side to slave side
-!$cuf kernel do(3) <<< *, 256, 0 >>>
+!$cuf kernel do(3) <<< *, 256, 0, mystream>>>
 DO SideID=firstSideID,lastSideID
   DO q=0,PP_NZ; DO p=0,PP_N
     ! multiply with SurfElem

@@ -40,6 +40,19 @@
 #define TEMP  6             /* temperature */
 #define VELVTEMP (/VEL1,VEL2,VEL3,TEMP/) /* velocity range and temperature */
 
+! EOS parameters
+#if PARABOLIC
+#define EOS_KAPPA  1  /* isentropic coefficient kappa */
+#define EOS_R      2  /* specific gas constant R      */
+#define EOS_PR     3  /* Prandtl number Pr            */
+#define EOS_MU0    4  /* reference viscosity mu0      */
+#define PP_nVarEOS 4
+#else
+#define EOS_KAPPA  1  /* isentropic coefficient kappa */
+#define EOS_R      2  /* specific gas constant R      */
+#define PP_nVarEOS 2
+#endif
+
 ! routines to compute physical quantities
 #define KAPPASPR_MAX_TIMESTEP_H()      (MAX(4./3.,KappasPr))
 #define THERMAL_CONDUCTIVITY_H(mu)     (mu*cp/Pr)
@@ -70,10 +83,11 @@
 
 #if PP_VISC == 0
 #define VISCOSITY_PRIM(U)              mu0
+#define VISCOSITY_PRIM_EOS(U,EOS_Vars) EOS_Vars(EOS_MU0)
 #elif PP_VISC == 1
-#define VISCOSITY_PRIM(U)              muSuth(U(TEMP))
+#define VISCOSITY_PRIM(U,EOS_Vars)     muSuth(U(TEMP))
 #elif PP_VISC == 2
-#define VISCOSITY_PRIM(U)              mu0*U(TEMP)**ExpoSuth
+#define VISCOSITY_PRIM(U,EOS_Vars)     mu0*U(TEMP)**ExpoSuth
 #endif
 
 #if PP_VISC == 0
@@ -83,6 +97,11 @@
 #elif PP_VISC == 2
 #define VISCOSITY_TEMPERATURE(T)       mu0*T**ExpoSuth
 #endif
+
+#define THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)   (mu*EOS_Vars(EOS_R)*EOS_Vars(EOS_KAPPA)/((EOS_Vars(EOS_KAPPA)-1.)*EOS_Vars(EOS_PR)))
+#define PRESSURE_UE_EOS(UE,EOS_Vars)            ((EOS_Vars(EOS_KAPPA)-1.)*(UE(EXT_ENER)-0.5*DOT_PRODUCT(UE(EXT_VELV),UE(EXT_MOMV))))
+#define TEMPERATURE_UE_EOS(UE,EOS_Vars)         (UE(EXT_PRES)*UE(EXT_SRHO)/EOS_Vars(EOS_R))
+#define SPEEDOFSOUND_UE_EOS(UE,EOS_Vars)        (SQRT(EOS_Vars(EOS_KAPPA)*UE(EXT_PRES)*UE(EXT_SRHO)))
 
 #define EXT_CONS    1:PP_nVar                  /* all ext cons variables */
 #define EXT_PRIM    PP_nVarPrim:PP_2Var        /* all ext prim variables */

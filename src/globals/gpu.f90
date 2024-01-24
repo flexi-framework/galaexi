@@ -20,8 +20,14 @@ IMPLICIT NONE
 
 PRIVATE
 
-INTEGER(KIND=cuda_stream_kind) :: stream1
-INTEGER(KIND=cuda_stream_kind) :: stream2
+INTEGER(KIND=CUDA_STREAM_KIND) :: DefaultStream
+INTEGER(KIND=CUDA_STREAM_KIND) :: stream1
+INTEGER(KIND=CUDA_STREAM_KIND) :: stream2
+INTEGER(KIND=CUDA_STREAM_KIND) :: stream3
+
+INTERFACE DefineParametersGPU
+  MODULE PROCEDURE DefineParametersGPU
+END INTERFACE
 
 INTERFACE InitGPU
   MODULE PROCEDURE InitGPU
@@ -31,11 +37,27 @@ INTERFACE FinalizeGPU
   MODULE PROCEDURE FinalizeGPU
 END INTERFACE
 
-PUBLIC::InitGPU,FinalizeGPU
-PUBLIC::stream1,stream2
+PUBLIC::DefineParametersGPU,InitGPU,FinalizeGPU
+PUBLIC::stream1,stream2,stream3,DefaultStream
 !==================================================================================================================================
 
 CONTAINS
+
+!==================================================================================================================================
+!> DefineLifting
+!==================================================================================================================================
+SUBROUTINE DefineParametersGPU()
+! MODULES
+USE MOD_ReadInTools ,ONLY: prms
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+!==================================================================================================================================
+CALL prms%SetSection("GPU")
+CALL prms%CreateLogicalOption('useStreams', "Set true to use concurrent streaming on device.", '.TRUE.')
+END SUBROUTINE DefineParametersGPU
 
 !==================================================================================================================================
 !> Initialize indicators
@@ -44,21 +66,29 @@ SUBROUTINE InitGPU()
 ! MODULES
 USE MOD_Preproc
 USE MOD_Globals
+USE MOD_ReadInTools,ONLY: GETLOGICAL
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER               ::   istat
+LOGICAL               :: useStreams
 !==================================================================================================================================
 SWRITE(UNIT_stdOut,'(132("-"))')
 SWRITE(UNIT_stdOut,'(A)') ' INIT GPU...'
 
-SWRITE(UNIT_stdOut,'(A)') ' DUMMY ' 
+useStreams = GETLOGICAL('useStreams')
 
-
-istat = cudaStreamCreate(stream1)
-istat = cudaStreamCreate(stream2)
+DefaultStream=cudaforGetDefaultStream()
+IF (useStreams) THEN
+  iError = cudaStreamCreate(stream1)
+  iError = cudaStreamCreate(stream2)
+  iError = cudaStreamCreate(stream3)
+ELSE
+  stream1 = DefaultStream
+  stream2 = DefaultStream
+  stream3 = DefaultStream
+END IF
 
 SWRITE(UNIT_stdOut,'(A)')' INIT GPU DONE!'
 SWRITE(UNIT_stdOut,'(132("-"))')
@@ -82,6 +112,7 @@ INTEGER               ::   istat
 
 istat = cudaStreamDestroy(stream1)
 istat = cudaStreamDestroy(stream2)
+istat = cudaStreamDestroy(stream3)
 
 END SUBROUTINE FinalizeGPU
 

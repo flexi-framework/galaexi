@@ -149,6 +149,8 @@ IF(nRefState .GT. 0)THEN
     RefStatePrim(TEMP,i) = TEMPERATURE_HE(UE)
     CALL PrimToCons(RefStatePrim(:,i),RefStateCons(:,i))
   END DO
+  ALLOCATE(d_RefStatePrim(PP_nVarPrim,nRefState))
+  d_RefStatePrim = RefStatePrim
 END IF
 
 ! boundary state filename if present
@@ -196,40 +198,51 @@ END SUBROUTINE InitEquation
 !>
 !> TODO: Provide switch for these two versions.
 !==================================================================================================================================
-SUBROUTINE GetPrimitiveStateSurface(d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave)
+SUBROUTINE GetPrimitiveStateSurface(d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides,streamID)
 ! MODULES
 USE MOD_Preproc
+USE CUDAFOR
+USE MOD_GPU      ,ONLY:DefaultStream
 USE MOD_EOS,      ONLY: ConsToPrim
-USE MOD_Mesh_Vars,ONLY: firstInnerSide,firstMPISide_YOUR,lastMPISide_MINE,lastMPISide_YOUR,nSides
+USE MOD_Mesh_Vars,ONLY: firstInnerSide,lastInnerSide,firstMPISide_MINE,lastMPISide_MINE,lastMPISide_YOUR,nSides
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
+LOGICAL,INTENT(IN) :: doMPISides  !< = .TRUE. only MPISides are filled, =.FALSE. InnerSides
 REAL,DEVICE,INTENT(IN)  :: d_U_master(    1:PP_nVar    ,0:PP_N,0:PP_NZ,1:nSides) !< conservative solution on master sides
 REAL,DEVICE,INTENT(IN)  :: d_U_slave(     1:PP_nVar    ,0:PP_N,0:PP_NZ,1:nSides) !< conservative solution on slave sides
 REAL,DEVICE,INTENT(OUT) :: d_UPrim_master(1:PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides) !< primitive solution on master sides
 REAL,DEVICE,INTENT(OUT) :: d_UPrim_slave( 1:PP_nVarPrim,0:PP_N,0:PP_NZ,1:nSides) !< primitive solution on slave sides
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
+INTEGER                        :: firstSideID_master,lastSideID_master
+INTEGER                        :: firstSideID_slave ,lastSideID_slave
 !==================================================================================================================================
-!DO iSide=1,nSides
-!  IF(iSide.GE.firstMPISide_YOUR.AND.iSide.LE.lastMPISide_YOUR) CYCLE
-!  DO j=0,PP_NZ; DO i=0,PP_N
-!    CALL ConsToPrim(UPrim_master(:,i,j,iSide),U_master(:,i,j,iSide))
-!  END DO; END DO
-!END DO
-!DO iSide=firstInnerSide,lastMPISide_YOUR
-!  DO j=0,PP_NZ; DO i=0,PP_N
-!    CALL ConsToPrim(UPrim_slave(:,i,j,iSide),U_slave(:,i,j,iSide))
-!  END DO; END DO
-!END DO
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
+! Set the side range according to MPI or no MPI
+IF(doMPISides)THEN
+  ! fill only MPISides (where the local proc is master)
+  firstSideID_master = firstMPISide_MINE
+   lastSideID_master =  lastMPISide_MINE ! No MPI YOUR sides for master
+  firstSideID_slave  = firstMPISide_MINE
+   lastSideID_slave  =  lastMPISide_YOUR
+ELSE
+  ! fill only InnerSides that do not need communication
+  firstSideID_master =              1 ! include BCs for master
+   lastSideID_master =  lastInnerSide
+  firstSideID_slave  = firstInnerSide ! No BCs for Slave sides
+   lastSideID_slave  =  lastInnerSide
+END IF
 
 ! TODO: No MPIMortars considered here!
-! No MPI YOUR sides for master
-CALL ConsToPrim(PP_N,                 lastMPISide_MINE,d_UPrim_master(:,:,:,             1:lastMPISide_MINE) &
-                                                      ,    d_U_master(:,:,:,             1:lastMPISide_MINE) )
-! No BCs for Slave sides
-CALL ConsToPrim(PP_N,lastMPISide_YOUR-firstInnerSide+1,d_UPrim_slave( :,:,:,firstInnerSide:lastMPISide_YOUR) &
-                                                          ,d_U_slave( :,:,:,firstInnerSide:lastMPISide_YOUR) )
+CALL ConsToPrim(PP_N,lastSideID_master-firstSideID_master+1,d_UPrim_master(:,:,:,firstSideID_master:lastSideID_master) &
+                                                               ,d_U_master(:,:,:,firstSideID_master:lastSideID_master) ,mystream)
+CALL ConsToPrim(PP_N,lastSideID_slave -firstSideID_slave +1,d_UPrim_slave( :,:,:,firstSideID_slave :lastSideID_slave ) &
+                                                               ,d_U_slave( :,:,:,firstSideID_slave :lastSideID_slave ) ,mystream)
 
 !! Version 2: Compute UPrim_master/slave from volume UPrim
 !
@@ -314,6 +327,7 @@ CALL FinalizeEddyVisc()
 #endif /*EDDYVISCOSITY*/
 CALL FinalizeBC()
 SDEALLOCATE(RefStatePrim)
+SDEALLOCATE(d_RefStatePrim)
 SDEALLOCATE(RefStateCons)
 EquationInitIsDone = .FALSE.
 END SUBROUTINE FinalizeEquation

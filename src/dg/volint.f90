@@ -57,10 +57,12 @@ CONTAINS
 !> Attention 1: 1/J(i,j,k) is not yet accounted for
 !> Attention 2: input Ut is NOT overwritten, but instead added to the volume flux derivatives
 !==================================================================================================================================
-SUBROUTINE VolInt_weakForm_Visc(d_Ut)
+SUBROUTINE VolInt_weakForm_Visc(d_Ut,streamID)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
+USE CUDAFOR
 USE MOD_PreProc
+USE MOD_GPU             ,ONLY: DefaultStream
 USE MOD_DG_Vars         ,ONLY: nDOFElem,d_f,d_g,d_h,nElems_Block_volInt
 USE MOD_DG_Vars         ,ONLY: d_UPrim,d_D_Hat_T
 USE MOD_Mesh_Vars       ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,nElems
@@ -74,12 +76,17 @@ IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
 REAL,DEVICE,INTENT(OUT)   :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER            :: iElem,lastElem,nElems_myBlock
 INTEGER            :: nDOF
 INTEGER,PARAMETER  :: nThreads=256
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 DO iElem=1,nElems,nElems_Block_volInt
   lastElem    = MIN(nElems,iElem+nElems_Block_volInt-1)
   nElems_myBlock = lastElem-iElem+1
@@ -95,7 +102,8 @@ DO iElem=1,nElems,nElems_Block_volInt
                             ,d_h( :,:,:,:,1:nElems_myBlock)  &
                             ,d_Metrics_fTilde(:,:,:,:,iElem:lastElem,0) &
                             ,d_Metrics_gTilde(:,:,:,:,iElem:lastElem,0) &
-                            ,d_Metrics_hTilde(:,:,:,:,iElem:lastElem,0))
+                            ,d_Metrics_hTilde(:,:,:,:,iElem:lastElem,0) &
+                            ,streamID=mystream)
 
   CALL ApplyDMatrixCons(nElems_myBlock &
                        ,d_Ut(:,:,:,:,iElem:lastElem) &
@@ -103,7 +111,7 @@ DO iElem=1,nElems,nElems_Block_volInt
                        ,d_g( :,:,:,:,1:nElems_myBlock) &
                        ,d_h( :,:,:,:,1:nElems_myBlock) &
                        ,d_D_Hat_T &
-                       )
+                       ,streamID=mystream)
 END DO ! iElem
 END SUBROUTINE VolInt_weakForm_Visc
 #endif /*PARABOLIC*/
@@ -115,10 +123,12 @@ END SUBROUTINE VolInt_weakForm_Visc
 !> Attention 2: input Ut is overwritten with the volume flux derivatives
 !==================================================================================================================================
 #ifndef SPLIT_DG
-SUBROUTINE VolInt_weakForm(d_Ut)
+SUBROUTINE VolInt_weakForm(d_Ut,streamID)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
+USE CUDAFOR
 USE MOD_PreProc
+USE MOD_GPU             ,ONLY: DefaultStream
 USE MOD_DG_Vars         ,ONLY: nDOFElem,d_f,d_g,d_h,nElems_Block_volInt
 USE MOD_DG_Vars         ,ONLY: d_U,d_UPrim,d_D_Hat_T
 USE MOD_Mesh_Vars       ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,nElems
@@ -132,12 +142,17 @@ IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
 REAL,DEVICE,INTENT(OUT)   :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER            :: iElem,lastElem,nElems_myBlock
 INTEGER            :: nDOF
 INTEGER,PARAMETER  :: nThreads=256
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 DO iElem=1,nElems,nElems_Block_volInt
   lastElem    = MIN(nElems,iElem+nElems_Block_volInt-1)
   nElems_myBlock = lastElem-iElem+1
@@ -156,7 +171,8 @@ DO iElem=1,nElems,nElems_Block_volInt
                             ,d_h( :,:,:,:,1:nElems_myBlock)  &
                             ,d_Metrics_fTilde(:,:,:,:,iElem:lastElem,0) &
                             ,d_Metrics_gTilde(:,:,:,:,iElem:lastElem,0) &
-                            ,d_Metrics_hTilde(:,:,:,:,iElem:lastElem,0))
+                            ,d_Metrics_hTilde(:,:,:,:,iElem:lastElem,0) &
+                            ,mystream)
 
   CALL ApplyDMatrixCons(nElems_myBlock &
                        ,d_Ut(:,:,:,:,iElem:lastElem) &
@@ -164,7 +180,7 @@ DO iElem=1,nElems,nElems_Block_volInt
                        ,d_g( :,:,:,:,1:nElems_myBlock) &
                        ,d_h( :,:,:,:,1:nElems_myBlock) &
                        ,d_D_Hat_T &
-                       )
+                       ,mystream)
 END DO ! iElem
 END SUBROUTINE VolInt_weakForm
 #endif
@@ -189,32 +205,39 @@ END SUBROUTINE VolInt_weakForm
 !> "Split form nodal discontinuous Galerkin schemes with summation-by-parts property for the compressible Euler equations."
 !> Journal of Computational Physics 327 (2016): 39-66.
 !==================================================================================================================================
-SUBROUTINE VolInt_splitForm(d_Ut)
+SUBROUTINE VolInt_splitForm(d_Ut,streamID)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
+USE CUDAFOR
 USE MOD_PreProc
-USE MOD_DG_Vars      ,ONLY: d_DVolSurf,d_UPrim,d_U,nDOFElem
-USE MOD_Mesh_Vars    ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,nElems
+USE MOD_GPU      ,ONLY: DefaultStream
+USE MOD_DG_Vars  ,ONLY: d_DVolSurf,d_UPrim,d_U,nDOFElem
+USE MOD_Mesh_Vars,ONLY: d_Metrics_fTilde,d_Metrics_gTilde,nElems
 #if PP_dim==3 || VOLINT_VISC
-USE MOD_Mesh_Vars    ,ONLY: d_Metrics_hTilde
+USE MOD_Mesh_Vars,ONLY: d_Metrics_hTilde
 #endif
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
 REAL,DEVICE,INTENT(OUT)   :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 !INTEGER            :: i,j,k,l,iElem
 !REAL,DIMENSION(PP_nVar                     )  :: Flux         !< temp variable for split flux
 INTEGER :: nDOF
 INTEGER,PARAMETER :: nThreads=256
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 #if PARABOLIC
-CALL VolInt_weakForm_Visc(d_Ut)
+CALL VolInt_weakForm_Visc(d_Ut,streamID=mystream)
 #endif
 
 nDOF = nDOFElem*nElems
-CALL VolInt_splitForm_Kernel<<<nDOF/nThreads+1,nThreads>>>(PP_N,nElems,d_Ut,d_U,d_UPrim,d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,d_DVolSurf)
+CALL VolInt_splitForm_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(PP_N,nElems,d_Ut,d_U,d_UPrim,d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,d_DVolSurf)
 END SUBROUTINE VolInt_splitForm
 
 !==================================================================================================================================

@@ -28,6 +28,7 @@ INTEGER           :: IniExactFunc      !< number identifying the used exact func
 INTEGER           :: IniRefState       !< RefState for initialization (case IniExactFunc=1 only)
 INTEGER           :: nRefState         !< number of refstates defined in parameter file
 REAL,ALLOCATABLE  :: RefStatePrim(:,:) !< refstates in primitive variables (as read from ini file)
+REAL,DEVICE,ALLOCATABLE  :: d_RefStatePrim(:,:) !< refstates in primitive variables (as read from ini file)
 REAL,ALLOCATABLE  :: RefStateCons(:,:) !< refstates in conservative variables
 CHARACTER(LEN=255):: BCStateFile       !< file containing the reference solution on the boundary to be used as BC
 
@@ -36,6 +37,8 @@ REAL,ALLOCATABLE     :: BCData(:,:,:,:) !< array with precomputed BC values (con
 REAL,ALLOCATABLE     :: BCDataPrim(:,:,:,:) !< array with precomputed BC values (primitive)
 INTEGER,ALLOCATABLE  :: nBCByType(:)   !< number of sides with specific BC type
 INTEGER,ALLOCATABLE  :: BCSideID(:,:)  !< array storing side IDs of sides with different BCs
+INTEGER,ALLOCATABLE  :: BCSides(:,:)   !< array storing BC_State and BC_Type for each BCSide
+INTEGER,DEVICE,ALLOCATABLE  :: d_BCSides(:,:)  !< array storing BC_State and BC_Type for each BCSide
 
 REAL                 :: s43            !< precomputed 4./3.
 REAL                 :: s23            !< precomputed 2./3.

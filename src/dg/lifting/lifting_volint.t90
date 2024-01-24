@@ -212,8 +212,10 @@ END SUBROUTINE Lifting_VolInt_Conservative
 !> In the non conservative form of the volume integral in BR1/2 we first differentiate the flux (which is the solution in BR1) and
 !> then apply the metric terms. This is the fastest implementation of the volume integral and only available in strong form.
 !==================================================================================================================================
-PPURE SUBROUTINE Lifting_VolInt_Nonconservative_GPU(d_UPrim,d_gradUx,d_gradUy,d_gradUz)
+PPURE SUBROUTINE Lifting_VolInt_Nonconservative_GPU(d_UPrim,d_gradUx,d_gradUy,d_gradUz,streamID)
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU       ,ONLY:DefaultStream
 USE MOD_PreProc
 USE MOD_DG_Vars      ,ONLY: d_D_T,nDOFElem
 USE MOD_Mesh_Vars    ,ONLY: d_Metrics_fTilde,d_Metrics_gTilde
@@ -228,20 +230,25 @@ REAL,DEVICE,INTENT(IN)                     :: d_UPrim( PP_nVarPrim   ,0:PP_N,0:P
 REAL,DEVICE,INTENT(OUT)                    :: d_gradUx(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< gradients in x-direction
 REAL,DEVICE,INTENT(OUT)                    :: d_gradUy(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< gradients in y-direction
 REAL,DEVICE,INTENT(OUT)                    :: d_gradUz(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< gradients in z-direction
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER           :: nDOF
 INTEGER,PARAMETER :: nThreads=256
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 ! volume integral
 nDOF = nDOFElem*nElems
-CALL Lifting_VolInt_Nonconservative_GPU_Kernel<<<nDOF/nThreads+1,nThreads>>>(PP_N,nElems,d_UPrim &
-                                                                            ,d_gradUx,d_gradUy,d_gradUz&
-                                                                            ,d_Metrics_fTilde(:,:,:,:,:,0) &
-                                                                            ,d_Metrics_gTilde(:,:,:,:,:,0) &
-                                                                            ,d_Metrics_hTilde(:,:,:,:,:,0) &
-                                                                            ,d_D_T &
-                                                                            )
+CALL Lifting_VolInt_Nonconservative_GPU_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(PP_N,nElems,d_UPrim &
+                                                                                       ,d_gradUx,d_gradUy,d_gradUz &
+                                                                                       ,d_Metrics_fTilde(:,:,:,:,:,0) &
+                                                                                       ,d_Metrics_gTilde(:,:,:,:,:,0) &
+                                                                                       ,d_Metrics_hTilde(:,:,:,:,:,0) &
+                                                                                       ,d_D_T &
+                                                                                       )
 
 END SUBROUTINE Lifting_VolInt_Nonconservative_GPU
 

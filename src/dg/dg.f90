@@ -165,6 +165,7 @@ nTotalU=PP_nVar*nDOFElem*nElems
 ! Fill the solution vector U with the initial solution by interpolation, if not filled through restart already
 IF(.NOT.DoRestart)THEN
   CALL FillIni(PP_N,Elem_xGP,U)
+  d_U =U !Todo second copy of data to the GPU, skip previous one and move data to the GPU last?
 END IF
 
 DGInitIsDone=.TRUE.
@@ -255,6 +256,8 @@ SUBROUTINE DGTimeDerivative_weakForm(t)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
 USE MOD_Globals
+USE MOD_GPU
+USE CUDAFOR
 USE MOD_Preproc
 USE MOD_Vector
 USE MOD_DG_Vars             ,ONLY: Ut,U,U_slave,U_master,Flux_master,Flux_slave,L_HatMinus,L_HatPlus,nTotalU
@@ -327,24 +330,27 @@ INTEGER :: i,j,k,iSide,iElem
 #if USE_MPI
 CALL StartReceiveMPIData_GPU(d_U_slave,DataSizeSide,1,nSides,MPIRequest_U(:,SEND),SendID=2) ! Receive MINE / U_slave: slave -> master
 #endif
-CALL ProlongToFaceCons(PP_N,d_U,d_U_master,d_U_slave,d_L_Minus,d_L_Plus)
+CALL ProlongToFaceCons(PP_N,d_U,d_U_master,d_U_slave,d_L_Minus,d_L_Plus,streamID=stream2)
 #if USE_MPI
-CALL cudaDeviceSynchronize() ! TODO: Move CudaSynchronize into MPI send
-CALL StartSendMPIData_GPU(   d_U_slave,DataSizeSide,1,nSides,MPIRequest_U(:,RECV),SendID=2) ! SEND YOUR / U_slave: slave -> master
+! TODO: For GPU we first launch all kernels and then block communication
+!CALL StartSendMPIData_GPU(   d_U_slave,DataSizeSide,1,nSides,MPIRequest_U(:,RECV),SendID=2) ! SEND YOUR / U_slave: slave -> master
 #endif
 
 ! 3. Convert Volume solution to primitive for latency hiding
-CALL ConsToPrim(PP_N,d_UPrim,d_U)
+CALL ConsToPrim(PP_N,d_UPrim,d_U,streamID=stream1)
 
 #if USE_MPI
+! TODO: First start all kernels before we block with CUDA Barrier here! For CPU of course worst case....
+CALL StartSendMPIData_GPU(   d_U_slave,DataSizeSide,1,nSides,MPIRequest_U(:,RECV),SendID=2,streamID=stream2) ! SEND YOUR / U_slave: slave -> master
 ! 4. Finish communication of face solution
 CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_U)        ! U_slave: slave -> master
 #endif
 
 ! 5. Convert face data from conservative to primitive variables
-!    Attention: For FV with 2nd order reconstruction U_master/slave and therewith UPrim_master/slave are still only 1st order
-! TODO: Linadv?
-CALL GetPrimitiveStateSurface(d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave)
+#if USE_MPI
+CALL GetPrimitiveStateSurface(d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.TRUE. ,streamID=stream3)
+#endif
+CALL GetPrimitiveStateSurface(d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.,streamID=stream2)
 
 #if PARABOLIC
 ! 6. Lifting
@@ -354,28 +360,40 @@ CALL Lifting(d_UPrim,d_UPrim_master,d_UPrim_slave,t)
 #endif /* PARABOLIC */
 
 ! 8. Compute volume integral contribution and add to Ut
-CALL VolInt(d_Ut)
+CALL VolInt(d_Ut,streamID=stream1)
 
 #if FV_ENABLED
 !CALL FV_VolInt(d_U,d_UPrim,d_Ut)
 #endif
 
-#if PARABOLIC && USE_MPI
+#if PARABOLIC
+#if USE_MPI
 ! Complete send / receive for gradUx, gradUy, gradUz, started in the lifting routines
 CALL FinishExchangeMPIData(6*nNbProcs,MPIRequest_gradU) ! gradUx,y,z: slave -> master
-#endif /*PARABOLIC && USE_MPI*/
+#else
+! Without MPI we still have to wait for all streams in lifting to end
+iError=CudaDeviceSynchronize()
+#endif /* USE_MPI */
+#endif /* PARABOLIC */
 
 ! 11. Fill flux and Surface integral
 #if USE_MPI
 CALL StartReceiveMPIData_GPU(d_Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,SEND),SendID=1)
-CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.TRUE.)
-CALL cudaDeviceSynchronize() ! TODO: Move CudaSynchronize into MPI send
-CALL StartSendMPIData_GPU(   d_Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,RECV),SendID=1)
+CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.TRUE.,streamID=stream3)
+! TODO: For GPU we first launch all kernels and then block communication
+!CALL StartSendMPIData_GPU(   d_Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,RECV),SendID=1,streamID=stream3)
 #endif
-CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.)
+CALL FillFlux(t,d_Flux_master,d_Flux_slave,d_U_master,d_U_slave,d_UPrim_master,d_UPrim_slave,doMPISides=.FALSE.,streamID=stream2)
 #if USE_MPI
+! TODO: First start all kernels before we block with CUDA Barrier here! For CPU of course worst case....
+CALL StartSendMPIData_GPU(   d_Flux_slave, DataSizeSide, 1,nSides,MPIRequest_Flux( :,RECV),SendID=1,streamID=stream3)
 CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Flux )                       ! Flux_slave: master -> slave
 #endif
+
+! =================================================================================
+! DEVICE SYNCHRONIZE: All streams have to be ready (fluxes and Ut)
+iError=CudaDeviceSynchronize()
+! =================================================================================
 
 ! 11.5)
 CALL SurfIntCons(PP_N,d_Flux_master,d_Flux_slave,d_Ut,d_L_HatMinus,d_L_hatPlus,doApplyJacobian=.TRUE.)
