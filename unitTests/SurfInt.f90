@@ -14,7 +14,7 @@ USE MOD_Unittest,           ONLY: ReadInReferenceElementData
 USE MOD_SurfIntCons,        ONLY: SurfIntCons
 ! Modules needed to read in reference element
 USE MOD_DG_Vars,            ONLY: L_HatPlus,L_HatMinus
-#if FV_ENABLED
+#if FV_ENABLED == 1
 USE MOD_FV_Vars,            ONLY: FV_w,FV_w_inv, FV_Elems, FV_Elems_master,FV_Elems_slave
 #endif
 IMPLICIT NONE
@@ -23,7 +23,7 @@ IMPLICIT NONE
 REAL                           :: Flux(0:NRef,0:NRefZ,1:nSidesRef)
 REAL                           :: Flux_nVar(PP_nVar,0:NRef,0:NRefZ,1:nSidesRef)
 REAL                           :: Ut(PP_nVar,0:NRef,0:NRef,0:NRefZ,nElemsRef),Ut_ref(1,0:NRef,0:NRef,0:NRefZ,nElemsRef)
-#if FV_ENABLED
+#if FV_ENABLED == 1
 REAL                           :: FV_Ut(PP_nVar,0:NRef,0:NRef,0:NRefZ,nElemsRef),FV_Ut_ref(1,0:NRef,0:NRef,0:NRefZ,nElemsRef)
 #endif
 ! Therefore the data in CurvedSingleElementData.bin should be generate without formerly firstMasterSideID...
@@ -101,7 +101,7 @@ CALL ReadInReferenceElementData()
 ! Initialize Ut
 Ut = 0.
 
-#if FV_ENABLED
+#if FV_ENABLED == 1
 FV_Ut = 0.
 ALLOCATE(FV_w(0:NRef))        ! 1D width of FV-Subcells
 ALLOCATE(FV_w_inv(0:NRef))
@@ -116,7 +116,7 @@ FV_Elems_slave = 0
 #endif
 ! Call SurfInt
 CALL SurfIntCons(NRef,Flux_nVar,Flux_nVar,Ut,.FALSE.,L_HatMinus,L_HatPlus)
-#if FV_ENABLED
+#if FV_ENABLED == 1
 FV_Elems = 1
 FV_Elems_master = 1
 FV_Elems_slave = 1
@@ -128,7 +128,7 @@ IF (doGenerateReference) THEN
   ! Save the calculated solution to a binary file for later comparison
   OPEN(UNIT = 10, STATUS='replace',FILE=TRIM(BinaryString),FORM='unformatted')  ! replace an existing file or create a new one
   WRITE(10) Ut(1,:,:,:,:)
-#if FV_ENABLED
+#if FV_ENABLED == 1
   WRITE(10) FV_Ut(1,:,:,:,:)
 #endif
   CLOSE(10) ! close the file
@@ -141,7 +141,7 @@ ELSE
     ! Read the reference solution
     OPEN(UNIT = 10, STATUS='old',FILE=TRIM(BinaryString),FORM='unformatted')  ! open an existing file
     READ(10) Ut_ref
-#if FV_ENABLED
+#if FV_ENABLED == 1
     READ(10) FV_Ut_ref
 #endif
     CLOSE(10) ! close the file
@@ -149,7 +149,7 @@ ELSE
     equal =  .TRUE.
     DO i=1,PP_nVar; DO j=0,NRef; DO k=0,NRef; DO l=0,NRefZ
       equal = ALMOSTEQUALABSORREL(Ut(i,j,k,l,1),Ut_ref(1,j,k,l,1),100.*PP_RealTolerance) .AND. equal
-#if FV_ENABLED
+#if FV_ENABLED == 1
       equal = ALMOSTEQUALABSORREL(FV_Ut(i,j,k,l,1),FV_Ut_ref(1,j,k,l,1),100.*PP_RealTolerance) .AND. equal
 #endif
     END DO; END DO; END DO; END DO
