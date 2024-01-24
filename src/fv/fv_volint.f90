@@ -13,6 +13,7 @@
 !=================================================================================================================================
 #if FV_ENABLED
 #include "flexi.h"
+#include "eos.h"
 
 !==================================================================================================================================
 !> This module contains only the volume operator of the FV sub-cells method.
@@ -271,9 +272,8 @@ SUBROUTINE FV_VolInt_Conv(d_U,d_UPrim,d_Ut)
 USE MOD_PreProc                         ! all PP_*** variables
 USE MOD_FV_Vars
 USE MOD_DG_Vars      ,ONLY: nDOFElem
-USE MOD_Riemann      ,ONLY: Riemann
 USE MOD_Mesh_Vars    ,ONLY: nElems
-USE MOD_EOS          ,ONLY: PrimToCons
+USE MOD_EOS_Vars     ,ONLY: d_EOS_Vars
 ! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -281,7 +281,6 @@ IMPLICIT NONE
 REAL,DEVICE,INTENT(IN)    :: d_U(    PP_nVar    ,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)  !< solution vector of primitive variables
 REAL,DEVICE,INTENT(IN)    :: d_UPrim(PP_nVarPrim,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)  !< solution vector of primitive variables
 REAL,DEVICE,INTENT(INOUT) :: d_Ut(   PP_nVar    ,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)  !< time derivative of conservative solution vector
-                                                                         !< for FV elements
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER           :: nDOF
@@ -296,6 +295,7 @@ CALL FV_VolInt_Conv_GPU<<<nDOF/nThreads+1,nThreads>>>(nElems,d_U,d_UPrim,d_Ut &
                                                      ,d_FV_SurfElemEta_sw  &
                                                      ,d_FV_SurfElemZeta_sw &
                                                      ,d_FV_w_inv &
+                                                     ,d_EOS_Vars &
                                                      )
 
 END SUBROUTINE FV_VolInt_Conv
@@ -316,6 +316,7 @@ PPURE ATTRIBUTES(GLOBAL) SUBROUTINE FV_VolInt_Conv_GPU(nElems,U,UPrim,Ut &
                                                       ,FV_SurfElemEta_sw  &
                                                       ,FV_SurfElemZeta_sw &
                                                       ,FV_w_inv &
+                                                      ,EOS_Vars &
                                                       )
 ! MODULES
 USE MOD_Riemann      ,ONLY: Riemann
@@ -324,10 +325,10 @@ USE MOD_EOS          ,ONLY: PrimToCons
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
-INTEGER,VALUE,INTENT(IN) :: nElems
-REAL,DEVICE,INTENT(IN)    :: UPrim(PP_nVarPrim ,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)  !< solution vector of primitive variables
-REAL,DEVICE,INTENT(IN)    :: U(    PP_nVar     ,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)  !< solution vector of conservative variables
-REAL,DEVICE,INTENT(INOUT) :: Ut(   PP_nVar     ,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)  !< time derivative of conservative solution vector
+INTEGER,VALUE,INTENT(IN)  :: nElems
+REAL,DEVICE,INTENT(IN)    :: UPrim(PP_nVarPrim ,0:PP_N,0:PP_N ,0:PP_NZ,1:nElems)  !< solution vector of primitive variables
+REAL,DEVICE,INTENT(IN)    :: U(    PP_nVar     ,0:PP_N,0:PP_N ,0:PP_NZ,1:nElems)  !< solution vector of conservative variables
+REAL,DEVICE,INTENT(INOUT) :: Ut(   PP_nVar     ,0:PP_N,0:PP_N ,0:PP_NZ,1:nElems)  !< time derivative of conservative solution vector
 REAL,DEVICE,INTENT(IN)    :: FV_NormVecXi(    3,0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
 REAL,DEVICE,INTENT(IN)    :: FV_TangVec1Xi(   3,0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
 REAL,DEVICE,INTENT(IN)    :: FV_TangVec2Xi(   3,0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
@@ -341,6 +342,7 @@ REAL,DEVICE,INTENT(IN)    :: FV_TangVec1Zeta( 3,0:PP_N,0:PP_N ,1:PP_NZ,1:nElems)
 REAL,DEVICE,INTENT(IN)    :: FV_TangVec2Zeta( 3,0:PP_N,0:PP_N ,1:PP_NZ,1:nElems)
 REAL,DEVICE,INTENT(IN)    :: FV_SurfElemZeta_sw(0:PP_N,0:PP_N ,1:PP_NZ,1:nElems)
 REAL,DEVICE,INTENT(IN)    :: FV_w_inv(0:PP_N)
+REAL,DEVICE,INTENT(IN)    :: EOS_Vars(PP_nVarEOS)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER                 :: i,j,k,iElem,threadID,rest
@@ -374,7 +376,7 @@ IF (iElem.LE.nElems) THEN
                 ,FV_NormVecXi( :,j,k,i,iElem) &
                 ,FV_TangVec1Xi(:,j,k,i,iElem) &
                 ,FV_TangVec2Xi(:,j,k,i,iElem) &
-                ,1.4)
+                ,EOS_Vars)
     ! sign contains normal vector in negative xi-direction
     Ut_FV_tmp(:) = Ut_FV_tmp(:) - F_FV(:) * FV_SurfElemXi_sw(j,k,i,iElem) * FV_w_inv(i)
   END IF
@@ -382,14 +384,14 @@ IF (iElem.LE.nElems) THEN
   ! Right
   IF (i.LT.PP_N) THEN ! Flux across surface of DG element is performed in surface integral
     CALL Riemann(F_FV &
-             ,U(    :,i  ,j,k,iElem) & ! Left
-             ,U(    :,i+1,j,k,iElem) & ! Right
-             ,UPrim(:,i  ,j,k,iElem) & ! Left
-             ,UPrim(:,i+1,j,k,iElem) & ! Right
-             ,FV_NormVecXi( :,j,k,i+1,iElem) &
-             ,FV_TangVec1Xi(:,j,k,i+1,iElem) &
-             ,FV_TangVec2Xi(:,j,k,i+1,iElem) &
-             ,1.4)
+                ,U(    :,i  ,j,k,iElem) & ! Left
+                ,U(    :,i+1,j,k,iElem) & ! Right
+                ,UPrim(:,i  ,j,k,iElem) & ! Left
+                ,UPrim(:,i+1,j,k,iElem) & ! Right
+                ,FV_NormVecXi( :,j,k,i+1,iElem) &
+                ,FV_TangVec1Xi(:,j,k,i+1,iElem) &
+                ,FV_TangVec2Xi(:,j,k,i+1,iElem) &
+                ,EOS_Vars)
     ! sign contains normal vector in positive xi-direction
     Ut_FV_tmp(:) = Ut_FV_tmp(:) + F_FV(:) * FV_SurfElemXi_sw(j,k,i+1,iElem) * FV_w_inv(i)
   END IF
@@ -405,7 +407,7 @@ IF (iElem.LE.nElems) THEN
                 ,FV_NormVecEta( :,i,k,j,iElem) &
                 ,FV_TangVec1Eta(:,i,k,j,iElem) &
                 ,FV_TangVec2Eta(:,i,k,j,iElem) &
-                ,1.4)
+                ,EOS_Vars)
     ! sign contains normal vector in negative eta-direction
     Ut_FV_tmp(:) = Ut_FV_tmp(:) - F_FV(:) * FV_SurfElemEta_sw(i,k,j,iElem) * FV_w_inv(j)
   END IF
@@ -413,14 +415,14 @@ IF (iElem.LE.nElems) THEN
   ! Right
   IF (j.LT.PP_N) THEN ! Flux across surface of DG element is performed in surface integral
     CALL Riemann(F_FV &
-             ,U(    :,i,j  ,k,iElem) & ! Left
-             ,U(    :,i,j+1,k,iElem) & ! Right
-             ,UPrim(:,i,j  ,k,iElem) & ! Left
-             ,UPrim(:,i,j+1,k,iElem) & ! Right
-             ,FV_NormVecEta( :,i,k,j+1,iElem) &
-             ,FV_TangVec1Eta(:,i,k,j+1,iElem) &
-             ,FV_TangVec2Eta(:,i,k,j+1,iElem) &
-             ,1.4)
+                ,U(    :,i,j  ,k,iElem) & ! Left
+                ,U(    :,i,j+1,k,iElem) & ! Right
+                ,UPrim(:,i,j  ,k,iElem) & ! Left
+                ,UPrim(:,i,j+1,k,iElem) & ! Right
+                ,FV_NormVecEta( :,i,k,j+1,iElem) &
+                ,FV_TangVec1Eta(:,i,k,j+1,iElem) &
+                ,FV_TangVec2Eta(:,i,k,j+1,iElem) &
+                ,EOS_Vars)
     ! sign contains normal vector in positive eta-direction
     Ut_FV_tmp(:) = Ut_FV_tmp(:) + F_FV(:) * FV_SurfElemEta_sw(i,k,j+1,iElem) * FV_w_inv(j)
   END IF
@@ -437,7 +439,7 @@ IF (iElem.LE.nElems) THEN
                 ,FV_NormVecZeta( :,i,j,k,iElem) &
                 ,FV_TangVec1Zeta(:,i,j,k,iElem) &
                 ,FV_TangVec2Zeta(:,i,j,k,iElem) &
-                ,1.4)
+                ,EOS_Vars)
     ! sign contains normal vector in negative xi-direction
     Ut_FV_tmp(:) = Ut_FV_tmp(:) - F_FV(:) * FV_SurfElemZeta_sw(i,j,k,iElem) * FV_w_inv(k)
   END IF
@@ -452,7 +454,7 @@ IF (iElem.LE.nElems) THEN
                 ,FV_NormVecZeta( :,i,j,k,iElem) &
                 ,FV_TangVec1Zeta(:,i,j,k,iElem) &
                 ,FV_TangVec2Zeta(:,i,j,k,iElem) &
-                ,1.4)
+                ,EOS_Vars)
     ! sign contains normal vector in positive xi-direction
     Ut_FV_tmp(:) = Ut_FV_tmp(:) + F_FV(:) * FV_SurfElemZeta_sw(i,j,k+1,iElem) * FV_w_inv(k)
   END IF

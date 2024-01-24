@@ -58,6 +58,7 @@ END INTERFACE
 INTERFACE Riemann
   MODULE PROCEDURE Riemann
   MODULE PROCEDURE Riemann_Point
+  MODULE PROCEDURE Riemann_Point_Device
   MODULE PROCEDURE Riemann_Side
   MODULE PROCEDURE Riemann_Sides
   !MODULE PROCEDURE Riemann_Point_CUDA
@@ -272,6 +273,31 @@ INTEGER                 :: p,q
 !==================================================================================================================================
 CALL Riemann(FOut,U_L,U_R,UPrim_L,UPrim_R,nv,t1,t2,Kappa)
 END SUBROUTINE Riemann_Point
+
+!==================================================================================================================================
+!> Computes the numerical flux for a single point calling the flux calculation.
+!> Conservative States are rotated into normal direction in this routine and are NOT backrotated: don't use it after this routine!!
+!> Attention 2: numerical flux is backrotated at the end of the routine!!
+!==================================================================================================================================
+PPURE ATTRIBUTES(DEVICE) SUBROUTINE Riemann_Point_Device(FOut,U_L,U_R,UPrim_L,UPrim_R,nv,t1,t2,EOS_Vars)
+! MODULES
+USE MOD_EOS_Vars, ONLY: Kappa
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+REAL,DIMENSION(PP_nVar    ),INTENT(IN)  :: U_L       !< conservative solution at left side of the interface
+REAL,DIMENSION(PP_nVar    ),INTENT(IN)  :: U_R       !< conservative solution at right side of the interface
+REAL,DIMENSION(PP_nVarPrim),INTENT(IN)  :: UPrim_L   !< primitive solution at left side of the interface
+REAL,DIMENSION(PP_nVarPrim),INTENT(IN)  :: UPrim_R   !< primitive solution at right side of the interface
+REAL,DIMENSION(3          ),INTENT(IN)  :: nv,t1,t2  !> normal vector and tangential vectors at side
+REAL,DIMENSION(PP_nVarEOS ),INTENT(IN)  :: EOS_Vars  !< EOS-spcific variables
+REAL,DIMENSION(PP_nVar    ),INTENT(OUT) :: FOut      !< advective flux
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                 :: p,q
+!==================================================================================================================================
+CALL Riemann(FOut,U_L,U_R,UPrim_L,UPrim_R,nv,t1,t2,EOS_Vars(EOS_KAPPA))
+END SUBROUTINE Riemann_Point_Device
 
 !==================================================================================================================================
 !> Computes the numerical flux for a side calling the flux calculation pointwise.
