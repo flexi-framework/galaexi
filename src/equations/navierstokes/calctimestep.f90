@@ -220,7 +220,7 @@ IF (ElemID.GT.nElems) RETURN
 
 ! Each Thread gets whole i-slice to compute to save shared memory space
 Max_LambdaTmp=0.
-DO i=0,PP_N
+DO i=0,Nloc
   ! TODO: ATTENTION: Temperature of UE not filled!!!
   UE(EXT_CONS)=U(:,i,j,k,ElemID)
   UE(EXT_SRHO)=1./UE(EXT_DENS)

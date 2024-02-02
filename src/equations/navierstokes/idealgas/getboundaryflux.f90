@@ -923,8 +923,8 @@ INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 mystream=DefaultStream
 IF (PRESENT(streamID)) mystream=streamID
 
-nDOF = (PP_N+1)*(PP_NZ+1)*nSides
-CALL Lifting_GetBoundaryFlux_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nDOF,PP_N &
+nDOF = (Nloc+1)*(ZDIM(Nloc)+1)*nSides
+CALL Lifting_GetBoundaryFlux_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nDOF,Nloc &
                                       ,d_Flux &
                                       ,d_UPrim_master,nRefState,d_RefStatePrim &
                                       ,d_NormVec  &
