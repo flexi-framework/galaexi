@@ -108,7 +108,7 @@ END IF
 CALL StartSendMPIData_GPU(   d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest_Flux(:,SEND),SendID=1,streamID=stream3)
 ! Complete send / receive
 CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Flux)
-CALL Lifting_FillFlux_NormVec(d_gradUz_slave,d_gradUx_master,d_gradUy_master,d_gradUz_master,doMPISides=.TRUE.)
+CALL Lifting_FillFlux_NormVec(d_gradUz_slave,d_gradUx_master,d_gradUy_master,d_gradUz_master,doMPISides=.TRUE.,streamID=stream3)
 #endif /*USE_MPI*/
 
 ! =================================================================================
@@ -117,10 +117,10 @@ iError=CudaDeviceSynchronize()
 ! =================================================================================
 
 ! Compute surface integral contribution and add to ut
-CALL SurfIntLifting(PP_N,d_gradUx_master,d_gradUx,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,doApplyJacobian=.TRUE.,streamID=stream1)
-CALL SurfIntLifting(PP_N,d_gradUy_master,d_gradUy,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,doApplyJacobian=.TRUE.,streamID=stream2)
+CALL SurfIntLifting(PP_N,d_gradUx_master,d_gradUx,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,doApplyJacobian=.TRUE.,streamID=stream4)
+CALL SurfIntLifting(PP_N,d_gradUy_master,d_gradUy,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,doApplyJacobian=.TRUE.,streamID=stream5)
 #if (PP_dim==3)
-CALL SurfIntLifting(PP_N,d_gradUz_master,d_gradUz,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,doApplyJacobian=.TRUE.,streamID=stream3)
+CALL SurfIntLifting(PP_N,d_gradUz_master,d_gradUz,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,doApplyJacobian=.TRUE.,streamID=stream6)
 #endif
 
 ! Account for the jacobian
@@ -144,20 +144,20 @@ CALL StartReceiveMPIData_GPU(d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest
 #endif /*USE_MPI*/
 
 ! Prolong to face
-CALL ProlongToFaceLifting(PP_N,d_gradUx,d_gradUx_master,d_gradUx_slave,d_L_Minus,d_L_Plus,streamID=stream1)
-CALL ProlongToFaceLifting(PP_N,d_gradUy,d_gradUy_master,d_gradUy_slave,d_L_Minus,d_L_Plus,streamID=stream2)
+CALL ProlongToFaceLifting(PP_N,d_gradUx,d_gradUx_master,d_gradUx_slave,d_L_Minus,d_L_Plus,streamID=stream4)
+CALL ProlongToFaceLifting(PP_N,d_gradUy,d_gradUy_master,d_gradUy_slave,d_L_Minus,d_L_Plus,streamID=stream5)
 #if (PP_dim==3)
-CALL ProlongToFaceLifting(PP_N,d_gradUz,d_gradUz_master,d_gradUz_slave,d_L_Minus,d_L_Plus,streamID=stream3)
+CALL ProlongToFaceLifting(PP_N,d_gradUz,d_gradUz_master,d_gradUz_slave,d_L_Minus,d_L_Plus,streamID=stream6)
 #endif
 
-#if USE_MPI
-! TODO: Improve latency hiding by moving send directly after computation of respective gradients
-CALL StartSendMPIData_GPU(d_gradUx_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,1,SEND),SendID=2,streamID=stream1)
-CALL StartSendMPIData_GPU(d_gradUy_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,2,SEND),SendID=2,streamID=stream2)
-#if (PP_dim==3)
-CALL StartSendMPIData_GPU(d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,3,SEND),SendID=2,streamID=stream3)
-#endif
-#endif /*USE_MPI*/
+!#if USE_MPI
+!! TODO: Improve latency hiding by moving send directly after computation of respective gradients
+!CALL StartSendMPIData_GPU(d_gradUx_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,1,SEND),SendID=2,streamID=stream4)
+!CALL StartSendMPIData_GPU(d_gradUy_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,2,SEND),SendID=2,streamID=stream5)
+!#if (PP_dim==3)
+!CALL StartSendMPIData_GPU(d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,3,SEND),SendID=2,streamID=stream6)
+!#endif
+!#endif /*USE_MPI*/
 
 END SUBROUTINE Lifting_BR1
 

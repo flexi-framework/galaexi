@@ -289,6 +289,7 @@ USE MOD_Mesh_Vars           ,ONLY: nElems,nSides,lastInnerSide,firstMPISide_MINE
 USE NVTX
 #if PARABOLIC
 USE MOD_Lifting             ,ONLY: Lifting
+USE MOD_Lifting_Vars        ,ONLY: d_gradUx_slave,d_gradUy_slave,d_gradUz_slave
 #endif
 #if USE_MPI
 USE MOD_MPI_Vars
@@ -361,6 +362,9 @@ CALL VolInt(d_Ut,streamID=stream1)
 
 #if PARABOLIC
 #if USE_MPI
+CALL StartSendMPIData_GPU(d_gradUx_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,1,SEND),SendID=2,streamID=stream4)
+CALL StartSendMPIData_GPU(d_gradUy_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,2,SEND),SendID=2,streamID=stream5)
+CALL StartSendMPIData_GPU(d_gradUz_slave,DataSizeSideGrad,1,nSides,MPIRequest_gradU(:,3,SEND),SendID=2,streamID=stream6)
 ! Complete send / receive for gradUx, gradUy, gradUz, started in the lifting routines
 CALL FinishExchangeMPIData(6*nNbProcs,MPIRequest_gradU) ! gradUx,y,z: slave -> master
 #else
