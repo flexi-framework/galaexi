@@ -200,7 +200,7 @@ END SELECT
 ! Preparation of the baseflow on each Gauss Point
 SWRITE(UNIT_stdOut,'(A)') '  Initialize Sponge Base Flow...'
 ALLOCATE(SpBaseFlow(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems))
-!$cuf ALLOCATE( d_SpBaseFlow(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) )
+!@cuf ALLOCATE( d_SpBaseFlow(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) )
 SELECT CASE(SpBaseflowType)
 CASE(SPONGEBASEFLOW_CONSTANT) ! constant baseflow from refstate
   DO iElem=1,nElems
@@ -236,9 +236,7 @@ CASE(SPONGEBASEFLOW_PRUETT) ! Pruett: RefState for computation from scratch, Bas
 END SELECT
 
 ! If using GPU accleration, update base flow array on the device
-!#if USE_GPU
-d_SpBaseFlow = SpBaseFlow
-!#endif
+!@cuf d_SpBaseFlow = SpBaseFlow
 
 SWRITE(UNIT_stdOut,'(A)')' INIT SPONGE DONE!'
 SWRITE(UNIT_stdOut,'(132("-"))')
@@ -370,8 +368,8 @@ END DO !iElem=1,nElems
 nSpongeElems=COUNT(applySponge)
 ALLOCATE(SpongeMat(0:PP_N,0:PP_N,0:PP_NZ,nSpongeElems))
 ALLOCATE(SpongeMap(nSpongeElems))
-!$cuf ALLOCATE( d_SpongeMat(0:PP_N,0:PP_N,0:PP_NZ,nSpongeElems) )
-!$cuf ALLOCATE( d_SpongeMap(nSpongeElems) )
+!@cuf ALLOCATE( d_SpongeMat(0:PP_N,0:PP_N,0:PP_NZ,nSpongeElems) )
+!@cuf ALLOCATE( d_SpongeMap(nSpongeElems) )
 iSpongeElem=0
 DO iElem=1,nElems
   IF(applySponge(iElem))THEN
@@ -381,9 +379,7 @@ DO iElem=1,nElems
 END DO
 
 ! If using GPU accleration, update SpongeMap on the device
-!#if USE_GPU
-d_spongeMap = spongeMap
-!#endif
+!@cuf d_spongeMap = spongeMap
 
 ! Calculate the final sponge strength in the sponge region
 SpongeMat=0.
@@ -414,9 +410,7 @@ DO iSpongeElem=1,nSpongeElems
 END DO !iSpongeElem=1,nSpongeElems
 
 ! If using GPU accleration, update SpongeMat on the device
-!#if USE_GPU
-d_SpongeMat = SpongeMat
-!#endif
+!@cuf d_SpongeMat = SpongeMat
 
 DEALLOCATE(SpongeShape)
 DEALLOCATE(SpDistance)
@@ -598,14 +592,14 @@ SUBROUTINE Sponge_GPU(d_Ut)
   ! MODULES
   USE MOD_Globals
   USE MOD_PreProc
-  !$cuf USE MOD_Sponge_Vars, ONLY: d_SpongeMat, d_SpBaseFlow, d_SpongeMap
-  !$cuf USE MOD_DG_Vars     ,ONLY: d_U
+  !@cuf USE MOD_Sponge_Vars, ONLY: d_SpongeMat, d_SpBaseFlow, d_SpongeMap
+  !@cuf USE MOD_DG_Vars     ,ONLY: d_U
   USE MOD_Mesh_Vars   ,ONLY: nElems
   IMPLICIT NONE
   !----------------------------------------------------------------------------------------------------------------------------------
   ! INPUT/OUTPUT VARIABLES
   REAL,INTENT(INOUT)  :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< DG solution time derivative
-  !$cuf ATTRIBUTES(DEVICE) :: d_Ut (PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) 
+  !@cuf ATTRIBUTES(DEVICE) :: d_Ut (PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) 
   !----------------------------------------------------------------------------------------------------------------------------------
   ! LOCAL VARIABLES
   INTEGER             :: iElem,iSpongeElem,i,j,k
