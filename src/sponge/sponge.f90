@@ -524,12 +524,14 @@ END SUBROUTINE ReadBaseFlow
 !> The operation will be performed in the sponge region only using the sponge mapping. The sponge is already pre-multiplied
 !> by the Jacobian since we are working in the reference space at this point (at the end of DGTimeDerivative_weakForm).
 !==================================================================================================================================
-SUBROUTINE Sponge(Ut)
+SUBROUTINE Sponge(d_Ut)
 ! MODULES
 USE MOD_Globals
 USE MOD_PreProc
 USE MOD_Sponge_Vars ,ONLY: SpongeMap,SpongeMat,SpBaseFlow,nSpongeElems
 USE MOD_DG_Vars     ,ONLY: U
+!@cuf USE MOD_Sponge_Vars ,ONLY: d_SpongeMat, d_SpBaseFlow, d_SpongeMap
+!@cuf USE MOD_DG_Vars     ,ONLY: d_U
 USE MOD_Mesh_Vars   ,ONLY: nElems
 #if FV_ENABLED
 USE MOD_ChangeBasis ,ONLY: ChangeBasis3D
@@ -540,7 +542,8 @@ USE MOD_Mesh_Vars   ,ONLY: sJ
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
-REAL,INTENT(INOUT)  :: Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< DG solution time derivative
+REAL,INTENT(INOUT)  :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< DG solution time derivative
+!@cuf ATTRIBUTES(DEVICE) :: d_Ut
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER             :: iElem,iSpongeElem,i,j,k
@@ -568,9 +571,10 @@ DO iSpongeElem=1,nSpongeElems
     END DO; END DO; END DO ! i,j,k
   ELSE
 #endif
+    !$cuf kernel do (3) <<< *, * >>>
     DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      Ut(:,i,j,k,iElem) = d_Ut(:,i,j,k,iElem) - SpongeMat(   i,j,k,iSpongeElem) * &
-                          (U(:,i,j,k,iElem) - SpBaseFlow(:,i,j,k,iElem))
+      d_Ut(:,i,j,k,iElem) = d_Ut(:,i,j,k,iElem) - d_SpongeMat(   i,j,k,iSpongeElem) * &
+                          (d_U(:,i,j,k,iElem) - d_SpBaseFlow(:,i,j,k,iElem))
     END DO; END DO; END DO
 #if FV_ENABLED
   END IF
@@ -578,45 +582,6 @@ DO iSpongeElem=1,nSpongeElems
 
 END DO
 END SUBROUTINE Sponge
-
-
-!==================================================================================================================================
-!> \brief Apply the sponge to the solution vector on the device (compute contribution to d_Ut).
-!>
-!> GPU accelerated version of "Sponge" subroutine above.
-!> \f$ U_t = U_t - \sigma(x)*(U-U_B) \f$, where \f$ \sigma(x) \f$ is the sponge strength and \f$ U_B \f$ is the base flow.
-!> The operation will be performed in the sponge region only using the sponge mapping. The sponge is already pre-multiplied
-!> by the Jacobian since we are working in the reference space at this point (at the end of DGTimeDerivative_weakForm).
-!==================================================================================================================================
-SUBROUTINE Sponge_GPU(d_Ut)
-  ! MODULES
-  USE MOD_Globals
-  USE MOD_PreProc
-  !@cuf USE MOD_Sponge_Vars, ONLY: d_SpongeMat, d_SpBaseFlow, d_SpongeMap
-  !@cuf USE MOD_DG_Vars     ,ONLY: d_U
-  USE MOD_Mesh_Vars   ,ONLY: nElems
-  IMPLICIT NONE
-  !----------------------------------------------------------------------------------------------------------------------------------
-  ! INPUT/OUTPUT VARIABLES
-  REAL,INTENT(INOUT)  :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< DG solution time derivative
-  !@cuf ATTRIBUTES(DEVICE) :: d_Ut (PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) 
-  !----------------------------------------------------------------------------------------------------------------------------------
-  ! LOCAL VARIABLES
-  INTEGER             :: iElem,iSpongeElem,i,j,k
-  !==================================================================================================================================
-
-  !$cuf kernel do (4) <<< *, * >>>
-  DO iSpongeElem=1,nSpongeElems
-    iElem=d_spongeMap(iSpongeElem)
-
-      DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-        d_Ut(:,i,j,k,iElem) = d_Ut(:,i,j,k,iElem) - d_SpongeMat(   i,j,k,iSpongeElem) * &
-                            (d_U(:,i,j,k,iElem) - d_SpBaseFlow(:,i,j,k,iElem))
-      END DO; END DO; END DO
-  
-  END DO
-
-END SUBROUTINE Sponge_GPU
 
 
 !==================================================================================================================================
