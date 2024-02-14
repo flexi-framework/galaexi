@@ -423,12 +423,12 @@ IMPLICIT NONE
 ! INPUT / OUTPUT VARIABLES
 INTEGER,INTENT(IN)        :: Nloc      !< local polynomial degree
 INTEGER,INTENT(IN)        :: nSides    !< number of sides in arrays
-REAL,DEVICE,DIMENSION(PP_nVar    ,0:Nloc,0:ZDIM(Nloc)  ,nSides),INTENT(IN)  :: U_L      !< conservative solution at left side of the interface
-REAL,DEVICE,DIMENSION(PP_nVar    ,0:Nloc,0:ZDIM(Nloc)  ,nSides),INTENT(IN)  :: U_R      !< conservative solution at right side of the interface
-REAL,DEVICE,DIMENSION(PP_nVarPrim,0:Nloc,0:ZDIM(Nloc)  ,nSides),INTENT(IN)  :: UPrim_L  !< primitive solution at left side of the interface
-REAL,DEVICE,DIMENSION(PP_nVarPrim,0:Nloc,0:ZDIM(Nloc)  ,nSides),INTENT(IN)  :: UPrim_R  !< primitive solution at right side of the interface
-REAL,DEVICE,DIMENSION(3          ,0:Nloc,0:ZDIM(Nloc),1,nSides),INTENT(IN)  :: nv,t1,t2 !> normal vector and tangential vectors at side
-REAL,DEVICE,DIMENSION(PP_nVar    ,0:Nloc,0:ZDIM(Nloc)  ,nSides),INTENT(OUT) :: FOut     !< advective flux
+REAL,DEVICE,DIMENSION(PP_nVar    ,0:Nloc,0:ZDIM(Nloc),nSides),INTENT(IN)  :: U_L      !< conservative solution at left side of the interface
+REAL,DEVICE,DIMENSION(PP_nVar    ,0:Nloc,0:ZDIM(Nloc),nSides),INTENT(IN)  :: U_R      !< conservative solution at right side of the interface
+REAL,DEVICE,DIMENSION(PP_nVarPrim,0:Nloc,0:ZDIM(Nloc),nSides),INTENT(IN)  :: UPrim_L  !< primitive solution at left side of the interface
+REAL,DEVICE,DIMENSION(PP_nVarPrim,0:Nloc,0:ZDIM(Nloc),nSides),INTENT(IN)  :: UPrim_R  !< primitive solution at right side of the interface
+REAL,DEVICE,DIMENSION(3          ,0:Nloc,0:ZDIM(Nloc),nSides),INTENT(IN)  :: nv,t1,t2 !> normal vector and tangential vectors at side
+REAL,DEVICE,DIMENSION(PP_nVar    ,0:Nloc,0:ZDIM(Nloc),nSides),INTENT(OUT) :: FOut     !< advective flux
 INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES

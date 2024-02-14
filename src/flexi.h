@@ -127,8 +127,10 @@
 #define FV_SIZE 0
 #endif
 
-#if !(FV_ENABLED)
+#if !(FV_ENABLED==1)
 #define FV_Elems(x) 0
+#endif
+#if !(FV_ENABLED)
 #define FV_Elems_master(x) 0
 #define FV_Elems_slave(x) 0
 #define FV_Elems_Sum(x) 0

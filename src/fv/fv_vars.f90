@@ -64,6 +64,7 @@ REAL,ALLOCATABLE       :: FV_Elems_Amount(:)     !< counts for every element the
 ! FV/DG Blending
 #if FV_ENABLED == 2
 REAL,ALLOCATABLE       :: FV_alpha(:)            !< Blending coefficient
+REAL,DEVICE,ALLOCATABLE:: d_FV_alpha(:)          !< Blending coefficient
 REAL,ALLOCATABLE       :: FV_alpha_master(:)     !< Prolongated blending coefficient on master sides
 REAL,ALLOCATABLE       :: FV_alpha_slave( :)     !< Prolongated blending coefficient on slave  sides
 REAL                   :: FV_alpha_min           !< Minimal blending coefficient (all elems below are treated as pure DG)

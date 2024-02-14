@@ -480,7 +480,7 @@ USE MOD_PreProc
 USE MOD_Globals
 USE MOD_TimeDisc_Vars       ,ONLY:d_CFLScale,CFLScale,CFLScale_Readin,CFLScaleAlpha
 #if PARABOLIC
-USE MOD_TimeDisc_Vars       ,ONLY:DFLScale,DFLScale_Readin,DFLScaleAlpha,RelativeDFL
+USE MOD_TimeDisc_Vars       ,ONLY:d_DFLScale,DFLScale,DFLScale_Readin,DFLScaleAlpha,RelativeDFL
 #endif /*PARABOLIC*/
 #if FV_ENABLED
 USE MOD_TimeDisc_Vars       ,ONLY:CFLScaleFV
@@ -517,9 +517,6 @@ CFLScale(0) = CFLScale(0)/(2.*Nin_CFL+1.)
 SWRITE(UNIT_stdOut,'(A,2ES16.7)') '   CFL (DG/FV):',CFLScale
 CFLScale_Readin = CFLScale
 
-! Copy CFLScale to GPU
-!@cuf d_CFLScale = CFLScale
-
 #if PARABOLIC
 !########################### DFL ########################################
 ! DFL in DG depends on the polynomial degree
@@ -541,6 +538,12 @@ DFLScale_Readin = DFLScale
 #else
 dummy = Nin_DFL ! prevent compile warning
 #endif /*PARABOLIC*/
+
+! Copy CFLScale to GPU
+!@cuf d_CFLScale = CFLScale
+#if PARABOLIC
+!@cuf d_DFLScale = DFLScale
+#endif
 END SUBROUTINE fillCFL_DFL
 
 !==================================================================================================================================

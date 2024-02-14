@@ -287,7 +287,7 @@ INTEGER           :: nDOF
 INTEGER,PARAMETER :: nThreads=256
 !==================================================================================================================================
 nDOF=nDOFElem*nElems
-CALL FV_VolInt_Conv_GPU<<<nDOF/nThreads+1,nThreads>>>(nElems,d_U,d_UPrim,d_Ut &
+CALL FV_VolInt_Conv_GPU<<<nDOF/nThreads+1,nThreads>>>(nElems,PP_N,d_U,d_UPrim,d_Ut &
                                                      ,d_FV_NormVecXi  ,d_FV_TangVec1Xi  ,d_FV_TangVec2Xi   &
                                                      ,d_FV_NormVecEta ,d_FV_TangVec1Eta ,d_FV_TangVec2Eta  &
                                                      ,d_FV_NormVecZeta,d_FV_TangVec1Zeta,d_FV_TangVec2Zeta &
@@ -308,7 +308,7 @@ END SUBROUTINE FV_VolInt_Conv
 !> - apply fluxes to the left and right sub-cell of the slice
 !> are evaluated in the volume integral of the lifting procedure.
 !==================================================================================================================================
-PPURE ATTRIBUTES(GLOBAL) SUBROUTINE FV_VolInt_Conv_GPU(nElems,U,UPrim,Ut &
+PPURE ATTRIBUTES(GLOBAL) SUBROUTINE FV_VolInt_Conv_GPU(nElems,Nloc,U,UPrim,Ut &
                                                       ,FV_NormVecXi  ,FV_TangVec1Xi  ,FV_TangVec2Xi   &
                                                       ,FV_NormVecEta ,FV_TangVec1Eta ,FV_TangVec2Eta  &
                                                       ,FV_NormVecZeta,FV_TangVec1Zeta,FV_TangVec2Zeta &
@@ -326,22 +326,23 @@ IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
 INTEGER,VALUE,INTENT(IN)  :: nElems
-REAL,DEVICE,INTENT(IN)    :: UPrim(PP_nVarPrim ,0:PP_N,0:PP_N ,0:PP_NZ,1:nElems)  !< solution vector of primitive variables
-REAL,DEVICE,INTENT(IN)    :: U(    PP_nVar     ,0:PP_N,0:PP_N ,0:PP_NZ,1:nElems)  !< solution vector of conservative variables
-REAL,DEVICE,INTENT(INOUT) :: Ut(   PP_nVar     ,0:PP_N,0:PP_N ,0:PP_NZ,1:nElems)  !< time derivative of conservative solution vector
-REAL,DEVICE,INTENT(IN)    :: FV_NormVecXi(    3,0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
-REAL,DEVICE,INTENT(IN)    :: FV_TangVec1Xi(   3,0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
-REAL,DEVICE,INTENT(IN)    :: FV_TangVec2Xi(   3,0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
-REAL,DEVICE,INTENT(IN)    :: FV_SurfElemXi_sw(  0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
-REAL,DEVICE,INTENT(IN)    :: FV_NormVecEta(   3,0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
-REAL,DEVICE,INTENT(IN)    :: FV_TangVec1Eta(  3,0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
-REAL,DEVICE,INTENT(IN)    :: FV_TangVec2Eta(  3,0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
-REAL,DEVICE,INTENT(IN)    :: FV_SurfElemEta_sw( 0:PP_N,0:PP_NZ,1:PP_N ,1:nElems)
-REAL,DEVICE,INTENT(IN)    :: FV_NormVecZeta(  3,0:PP_N,0:PP_N ,1:PP_NZ,1:nElems)
-REAL,DEVICE,INTENT(IN)    :: FV_TangVec1Zeta( 3,0:PP_N,0:PP_N ,1:PP_NZ,1:nElems)
-REAL,DEVICE,INTENT(IN)    :: FV_TangVec2Zeta( 3,0:PP_N,0:PP_N ,1:PP_NZ,1:nElems)
-REAL,DEVICE,INTENT(IN)    :: FV_SurfElemZeta_sw(0:PP_N,0:PP_N ,1:PP_NZ,1:nElems)
-REAL,DEVICE,INTENT(IN)    :: FV_w_inv(0:PP_N)
+INTEGER,VALUE,INTENT(IN)  :: Nloc
+REAL,DEVICE,INTENT(IN)    :: UPrim(PP_nVarPrim ,0:Nloc,0:Nloc ,0:ZDIM(Nloc),1:nElems)  !< solution vector of primitive variables
+REAL,DEVICE,INTENT(IN)    :: U(    PP_nVar     ,0:Nloc,0:Nloc ,0:ZDIM(Nloc),1:nElems)  !< solution vector of conservative variables
+REAL,DEVICE,INTENT(INOUT) :: Ut(   PP_nVar     ,0:Nloc,0:Nloc ,0:ZDIM(Nloc),1:nElems)  !< time derivative of conservative solution vector
+REAL,DEVICE,INTENT(IN)    :: FV_NormVecXi(    3,0:Nloc,0:ZDIM(Nloc),1:Nloc ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_TangVec1Xi(   3,0:Nloc,0:ZDIM(Nloc),1:Nloc ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_TangVec2Xi(   3,0:Nloc,0:ZDIM(Nloc),1:Nloc ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_SurfElemXi_sw(  0:Nloc,0:ZDIM(Nloc),1:Nloc ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_NormVecEta(   3,0:Nloc,0:ZDIM(Nloc),1:Nloc ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_TangVec1Eta(  3,0:Nloc,0:ZDIM(Nloc),1:Nloc ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_TangVec2Eta(  3,0:Nloc,0:ZDIM(Nloc),1:Nloc ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_SurfElemEta_sw( 0:Nloc,0:ZDIM(Nloc),1:Nloc ,1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_NormVecZeta(  3,0:Nloc,0:Nloc ,ZDIM(1:Nloc),1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_TangVec1Zeta( 3,0:Nloc,0:Nloc ,ZDIM(1:Nloc),1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_TangVec2Zeta( 3,0:Nloc,0:Nloc ,ZDIM(1:Nloc),1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_SurfElemZeta_sw(0:Nloc,0:Nloc ,ZDIM(1:Nloc),1:nElems)
+REAL,DEVICE,INTENT(IN)    :: FV_w_inv(0:Nloc)
 REAL,DEVICE,INTENT(IN)    :: EOS_Vars(PP_nVarEOS)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
@@ -352,14 +353,14 @@ REAL,DIMENSION(PP_nVar) :: F_FV
 ! Get thread indices
 threadID = (blockidx%x-1) * blockdim%x + threadidx%x
 ! Get iElem of current thread
-iElem   =        (threadID-1)/(PP_N+1)**3+1 ! Elems are 1-indexed
-rest    = threadID-(iElem-1)*(PP_N+1)**3
+iElem   =        (threadID-1)/(Nloc+1)**3+1 ! Elems are 1-indexed
+rest    = threadID-(iElem-1)*(Nloc+1)**3
 ! Get ijk indices of current thread
-k       = (rest-1)/(PP_N+1)**2
-rest    =  rest- k*(PP_N+1)**2
-j       = (rest-1)/(PP_N+1)!**1
-rest    =  rest- j*(PP_N+1)!**1
-i       = (rest-1)!/(PP_N+1)**0
+k       = (rest-1)/(Nloc+1)**2
+rest    =  rest- k*(Nloc+1)**2
+j       = (rest-1)/(Nloc+1)!**1
+rest    =  rest- j*(Nloc+1)!**1
+i       = (rest-1)!/(Nloc+1)**0
 
 IF (iElem.LE.nElems) THEN
   ! We have point i,j,k!
@@ -382,7 +383,7 @@ IF (iElem.LE.nElems) THEN
   END IF
 
   ! Right
-  IF (i.LT.PP_N) THEN ! Flux across surface of DG element is performed in surface integral
+  IF (i.LT.Nloc) THEN ! Flux across surface of DG element is performed in surface integral
     CALL Riemann(F_FV &
                 ,U(    :,i  ,j,k,iElem) & ! Left
                 ,U(    :,i+1,j,k,iElem) & ! Right
@@ -413,7 +414,7 @@ IF (iElem.LE.nElems) THEN
   END IF
 
   ! Right
-  IF (j.LT.PP_N) THEN ! Flux across surface of DG element is performed in surface integral
+  IF (j.LT.Nloc) THEN ! Flux across surface of DG element is performed in surface integral
     CALL Riemann(F_FV &
                 ,U(    :,i,j  ,k,iElem) & ! Left
                 ,U(    :,i,j+1,k,iElem) & ! Right
@@ -445,7 +446,7 @@ IF (iElem.LE.nElems) THEN
   END IF
 
   ! Right
-  IF (k.LT.PP_N) THEN ! Flux across surface of DG element is performed in surface integral
+  IF (k.LT.Nloc) THEN ! Flux across surface of DG element is performed in surface integral
     CALL Riemann(F_FV &
                 ,U(    :,i,j,k  ,iElem) & ! Left
                 ,U(    :,i,j,k+1,iElem) & ! Right

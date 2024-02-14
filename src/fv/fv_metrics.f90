@@ -208,58 +208,58 @@ ALLOCATE(FV_Metrics_hTilde_sJ(3,0:PP_N,0:PP_N,0:PP_NZ,nElems))
 
 ALLOCATE(FV_Elems_master(1:nSides)) ! Moved from InitFV to here, since needed in U_Mortar below.
 
-! compute FV NormVec, TangVec,.. on boundary of DG-cells
-DO iSide=1,nSides
-  IF(iSide.GE.firstMPISide_YOUR.AND.iSide.LE.lastMPISide_YOUR) CYCLE
-  CALL ChangeBasisSurf(3,PP_N,PP_N,FV_Vdm,Face_xGP(:,:,:,0,iSide),Face_xGP(:,:,:,1,iSide))
-
-  iLocSide=SideToElem(S2E_LOC_SIDE_ID,iSide)
-  IF(iLocSide.LT.1) CYCLE
-  NormalDir=NormalDirs(iLocSide); TangDir=TangDirs(iLocSide); NormalSign=NormalSigns(iLocSide)
-
-  CALL ChangeBasisSurf(3,PP_N,PP_N,FV_Vdm,Ja_Face( 1,:,:,:,iSide),FV_Ja_Face(1,:,:,:))
-  CALL ChangeBasisSurf(3,PP_N,PP_N,FV_Vdm,Ja_Face( 2,:,:,:,iSide),FV_Ja_Face(2,:,:,:))
-  CALL ChangeBasisSurf(3,PP_N,PP_N,FV_Vdm,Ja_Face( 3,:,:,:,iSide),FV_Ja_Face(3,:,:,:))
-  CALL SurfMetricsFromJa(PP_N,NormalDir,TangDir,NormalSign,FV_Ja_Face,&
-                         NormVec( :,:,:,1,iSide),TangVec1(:,:,:,1,iSide),&
-                         TangVec2(:,:,:,1,iSide),SurfElem(  :,:,1,iSide))
-  CALL ChangeBasisSurf(1,PP_N,PP_N,FV_Vdm,sJ_master(:,0:PP_N,0:PP_NZ,iSide,0),sJ_master(:,0:PP_N,0:PP_NZ,iSide,1))
-  CALL ChangeBasisSurf(1,PP_N,PP_N,FV_Vdm,sJ_slave (:,0:PP_N,0:PP_NZ,iSide,0),sJ_slave (:,0:PP_N,0:PP_NZ,iSide,1))
-
-  IF(MortarType(1,iSide).LE.0) CYCLE ! no mortars
-  DO iMortar=1,MERGE(4,2,MortarType(1,iSide).EQ.1)
-    SideID=MortarInfo(MI_SIDEID,iMortar,MortarType(2,iSide))
-    Flip  =MortarInfo(MI_FLIP,iMortar,MortarType(2,iSide))
-    IF(flip.NE.0) CYCLE ! for MPI sides some sides are built from the inside and for type 2/3 there are only 2 neighbours
-    CALL ChangeBasisSurf(3,PP_N,PP_N,FV_Vdm,Ja_Face( 1,:,:,:,SideID),FV_Ja_Face(1,:,:,:))
-    CALL ChangeBasisSurf(3,PP_N,PP_N,FV_Vdm,Ja_Face( 2,:,:,:,SideID),FV_Ja_Face(2,:,:,:))
-    CALL ChangeBasisSurf(3,PP_N,PP_N,FV_Vdm,Ja_Face( 3,:,:,:,SideID),FV_Ja_Face(3,:,:,:))
-    CALL SurfMetricsFromJa(PP_N,NormalDir,TangDir,NormalSign,FV_Ja_Face,&
-                           NormVec( :,:,:,1,SideID),TangVec1(:,:,:,1,SideID),&
-                           TangVec2(:,:,:,1,SideID),SurfElem(  :,:,1,SideID))
-    CALL ChangeBasisSurf(1,PP_N,PP_N,FV_Vdm,sJ_master(:,0:PP_N,0:PP_NZ,SideID,0),sJ_master(:,0:PP_N,0:PP_NZ,SideID,1))
-    CALL ChangeBasisSurf(1,PP_N,PP_N,FV_Vdm,sJ_slave (:,0:PP_N,0:PP_NZ,SideID,0),sJ_slave (:,0:PP_N,0:PP_NZ,SideID,1))
-  END DO
-END DO
-
-#if USE_MPI
-! Send surface geomtry informations from mpi master to mpi slave
-ALLOCATE(Geo(10,0:PP_N,0:PP_NZ,firstMPISide_MINE:nSides))
-Geo=0.
-Geo(1,:,:,:)   =SurfElem(  :,0:PP_NZ,1,firstMPISide_MINE:nSides)
-Geo(2:4,:,:,:) =NormVec (:,:,0:PP_NZ,1,firstMPISide_MINE:nSides)
-Geo(5:7,:,:,:) =TangVec1(:,:,0:PP_NZ,1,firstMPISide_MINE:nSides)
-Geo(8:10,:,:,:)=TangVec2(:,:,0:PP_NZ,1,firstMPISide_MINE:nSides)
-MPIRequest_Geo=MPI_REQUEST_NULL
-CALL StartReceiveMPIData(Geo,10*(PP_N+1)**(PP_dim-1),firstMPISide_MINE,nSides,MPIRequest_Geo(:,RECV),SendID=1) ! Receive YOUR / Geo: master -> slave
-CALL StartSendMPIData(   Geo,10*(PP_N+1)**(PP_dim-1),firstMPISide_MINE,nSides,MPIRequest_Geo(:,SEND),SendID=1) ! SEND MINE / Geo: master -> slave
-CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Geo)
-SurfElem  (:,0:PP_NZ,1,firstMPISide_YOUR:lastMPISide_YOUR)= Geo(1   ,:,:,firstMPISide_YOUR:lastMPISide_YOUR)
-NormVec (:,:,0:PP_NZ,1,firstMPISide_YOUR:lastMPISide_YOUR)= Geo(2:4 ,:,:,firstMPISide_YOUR:lastMPISide_YOUR)
-TangVec1(:,:,0:PP_NZ,1,firstMPISide_YOUR:lastMPISide_YOUR)= Geo(5:7 ,:,:,firstMPISide_YOUR:lastMPISide_YOUR)
-TangVec2(:,:,0:PP_NZ,1,firstMPISide_YOUR:lastMPISide_YOUR)= Geo(8:10,:,:,firstMPISide_YOUR:lastMPISide_YOUR)
-DEALLOCATE(Geo)
-#endif /*MPI*/
+!! compute FV NormVec, TangVec,.. on boundary of DG-cells
+!DO iSide=1,nSides
+!  IF(iSide.GE.firstMPISide_YOUR.AND.iSide.LE.lastMPISide_YOUR) CYCLE
+!  CALL ChangeBasisSurf(3,PP_N,PP_N,FV_Vdm,Face_xGP(:,:,:,0,iSide),Face_xGP(:,:,:,1,iSide))
+!
+!  iLocSide=SideToElem(S2E_LOC_SIDE_ID,iSide)
+!  IF(iLocSide.LT.1) CYCLE
+!  NormalDir=NormalDirs(iLocSide); TangDir=TangDirs(iLocSide); NormalSign=NormalSigns(iLocSide)
+!
+!  CALL ChangeBasisSurf(3,PP_N,PP_N,FV_Vdm,Ja_Face( 1,:,:,:,iSide),FV_Ja_Face(1,:,:,:))
+!  CALL ChangeBasisSurf(3,PP_N,PP_N,FV_Vdm,Ja_Face( 2,:,:,:,iSide),FV_Ja_Face(2,:,:,:))
+!  CALL ChangeBasisSurf(3,PP_N,PP_N,FV_Vdm,Ja_Face( 3,:,:,:,iSide),FV_Ja_Face(3,:,:,:))
+!  CALL SurfMetricsFromJa(PP_N,NormalDir,TangDir,NormalSign,FV_Ja_Face,&
+!                         NormVec( :,:,:,1,iSide),TangVec1(:,:,:,1,iSide),&
+!                         TangVec2(:,:,:,1,iSide),SurfElem(  :,:,1,iSide))
+!  CALL ChangeBasisSurf(1,PP_N,PP_N,FV_Vdm,sJ_master(:,0:PP_N,0:PP_NZ,iSide,0),sJ_master(:,0:PP_N,0:PP_NZ,iSide,1))
+!  CALL ChangeBasisSurf(1,PP_N,PP_N,FV_Vdm,sJ_slave (:,0:PP_N,0:PP_NZ,iSide,0),sJ_slave (:,0:PP_N,0:PP_NZ,iSide,1))
+!
+!  IF(MortarType(1,iSide).LE.0) CYCLE ! no mortars
+!  DO iMortar=1,MERGE(4,2,MortarType(1,iSide).EQ.1)
+!    SideID=MortarInfo(MI_SIDEID,iMortar,MortarType(2,iSide))
+!    Flip  =MortarInfo(MI_FLIP,iMortar,MortarType(2,iSide))
+!    IF(flip.NE.0) CYCLE ! for MPI sides some sides are built from the inside and for type 2/3 there are only 2 neighbours
+!    CALL ChangeBasisSurf(3,PP_N,PP_N,FV_Vdm,Ja_Face( 1,:,:,:,SideID),FV_Ja_Face(1,:,:,:))
+!    CALL ChangeBasisSurf(3,PP_N,PP_N,FV_Vdm,Ja_Face( 2,:,:,:,SideID),FV_Ja_Face(2,:,:,:))
+!    CALL ChangeBasisSurf(3,PP_N,PP_N,FV_Vdm,Ja_Face( 3,:,:,:,SideID),FV_Ja_Face(3,:,:,:))
+!    CALL SurfMetricsFromJa(PP_N,NormalDir,TangDir,NormalSign,FV_Ja_Face,&
+!                           NormVec( :,:,:,1,SideID),TangVec1(:,:,:,1,SideID),&
+!                           TangVec2(:,:,:,1,SideID),SurfElem(  :,:,1,SideID))
+!    CALL ChangeBasisSurf(1,PP_N,PP_N,FV_Vdm,sJ_master(:,0:PP_N,0:PP_NZ,SideID,0),sJ_master(:,0:PP_N,0:PP_NZ,SideID,1))
+!    CALL ChangeBasisSurf(1,PP_N,PP_N,FV_Vdm,sJ_slave (:,0:PP_N,0:PP_NZ,SideID,0),sJ_slave (:,0:PP_N,0:PP_NZ,SideID,1))
+!  END DO
+!END DO
+!
+!#if USE_MPI
+!! Send surface geomtry informations from mpi master to mpi slave
+!ALLOCATE(Geo(10,0:PP_N,0:PP_NZ,firstMPISide_MINE:nSides))
+!Geo=0.
+!Geo(1,:,:,:)   =SurfElem(  :,0:PP_NZ,1,firstMPISide_MINE:nSides)
+!Geo(2:4,:,:,:) =NormVec (:,:,0:PP_NZ,1,firstMPISide_MINE:nSides)
+!Geo(5:7,:,:,:) =TangVec1(:,:,0:PP_NZ,1,firstMPISide_MINE:nSides)
+!Geo(8:10,:,:,:)=TangVec2(:,:,0:PP_NZ,1,firstMPISide_MINE:nSides)
+!MPIRequest_Geo=MPI_REQUEST_NULL
+!CALL StartReceiveMPIData(Geo,10*(PP_N+1)**(PP_dim-1),firstMPISide_MINE,nSides,MPIRequest_Geo(:,RECV),SendID=1) ! Receive YOUR / Geo: master -> slave
+!CALL StartSendMPIData(   Geo,10*(PP_N+1)**(PP_dim-1),firstMPISide_MINE,nSides,MPIRequest_Geo(:,SEND),SendID=1) ! SEND MINE / Geo: master -> slave
+!CALL FinishExchangeMPIData(2*nNbProcs,MPIRequest_Geo)
+!SurfElem  (:,0:PP_NZ,1,firstMPISide_YOUR:lastMPISide_YOUR)= Geo(1   ,:,:,firstMPISide_YOUR:lastMPISide_YOUR)
+!NormVec (:,:,0:PP_NZ,1,firstMPISide_YOUR:lastMPISide_YOUR)= Geo(2:4 ,:,:,firstMPISide_YOUR:lastMPISide_YOUR)
+!TangVec1(:,:,0:PP_NZ,1,firstMPISide_YOUR:lastMPISide_YOUR)= Geo(5:7 ,:,:,firstMPISide_YOUR:lastMPISide_YOUR)
+!TangVec2(:,:,0:PP_NZ,1,firstMPISide_YOUR:lastMPISide_YOUR)= Geo(8:10,:,:,firstMPISide_YOUR:lastMPISide_YOUR)
+!DEALLOCATE(Geo)
+!#endif /*MPI*/
 
 CALL FV_Build_Vdm_Gauss_FVboundary(PP_N, Vdm_Gauss_FVboundary)
 CALL GetVandermonde(NgeoRef, NodeType, PP_N, NodeType, Vdm_NgeoRef_N, modal=.TRUE.)

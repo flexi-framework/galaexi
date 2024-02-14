@@ -126,9 +126,9 @@ IF(firstSideID.LT.firstSideID_wo_BC)THEN
      d_gradUy_master(:,:,:,1:nBCSides),&
      d_gradUz_master(:,:,:,1:nBCSides),&
 #endif
-     d_NormVec(    :,:,:,:,1:nBCSides),&
-     d_TangVec1(   :,:,:,:,1:nBCSides),&
-     d_TangVec2(   :,:,:,:,1:nBCSides),&
+     d_NormVec(      :,:,:,1:nBCSides),&
+     d_TangVec1(     :,:,:,1:nBCSides),&
+     d_TangVec2(     :,:,:,1:nBCSides),&
      streamID=mystream)
 END IF ! .NOT. MPISIDES
 
@@ -142,9 +142,9 @@ IF (firstSideID_wo_BC.LE.lastSideID) THEN
                d_U_slave     (:,:,:,firstSideID_wo_BC:lastSideID), &
                d_UPrim_master(:,:,:,firstSideID_wo_BC:lastSideID), &
                d_UPrim_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
-               d_NormVec   (:,:,:,:,firstSideID_wo_BC:lastSideID), &
-               d_TangVec1  (:,:,:,:,firstSideID_wo_BC:lastSideID), &
-               d_TangVec2  (:,:,:,:,firstSideID_wo_BC:lastSideID), &
+               d_NormVec     (:,:,:,firstSideID_wo_BC:lastSideID), &
+               d_TangVec1    (:,:,:,firstSideID_wo_BC:lastSideID), &
+               d_TangVec2    (:,:,:,firstSideID_wo_BC:lastSideID), &
                streamID=mystream)
 #if PARABOLIC
   ! 2.2) viscous flux
@@ -159,7 +159,7 @@ IF (firstSideID_wo_BC.LE.lastSideID) THEN
                    d_gradUx_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
                    d_gradUy_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
                    d_gradUz_slave (:,:,:,firstSideID_wo_BC:lastSideID), &
-                   d_NormVec    (:,:,:,:,firstSideID_wo_BC:lastSideID), &
+                   d_NormVec      (:,:,:,firstSideID_wo_BC:lastSideID), &
                    streamID=mystream)
 #endif
 END IF
@@ -169,7 +169,7 @@ END IF
 DO SideID=firstSideID,lastSideID
   DO q=0,PP_NZ; DO p=0,PP_N
     ! multiply with SurfElem
-    d_Flux_master(:,p,q,SideID) = d_Flux_master(:,p,q,SideID) * d_SurfElem(p,q,0,SideID)
+    d_Flux_master(:,p,q,SideID) = d_Flux_master(:,p,q,SideID) * d_SurfElem(p,q,SideID)
     ! copy master to slave
     d_Flux_slave( :,p,q,SideID) = d_Flux_master(:,p,q,SideID)
   END DO; END DO
