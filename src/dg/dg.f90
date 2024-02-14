@@ -397,7 +397,13 @@ CALL VAX_GPU(nTotalU,d_Ut,-1.) ! Multiply array by -1
 ! 13. Compute source terms and sponge (in physical space, conversion to reference space inside routines)
 ! TODO: This can be used for latency hiding or not?
 !IF(doCalcSource) CALL CalcSource(Ut,t)
-!IF(doSponge)     CALL Sponge(Ut)
+IF(doSponge) THEN
+!#if USE_GPU
+  CALL Sponge_GPU(d_Ut)
+!#else
+! CALL Sponge(Ut)
+!#endif
+ENDIF
 !IF(doTCSource)   CALL TestcaseSource(Ut)
 
 !! 14. apply Jacobian
