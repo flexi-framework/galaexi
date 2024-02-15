@@ -121,17 +121,18 @@ INTEGER,INTENT(OUT)          :: errType
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER                        :: iElem,SHMEM_SIZE
-REAL                           ::   Timestep(3),dummy
-REAL,DEVICE                    :: d_Timestep(3)
+REAL                           :: Timestep(3),Timestep_Conv,Timestep_Visc
 REAL,DEVICE                    :: d_Lambda_max(2,nElems)
+REAL                           :: Lambda_max(2,nElems)
 !==================================================================================================================================
 errType=0
-d_TimeStep = HUGE(1.)
+TimeStep_Conv = HUGE(1.)
+TimeStep_Visc = HUGE(1.)
 
 #if PARABOLIC
-SHMEM_SIZE=(PP_N+1)**2*6*SIZEOF(dummy) ! No of entries times size of real
+SHMEM_SIZE=(PP_N+1)**2*6*SIZEOF(TimeStep_Conv) ! No of entries times size of real
 #else
-SHMEM_SIZE=(PP_N+1)**2*3*SIZEOF(dummy) ! No of entries times size of real
+SHMEM_SIZE=(PP_N+1)**2*3*SIZEOF(TimeStep_Conv) ! No of entries times size of real
 #endif
 
 ! Compute maximum eigenvalue within each element
@@ -148,22 +149,23 @@ CALL CalcMaxEigenvalue<<<nElems,(PP_N+1)**2,SHMEM_SIZE>>>(PP_N,nElems,d_U,d_EOS_
 DO iElem=1,nElems
 #if FV_ENABLED == 2
   IF (d_FV_alpha(iElem) .LT. FV_alpha_min) THEN
-    d_TimeStep(1)=MIN(d_TimeStep(1),d_CFLScale(0)*2./d_Lambda_max(1,iElem))
+    Timestep_Conv=MIN(TimeStep_Conv,d_CFLScale(0)*2./d_Lambda_max(1,iElem))
 #if PARABOLIC
-    d_TimeStep(2)=MIN(d_TimeStep(2),d_DFLScale(0)*4./d_Lambda_max(2,iElem))
+    TimeStep_Visc=MIN(TimeStep_Visc,d_DFLScale(0)*4./d_Lambda_max(2,iElem))
 #endif
   ELSE
 #endif /* FV_ENABLED == 2*/
-    d_TimeStep(1)=MIN(d_TimeStep(1),MINVAL(d_CFLScale(:))*2./d_Lambda_max(1,iElem))
+    Timestep_Conv=MIN(TimeStep_Conv,MINVAL(d_CFLScale(:))*2./d_Lambda_max(1,iElem))
 #if PARABOLIC
-    d_TimeStep(2)=MIN(d_TimeStep(2),MINVAL(d_DFLScale(:))*4./d_Lambda_max(2,iElem))
+    TimeStep_Visc=MIN(TimeStep_Visc,MINVAL(d_DFLScale(:))*4./d_Lambda_max(2,iElem))
 #endif
 #if FV_ENABLED == 2
   END IF
 #endif
 END DO
 
-TimeStep(:) = d_TimeStep
+TimeStep(1)=TimeStep_Conv
+TimeStep(2)=TimeStep_Visc
 
 #if USE_MPI
 TimeStep(3)=-errType ! reduce with timestep, minus due to MPI_MIN

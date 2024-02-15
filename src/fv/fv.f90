@@ -184,6 +184,8 @@ FV_alpha_min = GETREAL('FV_alpha_min')
 FV_alpha_max = GETREAL('FV_alpha_max')
 FV_doExtendAlpha = GETLOGICAL('FV_doExtendAlpha')
 IF (FV_doExtendAlpha) THEN
+  ! TODO
+  CALL ABORT(__STAMP__,"FV_doExtendAlpha is not implemented yet for GPU!")
   FV_nExtendAlpha = GETINT('FV_nExtendAlpha')
   FV_alpha_extScale = GETREAL('FV_alpha_extScale')
   IF ((FV_alpha_extScale.GT.1.) .OR. (FV_alpha_extScale.LT.0.)) CALL ABORT(__STAMP__,&

@@ -363,7 +363,7 @@ CALL Lifting(d_UPrim,d_UPrim_master,d_UPrim_slave,t)
 CALL VolInt(d_Ut,streamID=stream1)
 
 #if FV_ENABLED
-!CALL FV_VolInt(d_U,d_UPrim,d_Ut)
+CALL FV_VolInt(d_U,d_UPrim,d_Ut,streamID=stream1)
 #endif
 
 #if PARABOLIC

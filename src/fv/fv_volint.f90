@@ -267,8 +267,10 @@ END SUBROUTINE FV_VolInt
 !> - apply fluxes to the left and right sub-cell of the slice
 !> are evaluated in the volume integral of the lifting procedure.
 !==================================================================================================================================
-SUBROUTINE FV_VolInt_Conv(d_U,d_UPrim,d_Ut)
+SUBROUTINE FV_VolInt_Conv(d_U,d_UPrim,d_Ut,streamID)
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU
 USE MOD_PreProc                         ! all PP_*** variables
 USE MOD_FV_Vars
 USE MOD_DG_Vars      ,ONLY: nDOFElem
@@ -281,13 +283,18 @@ IMPLICIT NONE
 REAL,DEVICE,INTENT(IN)    :: d_U(    PP_nVar    ,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)  !< solution vector of primitive variables
 REAL,DEVICE,INTENT(IN)    :: d_UPrim(PP_nVarPrim,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)  !< solution vector of primitive variables
 REAL,DEVICE,INTENT(INOUT) :: d_Ut(   PP_nVar    ,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)  !< time derivative of conservative solution vector
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER           :: nDOF
 INTEGER,PARAMETER :: nThreads=256
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 nDOF=nDOFElem*nElems
-CALL FV_VolInt_Conv_GPU<<<nDOF/nThreads+1,nThreads>>>(nElems,PP_N,d_U,d_UPrim,d_Ut &
+CALL FV_VolInt_Conv_GPU<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nElems,PP_N,d_U,d_UPrim,d_Ut &
                                                      ,d_FV_NormVecXi  ,d_FV_TangVec1Xi  ,d_FV_TangVec2Xi   &
                                                      ,d_FV_NormVecEta ,d_FV_TangVec1Eta ,d_FV_TangVec2Eta  &
                                                      ,d_FV_NormVecZeta,d_FV_TangVec1Zeta,d_FV_TangVec2Zeta &
@@ -296,6 +303,9 @@ CALL FV_VolInt_Conv_GPU<<<nDOF/nThreads+1,nThreads>>>(nElems,PP_N,d_U,d_UPrim,d_
                                                      ,d_FV_SurfElemZeta_sw &
                                                      ,d_FV_w_inv &
                                                      ,d_EOS_Vars &
+#if FV_ENABLED==2
+                                                     ,d_FV_alpha &
+#endif
                                                      )
 
 END SUBROUTINE FV_VolInt_Conv
@@ -317,10 +327,12 @@ PPURE ATTRIBUTES(GLOBAL) SUBROUTINE FV_VolInt_Conv_GPU(nElems,Nloc,U,UPrim,Ut &
                                                       ,FV_SurfElemZeta_sw &
                                                       ,FV_w_inv &
                                                       ,EOS_Vars &
+#if FV_ENABLED==2
+                                                      ,FV_alpha &
+#endif
                                                       )
 ! MODULES
 USE MOD_Riemann      ,ONLY: Riemann
-USE MOD_EOS          ,ONLY: PrimToCons
 ! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -344,6 +356,9 @@ REAL,DEVICE,INTENT(IN)    :: FV_TangVec2Zeta( 3,0:Nloc,0:Nloc ,ZDIM(1:Nloc),1:nE
 REAL,DEVICE,INTENT(IN)    :: FV_SurfElemZeta_sw(0:Nloc,0:Nloc ,ZDIM(1:Nloc),1:nElems)
 REAL,DEVICE,INTENT(IN)    :: FV_w_inv(0:Nloc)
 REAL,DEVICE,INTENT(IN)    :: EOS_Vars(PP_nVarEOS)
+#if FV_ENABLED==2
+REAL,DEVICE,INTENT(IN)    :: FV_alpha(nElems)
+#endif
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER                 :: i,j,k,iElem,threadID,rest
@@ -461,12 +476,12 @@ IF (iElem.LE.nElems) THEN
   END IF
 #endif
 
-!#if FV_ENABLED == 2
-!  ! Blend the solutions together
-!  Ut(:,:,:,:,iElem) = (1 - FV_alpha(iElem)) * Ut(:,:,:,:,iElem) + FV_alpha(iElem)*Ut_FV
-!#else
-!  Ut(:,:,:,:,iElem) = Ut_FV
-!#endif /*FV_BLENDING*/
+#if FV_ENABLED == 2
+  ! Blend the solutions together
+  Ut(:,i,j,k,iElem) = (1 - FV_alpha(iElem)) * Ut(:,i,j,k,iElem) + FV_alpha(iElem)*Ut_FV_tmp(:)
+#else
+  Ut(:,i,j,k,iElem) = Ut_FV_tmp(:)
+#endif /*FV_BLENDING*/
 
 END IF
 END SUBROUTINE FV_VolInt_Conv_GPU
