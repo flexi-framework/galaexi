@@ -102,10 +102,13 @@ USE MOD_PreProc
 USE MOD_DG_Vars      ,ONLY:d_U
 USE MOD_EOS_Vars     ,ONLY:d_EOS_Vars
 USE MOD_Mesh_Vars    ,ONLY:d_sJ,d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,nElems
-USE MOD_TimeDisc_Vars,ONLY:CFLScale,ViscousTimeStep,d_dtElem
+USE MOD_TimeDisc_Vars,ONLY:d_CFLScale,ViscousTimeStep,d_dtElem
 #if PARABOLIC
-USE MOD_TimeDisc_Vars,ONLY:DFLScale
+USE MOD_TimeDisc_Vars,ONLY:d_DFLScale
 #endif /*PARABOLIC*/
+#if FV_ENABLED==2
+USE MOD_FV_Vars,ONLY: d_FV_alpha,FV_alpha_min
+#endif
 #if EDDYVISCOSITY
 USE MOD_EddyVisc_Vars, ONLY: muSGS
 #endif
@@ -118,43 +121,60 @@ INTEGER,INTENT(OUT)          :: errType
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER                        :: iElem,SHMEM_SIZE
-REAL                           :: LambdaConv,LambdaVisc,Timestep(3)
+REAL                           :: Timestep(3),Timestep_Conv,Timestep_Visc
 REAL,DEVICE                    :: d_Lambda_max(2,nElems)
+REAL                           :: Lambda_max(2,nElems)
 !==================================================================================================================================
 errType=0
+TimeStep_Conv = HUGE(1.)
+TimeStep_Visc = HUGE(1.)
 
 #if PARABOLIC
-SHMEM_SIZE=(PP_N+1)**2*6*SIZEOF(LambdaConv) ! No of entries times size of real
+SHMEM_SIZE=(PP_N+1)**2*6*SIZEOF(TimeStep_Conv) ! No of entries times size of real
 #else
-SHMEM_SIZE=(PP_N+1)**2*3*SIZEOF(LambdaConv) ! No of entries times size of real
+SHMEM_SIZE=(PP_N+1)**2*3*SIZEOF(TimeStep_Conv) ! No of entries times size of real
 #endif
 
 ! Compute maximum eigenvalue within each element
 CALL CalcMaxEigenvalue<<<nElems,(PP_N+1)**2,SHMEM_SIZE>>>(PP_N,nElems,d_U,d_EOS_Vars,&
                                                           d_Metrics_fTilde,d_Metrics_gTilde,d_Metrics_hTilde,&
-                                                          d_MetricsAdv,d_MetricsVisc,d_sJ,&
-                                                          d_Lambda_max)
-LambdaConv = 0.
-LambdaVisc = 0.
-
-! Compute maximum eigenvalue across elements
-!$cuf kernel do <<< *, * >>>
-DO iElem=1,nElems
-  !d_dtElem(iElem) = MINVAL(d_TimeStep(:,iElem))
-  LambdaConv=MAX(LambdaConv,d_Lambda_max(1,iElem))
+                                                          d_MetricsAdv,&
 #if PARABOLIC
-  LambdaVisc=MAX(LambdaVisc,d_Lambda_max(2,iElem))
+                                                          d_MetricsVisc,&
+#endif
+                                                          d_sJ,&
+                                                          d_Lambda_max)
+! Compute minimum timestep
+!$cuf kernel do <<< *, * >>> reduce(min:TimeStep_Conv)
+DO iElem=1,nElems
+#if FV_ENABLED == 2
+  IF (d_FV_alpha(iElem) .LT. FV_alpha_min) THEN
+    Timestep_Conv=MIN(TimeStep_Conv,d_CFLScale(0)*2./d_Lambda_max(1,iElem))
+  ELSE
+#endif /* FV_ENABLED == 2*/
+    Timestep_Conv=MIN(TimeStep_Conv,MINVAL(d_CFLScale(:))*2./d_Lambda_max(1,iElem))
+#if FV_ENABLED == 2
+  END IF
 #endif
 END DO
 
-! Multiply by CFL/DFL scaling
-#if FV_ENABLED
-TimeStep(1)=MINVAL(CFLScale(:))*2./LambdaConv
-TimeStep(2)=MINVAL(DFLScale(:))*4./LambdaVisc
-#else
-TimeStep(1)=       CFLScale(0) *2./LambdaConv
-TimeStep(2)=       DFLScale(0) *4./LambdaVisc
+#if PARABOLIC
+!$cuf kernel do <<< *, * >>> reduce(min:TimeStep_Visc)
+DO iElem=1,nElems
+#if FV_ENABLED == 2
+  IF (d_FV_alpha(iElem) .LT. FV_alpha_min) THEN
+    TimeStep_Visc=MIN(TimeStep_Visc,d_DFLScale(0)*4./d_Lambda_max(2,iElem))
+  ELSE
+#endif /* FV_ENABLED == 2*/
+    TimeStep_Visc=MIN(TimeStep_Visc,MINVAL(d_DFLScale(:))*4./d_Lambda_max(2,iElem))
+#if FV_ENABLED == 2
+  END IF
 #endif
+END DO
+#endif
+
+TimeStep(1)=TimeStep_Conv
+TimeStep(2)=TimeStep_Visc
 
 #if USE_MPI
 TimeStep(3)=-errType ! reduce with timestep, minus due to MPI_MIN
@@ -171,7 +191,11 @@ END FUNCTION CALCTIMESTEP
 !==================================================================================================================================
 ATTRIBUTES(GLOBAL) SUBROUTINE CalcMaxEigenvalue(Nloc,nElems,U,EOS_Vars,&
                                                      Metrics_fTilde,Metrics_gTilde,Metrics_hTilde,&
-                                                     MetricsAdv,MetricsVisc,sJ,&
+                                                     MetricsAdv,&
+#if PARABOLIC
+                                                     MetricsVisc,&
+#endif
+                                                     sJ,&
                                                      MaxEigenvalue)
 ! MODULES
 ! IMPLICIT VARIABLE HANDLING
@@ -185,7 +209,9 @@ REAL,DEVICE,INTENT(IN)            :: Metrics_fTilde(3,0:Nloc,0:Nloc,0:ZDIM(Nloc)
 REAL,DEVICE,INTENT(IN)            :: Metrics_gTilde(3,0:Nloc,0:Nloc,0:ZDIM(Nloc),nElems)
 REAL,DEVICE,INTENT(IN)            :: Metrics_hTilde(3,0:Nloc,0:Nloc,0:ZDIM(Nloc),nElems)
 REAL,DEVICE,INTENT(IN)            :: MetricsAdv(    3,0:Nloc,0:Nloc,0:ZDIM(Nloc),nElems)
+#if PARABOLIC
 REAL,DEVICE,INTENT(IN)            :: MetricsVisc(   3,0:Nloc,0:Nloc,0:ZDIM(Nloc),nElems)
+#endif
 REAL,DEVICE,INTENT(IN)            :: sJ(              0:Nloc,0:Nloc,0:ZDIM(Nloc),nElems)
 REAL,DEVICE,INTENT(IN)            :: EOS_Vars(PP_nVarEOS)
 REAL,DEVICE,INTENT(OUT)           :: MaxEigenvalue(2,nElems)
