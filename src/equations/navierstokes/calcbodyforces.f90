@@ -40,11 +40,14 @@ SUBROUTINE CalcBodyForces(BodyForce,Fp,Fv)
 USE MOD_Globals
 USE MOD_Preproc
 USE MOD_DG_Vars,         ONLY:UPrim_master
+!@cuf USE MOD_DG_Vars,   ONLY:d_UPrim_master
 #if PARABOLIC
 USE MOD_Lifting_Vars,    ONLY:gradUx_master,gradUy_master,gradUz_master
+!@cuf USE Mod_Lifting_Vars, ONLY: d_gradUx_master,d_gradUy_master,d_gradUz_master
 #endif
 USE MOD_Mesh_Vars,       ONLY:NormVec,SurfElem,nBCSides,BC,nBCs
 USE MOD_AnalyzeEquation_Vars,ONLY:isWall
+!@cuf USE CUDAFOR
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -61,8 +64,17 @@ INTEGER                        :: SideID,iBC
 #if USE_MPI
 REAL                           :: Box(6,nBCs)
 #endif /*USE_MPI*/
+!@cuf 
 !==================================================================================================================================
 ! Calculate body forces  ! Attention: during the initialization phase no face data / gradients available!
+
+! Sync data from the device.
+! SurfElem and NormVec are only changed in mesh init and are, at this point, sync'd between CPU and device
+!@cuf iError=CudaDeviceSynchronize()
+!@cuf UPrim_master = d_UPrim_master
+!@cuf gradUx_master = d_gradUx_master
+!@cuf gradUy_master = d_gradUy_master
+!@cuf gradUz_master = d_gradUz_master
 
 Fp=0.
 Fv=0.
@@ -95,6 +107,8 @@ IF(MPIRoot)THEN
 ELSE
   CALL MPI_REDUCE(Box         ,0  ,6*nBCs,MPI_DOUBLE_PRECISION,MPI_SUM,0,MPI_COMM_FLEXI,iError)
 END IF
+#else
+  BodyForce = Fv + Fp
 #endif
 
 END SUBROUTINE CalcBodyForces

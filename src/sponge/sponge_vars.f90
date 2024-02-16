@@ -22,13 +22,16 @@ SAVE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! GLOBAL VARIABLES
 !----------------------------------------------------------------------------------------------------------------------------------
-LOGICAL          :: doSponge              !< Turn on to employ sponge regions for reducing reflections at boundaries
-LOGICAL          :: SpongeViz             !< Turn on to write a visualization file of the sponge region and strength
-LOGICAL          :: CalcPruettDamping=.FALSE. !< true if temporally varying, solution adaptive Pruett baseflow is used
-INTEGER          :: nSpongeElems          !< number of elements for which sponge is applied
-INTEGER,ALLOCATABLE :: spongeMap(:)       !< mapping from Elem -> spongElem
-REAL             :: damping               !< Strenght of damping per face
-REAL,ALLOCATABLE :: SpongeMat(:,:,:,:)    !< precomputed sponge functions per DOF and sponge elem
-REAL,ALLOCATABLE,TARGET :: SpBaseFlow(:,:,:,:,:) !< precompute global reference state for whole field
+LOGICAL                             :: doSponge                     !< Turn on to employ sponge regions for reducing reflections at boundaries
+LOGICAL                             :: SpongeViz                    !< Turn on to write a visualization file of the sponge region and strength
+LOGICAL                             :: CalcPruettDamping=.FALSE.    !< true if temporally varying, solution adaptive Pruett baseflow is used
+INTEGER                             :: nSpongeElems                 !< number of elements for which sponge is applied
+INTEGER,ALLOCATABLE                 :: spongeMap(:)                 !< mapping from Elem -> spongElem
+!@cuf INTEGER,ALLOCATABLE,DEVICE    :: d_spongeMap(:)               !< copy of spongeMap on the device
+REAL                                :: damping                      !< Strenght of damping per face
+REAL,ALLOCATABLE                    :: SpongeMat(:,:,:,:)           !< precomputed sponge functions per DOF and sponge elem
+!@cuf REAL,ALLOCATABLE,DEVICE       :: d_SpongeMat(:,:,:,:)         !< copy of SpongeMat on the device
+REAL,ALLOCATABLE,TARGET             :: SpBaseFlow(:,:,:,:,:)        !< precompute global reference state for whole field
+!@cuf REAL,ALLOCATABLE,TARGET,DEVICE:: d_SpBaseFlow(:,:,:,:,:)      !< copy of SpBaseFlow on the device
 !==================================================================================================================================
 END MODULE MOD_Sponge_Vars
