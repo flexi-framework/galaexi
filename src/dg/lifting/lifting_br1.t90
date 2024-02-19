@@ -123,6 +123,11 @@ CALL SurfIntLifting(PP_N,d_gradUy_master,d_gradUy,d_L_hatMinus,d_L_hatPlus,weak=
 CALL SurfIntLifting(PP_N,d_gradUz_master,d_gradUz,d_L_hatMinus,d_L_hatPlus,weak=doWeakLifting,doApplyJacobian=.TRUE.,streamID=stream3)
 #endif
 
+! =================================================================================
+! DEVICE SYNCHRONIZE: SurfInt has to be finished before DG-VolInt is called
+iError=CudaDeviceSynchronize()
+! =================================================================================
+
 ! Account for the jacobian
 ! TODO: This is already done in surfaceintegral to save memory bandwidth!
 ! The Lifting already has the right sign
