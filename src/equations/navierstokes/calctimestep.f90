@@ -151,10 +151,10 @@ DO iElem=1,nElems
   IF (d_FV_alpha(iElem) .LT. FV_alpha_min) THEN
     Timestep_Conv=MIN(TimeStep_Conv,d_CFLScale(0)*2./d_Lambda_max(1,iElem))
   ELSE
-#endif /* FV_ENABLED == 2*/
     Timestep_Conv=MIN(TimeStep_Conv,MINVAL(d_CFLScale(:))*2./d_Lambda_max(1,iElem))
-#if FV_ENABLED == 2
   END IF
+#else
+  Timestep_Conv=MIN(TimeStep_Conv,d_CFLScale(0))*2./d_Lambda_max(1,iElem)
 #endif
 END DO
 
@@ -165,10 +165,10 @@ DO iElem=1,nElems
   IF (d_FV_alpha(iElem) .LT. FV_alpha_min) THEN
     TimeStep_Visc=MIN(TimeStep_Visc,d_DFLScale(0)*4./d_Lambda_max(2,iElem))
   ELSE
-#endif /* FV_ENABLED == 2*/
     TimeStep_Visc=MIN(TimeStep_Visc,MINVAL(d_DFLScale(:))*4./d_Lambda_max(2,iElem))
-#if FV_ENABLED == 2
   END IF
+#else
+  TimeStep_Visc=MIN(TimeStep_Visc,d_DFLScale(0)*4./d_Lambda_max(2,iElem))
 #endif
 END DO
 #endif
