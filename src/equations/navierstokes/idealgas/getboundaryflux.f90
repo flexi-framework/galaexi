@@ -286,7 +286,7 @@ REAL                    :: UPrim_boundary(PRIM) !< resulting boundary state
 REAL                    :: Kappa,R
 !===================================================================================================================================
 Kappa = EOS_Vars(EOS_KAPPA)
-R     = EOS_Vars(EOS_KAPPA)
+R     = EOS_Vars(EOS_R)
 
 
 SELECT CASE(BCType)
