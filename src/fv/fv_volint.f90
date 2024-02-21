@@ -368,7 +368,7 @@ REAL,DIMENSION(PP_nVar) :: F_FV
 ! Get thread indices
 threadID = (blockidx%x-1) * blockdim%x + threadidx%x
 ! Get iElem of current thread
-iElem   =        (threadID-1)/(Nloc+1)**3+1 ! Elems are 1-indexed
+iElem   =       (threadID-1)/(Nloc+1)**3+1 ! Elems are 1-indexed
 rest    = threadID-(iElem-1)*(Nloc+1)**3
 ! Get ijk indices of current thread
 k       = (rest-1)/(Nloc+1)**2
@@ -378,6 +378,11 @@ rest    =  rest- j*(Nloc+1)!**1
 i       = (rest-1)!/(Nloc+1)**0
 
 IF (iElem.LE.nElems) THEN
+#if FV_ENABLED == 2
+  ! Cycle if no FV contribution required for element
+  IF (FV_alpha(iElem).LT.EPSILON(1.)) RETURN
+#endif
+
   ! We have point i,j,k!
   Ut_FV_tmp(:) = 0.
 
@@ -394,7 +399,7 @@ IF (iElem.LE.nElems) THEN
                 ,FV_TangVec2Xi(:,j,k,i,iElem) &
                 ,EOS_Vars)
     ! sign contains normal vector in negative xi-direction
-    Ut_FV_tmp(:) = Ut_FV_tmp(:) - F_FV(:) * FV_SurfElemXi_sw(j,k,i,iElem) * FV_w_inv(i)
+    Ut_FV_tmp(:) = Ut_FV_tmp(:) - F_FV(:) * FV_SurfElemXi_sw(j,k,i  ,iElem) * FV_w_inv(i)
   END IF
 
   ! Right
@@ -425,7 +430,7 @@ IF (iElem.LE.nElems) THEN
                 ,FV_TangVec2Eta(:,i,k,j,iElem) &
                 ,EOS_Vars)
     ! sign contains normal vector in negative eta-direction
-    Ut_FV_tmp(:) = Ut_FV_tmp(:) - F_FV(:) * FV_SurfElemEta_sw(i,k,j,iElem) * FV_w_inv(j)
+    Ut_FV_tmp(:) = Ut_FV_tmp(:) - F_FV(:) * FV_SurfElemEta_sw(i,k,j  ,iElem) * FV_w_inv(j)
   END IF
 
   ! Right
@@ -457,7 +462,7 @@ IF (iElem.LE.nElems) THEN
                 ,FV_TangVec2Zeta(:,i,j,k,iElem) &
                 ,EOS_Vars)
     ! sign contains normal vector in negative xi-direction
-    Ut_FV_tmp(:) = Ut_FV_tmp(:) - F_FV(:) * FV_SurfElemZeta_sw(i,j,k,iElem) * FV_w_inv(k)
+    Ut_FV_tmp(:) = Ut_FV_tmp(:) - F_FV(:) * FV_SurfElemZeta_sw(i,j,k  ,iElem) * FV_w_inv(k)
   END IF
 
   ! Right
@@ -467,9 +472,9 @@ IF (iElem.LE.nElems) THEN
                 ,U(    :,i,j,k+1,iElem) & ! Right
                 ,UPrim(:,i,j,k  ,iElem) & ! Left
                 ,UPrim(:,i,j,k+1,iElem) & ! Right
-                ,FV_NormVecZeta( :,i,j,k,iElem) &
-                ,FV_TangVec1Zeta(:,i,j,k,iElem) &
-                ,FV_TangVec2Zeta(:,i,j,k,iElem) &
+                ,FV_NormVecZeta( :,i,j,k+1,iElem) &
+                ,FV_TangVec1Zeta(:,i,j,k+1,iElem) &
+                ,FV_TangVec2Zeta(:,i,j,k+1,iElem) &
                 ,EOS_Vars)
     ! sign contains normal vector in positive xi-direction
     Ut_FV_tmp(:) = Ut_FV_tmp(:) + F_FV(:) * FV_SurfElemZeta_sw(i,j,k+1,iElem) * FV_w_inv(k)
@@ -478,7 +483,7 @@ IF (iElem.LE.nElems) THEN
 
 #if FV_ENABLED == 2
   ! Blend the solutions together
-  Ut(:,i,j,k,iElem) = (1 - FV_alpha(iElem)) * Ut(:,i,j,k,iElem) + FV_alpha(iElem)*Ut_FV_tmp(:)
+  Ut(:,i,j,k,iElem) = (1. - FV_alpha(iElem)) * Ut(:,i,j,k,iElem) + FV_alpha(iElem)*Ut_FV_tmp(:)
 #else
   Ut(:,i,j,k,iElem) = Ut_FV_tmp(:)
 #endif /*FV_BLENDING*/
