@@ -409,15 +409,13 @@ SUBROUTINE CalcIndicator_GPU(d_U,t)
 USE MOD_Globals
 USE MOD_PreProc
 USE MOD_Indicator_Vars    ,ONLY: IndicatorType,IndStartTime,nModes
-USE MOD_DG_Vars           ,ONLY: d_UPrim
 USE MOD_Mesh_Vars         ,ONLY: nElems
 #if FV_ENABLED == 2
 USE MOD_FV_Blending       ,ONLY: FV_ExtendAlpha
 USE MOD_FV_Vars           ,ONLY: FV_alpha,d_FV_alpha,FV_alpha_min,FV_alpha_max,FV_doExtendAlpha
 USE MOD_Indicator_Vars    ,ONLY: sdT_FV,T_FV
-USE MOD_Interpolation_Vars,ONLY: sVdm_Leg
+USE MOD_Interpolation_Vars,ONLY: d_sVdm_Leg
 USE MOD_EOS_Vars          ,ONLY: d_EOS_Vars
-USE MOD_EOS               ,ONLY: ConsToPrim
 #else
 USE MOD_FV_Vars           ,ONLY: FV_Elems,FV_sVdm
 #endif /*FV_ENABLED==2*/
@@ -431,7 +429,6 @@ REAL,INTENT(IN)        :: t                                               !< Tim
 ! LOCAL VARIABLES
 INTEGER                   :: SHMEM_SIZE,nThreads
 REAL                      :: IndValue
-REAL,DEVICE               :: d_sVdm_Leg(0:PP_N,0:PP_N)
 !==================================================================================================================================
 IF (t.LT.IndStartTime) THEN
 #if FV_ENABLED == 1
@@ -445,14 +442,10 @@ END IF
 SELECT CASE (IndicatorType)
 #if FV_ENABLED == 2
 CASE(INDTYPE_PERSSON) ! Modal Persson indicator
-  ! For Blending we need the updated primitive solution
-  CALL ConsToPrim(PP_N,d_UPrim,d_U)
-
-  d_sVdm_Leg = sVdm_Leg
+  IF(PP_N.GT.9) CALL ABORT(__STAMP__,'Device Kernel for Indicator only allows for up to N=9!')
   nThreads=(PP_N+1)**2*(PP_NZ+1)
-  SHMEM_SIZE=(PP_N+1)**2*(PP_NZ+1)*SIZEOF(IndValue)
-  CALL PerssonIndicatorBlend_GPU<<<nElems,nThreads,SHMEM_SIZE>>>(PP_N,nElems,d_UPrim,d_EOS_Vars,d_sVdm_Leg,nModes,FV_alpha_min,FV_alpha_max,d_FV_alpha)
-  FV_alpha = d_FV_alpha
+  SHMEM_SIZE=(PP_N+1)**2*(PP_NZ+1)*SIZEOF(IndValue)*2
+  CALL PerssonIndicatorBlend_GPU<<<nElems,nThreads,SHMEM_SIZE>>>(PP_N,nElems,d_U,d_EOS_Vars,d_sVdm_Leg,nModes,FV_alpha_min,FV_alpha_max,d_FV_alpha)
 #endif
 CASE DEFAULT ! unknown Indicator Type
   CALL Abort(__STAMP__,&
@@ -464,7 +457,7 @@ END SUBROUTINE CalcIndicator_GPU
 !==================================================================================================================================
 !> Perform calculation of the indicator.
 !==================================================================================================================================
-PPURE ATTRIBUTES(GLOBAL) SUBROUTINE PerssonIndicatorBlend_GPU(Nloc,nElems,UPrim,EOS_Vars,sVdm_Leg,nModes,FV_alpha_min,FV_alpha_max,FV_alpha)
+ATTRIBUTES(GLOBAL) SUBROUTINE PerssonIndicatorBlend_GPU(Nloc,nElems,U,EOS_Vars,sVdm_Leg,nModes,FV_alpha_min,FV_alpha_max,FV_alpha)
 ! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -472,7 +465,7 @@ IMPLICIT NONE
 INTEGER,VALUE,INTENT(IN) :: Nloc
 INTEGER,VALUE,INTENT(IN) :: nElems
 INTEGER,VALUE,INTENT(IN) :: nModes
-REAL,DEVICE,INTENT(IN)   :: UPrim(PP_nVarPrim,0:Nloc,0:Nloc,0:ZDIM(Nloc),nElems)  !< Solution
+REAL,DEVICE,INTENT(IN)   :: U(PP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),nElems)  !< Solution
 REAL,DEVICE,INTENT(IN)   :: sVdm_Leg(0:Nloc,0:Nloc)                       !< Vandermonde nodal -> modal
 REAL,DEVICE,INTENT(IN)   :: EOS_Vars(PP_nVarEOS)                          !< Solution
 REAL,VALUE,INTENT(IN)    :: FV_alpha_min
@@ -480,15 +473,14 @@ REAL,VALUE,INTENT(IN)    :: FV_alpha_max
 REAL,DEVICE,INTENT(INOUT):: FV_alpha(nElems)                            !< Blending coefficient
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER                   :: iElem,iDeg,iDeg2,i,j,k,l,m,n,threadID,rest
-REAL                      :: IndValue,T_FV,tmp1,tmp2
+INTEGER                   :: iElem,i,j,k,threadID,rest
+INTEGER                   :: l,iDeg
+REAL                      :: IndValue,T_FV
 REAL,PARAMETER            :: s_FV = 9.21024              !< "Sharpness factor" for FV blending function according to
 REAL                      :: UE(1:PP_2Var)
-!REAL,DIMENSION(0:Nloc,0:Nloc,0:ZDIM(Nloc)) :: U_Xi
-!REAL,DIMENSION(0:Nloc,0:Nloc,0:ZDIM(Nloc)) :: U_Eta
+REAL                      :: U_tmp
 REAL,SHARED,DIMENSION(0:Nloc,0:Nloc,0:ZDIM(Nloc)) :: U_Modal
-!REAL,SHARED,DIMENSION(0:Nloc,0:Nloc,0:ZDIM(Nloc)) :: U_loc
-REAL                   :: U_tmp!1,U_tmp2,U_tmp3
+REAL,SHARED,DIMENSION(0:Nloc,0:Nloc,0:ZDIM(Nloc)) :: U_loc
 !==================================================================================================================================
 ! Get thread indices
 threadID = (blockidx%x-1) * blockdim%x + threadidx%x
@@ -505,44 +497,45 @@ rest    =  rest- i!*(Nloc+1)**0
 
 IF ((iElem.LE.nElems)) THEN
   ! 1.) Compute indicator variable
-  !!DO i=0,Nloc
-  !  UE(EXT_CONS)=U(:,i,j,k,iElem)
-  !  UE(EXT_SRHO)=1./UE(EXT_DENS)
-  !  UE(EXT_VELV)=VELOCITY_HE(UE)
-  !  U_loc(i,j,k)=PRESSURE_UE_EOS(UE,EOS_Vars)*UE(EXT_DENS)
-  !!END DO! i,j,k=0,PP_N
+  UE(EXT_CONS)=U(:,i,j,k,iElem)
+  UE(EXT_SRHO)=1./UE(EXT_DENS)
+  UE(EXT_VELV)=VELOCITY_HE(UE)
+  U_loc(i,j,k)=PRESSURE_UE_EOS(UE,EOS_Vars)*UE(EXT_DENS)
+  CALL SYNCTHREADS() ! Ensure array is filled
 
-  !! 2.) Wait until all threads finished
-  !CALL SYNCTHREADS()
+  ! 2.) Transform nodal solution to a modal representation
+  ! 2.1) XI-direction
+  U_tmp = 0.
+  DO l=0,Nloc
+    U_tmp = U_tmp + sVdm_Leg(i,l)*U_loc(l,j,k)
+  END DO
+  U_modal(i,j,k) = U_tmp
+  CALL SYNCTHREADS() ! Ensure array is filled
+  ! 2.2) ETA-direction
+  U_tmp = 0.
+  DO l=0,Nloc
+    U_tmp = U_tmp + sVdm_Leg(j,l)*U_modal(i,l,k)
+  END DO
+  U_loc(i,j,k) = U_tmp
+  CALL SYNCTHREADS() ! Ensure array is filled
+  ! 2.3) ZETA-direction
+  U_tmp = 0.
+  DO l=0,Nloc
+    U_tmp = U_tmp + sVdm_Leg(k,l)*U_loc(i,j,l)
+  END DO
+  U_modal(i,j,k) = U_tmp**2 ! ATTENTION: Already square for summation below
+  CALL SYNCTHREADS() ! Ensure array is filled
 
-  ! 3.) Transform nodal solution to a modal representation
-  !DO i=0,Nloc
-    U_tmp = 0.
-    DO n=0,ZDIM(Nloc); DO m=0,Nloc; DO l=0,Nloc
-      !U_tmp = U_tmp + sVdm_Leg(i,l)*sVdm_Leg(j,m)*sVdm_Leg(k,n)*U_loc(l,m,n)
-      U_tmp = U_tmp + sVdm_Leg(i,l)*sVdm_Leg(j,m)*sVdm_Leg(k,n)*UPrim(DENS,l,m,n,iElem)*UPrim(PRES,l,m,n,iElem)
-    END DO ; END DO ; END DO
-    U_Modal(i,j,k) = U_tmp
-  !END DO
-
-  ! 4.) Wait until all finished
-  CALL SYNCTHREADS()
-
-  ! 5.) First thread actually computes alpha
+  ! 3.) Only first thread actually computes alpha
+  ! TODO: The contraction of U_modal could also be done in parallel
   IF ((i.EQ.0).AND.(j.EQ.0).AND.(k.EQ.0)) THEN
-    ! Adapted Persson indicator
+    ! Modified Persson
+    ! ATTENTION: Square already considered above!
     IndValue=TINY(0.)
     DO iDeg=0,nModes-1
-      !tmp1 = 0.
-      !tmp2 = 0.
-      !DO n=0,ZDIM(Nloc)-iDeg; DO m=0,Nloc-iDeg; DO l=0,Nloc-iDeg
-      !  tmp1=tmp1+U_Modal(l,m,n)**2
-      !  IF( (l.LT.(Nloc-iDeg)).AND.(m.LT.(Nloc-iDeg)).AND.(n.LT.(Nloc-iDeg)) ) tmp2=tmp2+U_Modal(l,m,n)**2
-      !END DO ; END DO ; END DO
-      !IndValue = MAX(IndValue,(tmp1-tmp2)/tmp1)
-      IndValue=MAX(IndValue,(SUM(U_Modal(0:Nloc-iDeg  ,0:Nloc-iDeg  ,0:Nloc-iDeg  )**2)-  &
-                             SUM(U_Modal(0:Nloc-iDeg-1,0:Nloc-iDeg-1,0:Nloc-iDeg-1)**2)) /&
-                             SUM(U_Modal(0:Nloc-iDeg  ,0:Nloc-iDeg  ,0:Nloc-iDeg  )**2)   )
+      IndValue=MAX(IndValue,(SUM(U_Modal(0:Nloc-iDeg  ,0:Nloc-iDeg  ,0:Nloc-iDeg  ))-  &
+                             SUM(U_Modal(0:Nloc-iDeg-1,0:Nloc-iDeg-1,0:Nloc-iDeg-1))) /&
+                             SUM(U_Modal(0:Nloc-iDeg  ,0:Nloc-iDeg  ,0:Nloc-iDeg  ))   )
     END DO
     IF (IndValue.LT.EPSILON(1.)) IndValue=EPSILON(IndValue)
     T_FV   = 0.5*10**(-1.8*(Nloc+1)**.25) ! Eq.(42) in: S. Hennemann et al., J.Comp.Phy., 2021
@@ -841,77 +834,6 @@ END DO
 IF (IndValue .LT. EPSILON(1.)) IndValue = EPSILON(IndValue)
 
 END FUNCTION IndPerssonBlend
-
-!==================================================================================================================================
-!> Determine, if given a modal representation solution "U_Modal" is oscillating
-!> Indicator value is scaled to \f$\sigma=0 \ldots 1\f$
-!> Suggested by Persson et al.
-!==================================================================================================================================
-PPURE ATTRIBUTES(DEVICE) FUNCTION IndPerssonBlend_GPU(Nloc,U,nModes,IndVar,sVdm_Leg,EOS_Vars) RESULT(IndValue)
-IMPLICIT NONE
-!----------------------------------------------------------------------------------------------------------------------------------
-! INPUT/OUTPUT VARIABLES
-INTEGER,VALUE,INTENT(IN) :: Nloc                                      !< polynomial degree
-INTEGER,VALUE,INTENT(IN) :: nModes                                    !< number of modes to consider
-INTEGER,VALUE,INTENT(IN) :: IndVar                                    !< variable used
-REAL,DEVICE,INTENT(IN)   :: U(PP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc))     !< Solution
-REAL,DEVICE,INTENT(IN)   :: sVdm_Leg(0:Nloc,0:Nloc)                   !< Legendre Vandermonde nodal -> modal
-REAL,DEVICE,INTENT(IN)   :: EOS_Vars(PP_nVarEOS)                      !< EOS-related variables
-REAL                     :: IndValue                                  !< Value of the indicator (Return Value)
-!----------------------------------------------------------------------------------------------------------------------------------
-! LOCAL VARIABLES
-INTEGER     :: iDeg,iDeg2,i,j,k,l
-REAL        :: UE(1:PP_2Var)
-REAL,DIMENSION(0:Nloc,0:Nloc,0:ZDIM(Nloc)) :: U_loc
-REAL,DIMENSION(0:Nloc,0:Nloc,0:ZDIM(Nloc)) :: U_Xi
-REAL,DIMENSION(0:Nloc,0:Nloc,0:ZDIM(Nloc)) :: U_Eta
-REAL,DIMENSION(0:Nloc,0:Nloc,0:ZDIM(Nloc)) :: U_Modal
-!==================================================================================================================================
-DO k=0,ZDIM(Nloc); DO j=0,Nloc; DO i=0,Nloc
-  UE(EXT_CONS)=U(:,i,j,k)
-  UE(EXT_SRHO)=1./UE(EXT_DENS)
-  UE(EXT_VELV)=VELOCITY_HE(UE)
-  U_loc(i,j,k)=PRESSURE_UE_EOS(UE,EOS_Vars)*UE(EXT_DENS)
-END DO; END DO; END DO! i,j,k=0,PP_N
-
-! Transform nodal solution to a modal representation
-U_Xi   = 0.
-U_Eta  = 0.
-U_Modal= 0.
-DO k=0,ZDIM(Nloc); DO j=0,Nloc; DO i=0,Nloc; DO l=0,Nloc
-  U_Xi(i,j,k)    = U_Xi(i,j,k)    + sVdm_Leg(i,l)*U_loc(l,j,k)
-END DO ; END DO ; END DO ; END DO
-#if PP_dim == 2
-DO k=0,ZDIM(Nloc); DO j=0,Nloc; DO i=0,Nloc; DO l=0,Nloc
-  U_Modal(i,j,k) = U_Modal(i,j,k) + sVdm_Leg(j,l)*U_Xi(i,l,k)
-END DO ; END DO ; END DO ; END DO
-#else
-DO k=0,ZDIM(Nloc); DO j=0,Nloc; DO i=0,Nloc; DO l=0,Nloc
-  U_Eta(i,j,k)   = U_Eta(i,j,k)   + sVdm_Leg(j,l)*U_Xi(i,l,k)
-END DO ; END DO ; END DO ; END DO
-DO k=0,ZDIM(Nloc); DO j=0,Nloc; DO i=0,Nloc; DO l=0,Nloc
-  U_Modal(i,j,k) = U_Modal(i,j,k) + sVdm_Leg(k,l)*U_Eta(i,j,l)
-END DO ; END DO ; END DO ; END DO
-#endif
-
-! Adapted Persson indicator
-IndValue=TINY(0.)
-DO iDeg=0,nModes-1
-  iDeg2=iDeg+1
-#if PP_dim == 3
-  IndValue=MAX(IndValue,(SUM(U_Modal(0:Nloc-iDeg ,0:Nloc-iDeg ,0:Nloc-iDeg )**2) - &
-                         SUM(U_Modal(0:Nloc-iDeg2,0:Nloc-iDeg2,0:Nloc-iDeg2)**2)) /&
-                         SUM(U_Modal(0:Nloc-iDeg ,0:Nloc-iDeg ,0:Nloc-iDeg )**2))
-#else
-  IndValue=MAX(IndValue,(SUM(U_Modal(0:Nloc-iDeg ,0:Nloc-iDeg ,0)**2) - &
-                         SUM(U_Modal(0:Nloc-iDeg2,0:Nloc-iDeg2,0)**2)) /&
-                         SUM(U_Modal(0:Nloc-iDeg ,0:Nloc-iDeg ,0)**2))
-#endif
-END DO
-! Normalize indicator value
-IndValue=LOG10(IndValue)
-
-END FUNCTION IndPerssonBlend_GPU
 #endif /*FV_ENABLED==2*/
 
 #endif /* EQNSYSNR == 2 */

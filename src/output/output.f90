@@ -262,7 +262,7 @@ USE MOD_Analyze_Vars  ,ONLY: totalFV_nElems
 USE MOD_FV_Vars       ,ONLY: FV_Elems
 #elif FV_ENABLED == 2
 USE MOD_Analyze_Vars  ,ONLY: FV_totalAlpha
-USE MOD_FV_Vars       ,ONLY: FV_alpha
+USE MOD_FV_Vars       ,ONLY: FV_alpha,d_FV_alpha
 #endif /*FV_ENABLED*/
 #if PP_LIMITER
 USE MOD_Analyze_Vars, ONLY: totalPP_nElems
@@ -311,6 +311,7 @@ REAL              :: PP_percent
 FVcounter      = INT(SUM(FV_Elems),KIND=8)
 totalFV_nElems = totalFV_nElems + FVcounter ! counter for output of FV amount during analyze
 #elif FV_ENABLED == 2
+FV_alpha=d_FV_alpha
 FV_alpha_range(1) = MINVAL(FV_alpha)
 FV_alpha_range(2) = MAXVAL(FV_alpha)
 FV_totalAlpha    = FV_totalAlpha + SUM(FV_alpha)
