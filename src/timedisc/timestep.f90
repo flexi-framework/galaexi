@@ -49,6 +49,7 @@ CONTAINS
 SUBROUTINE TimeStepByLSERKW2(t)
 ! MODULES
 USE MOD_PreProc
+USE MOD_GPU
 USE MOD_Vector
 USE MOD_DG            ,ONLY: DGTimeDerivative_weakForm
 USE MOD_DG_Vars       ,ONLY: U,Ut,nTotalU,d_Ut,d_U
@@ -105,7 +106,7 @@ DO iStage = 1,nRKStages
 #if FV_ENABLED
   ! Time needs to be evaluated at the next step because time integration was already performed
   ASSOCIATE(tFV => MERGE(t+dt,t,iStage.EQ.nRKStages))
-  CALL CalcIndicator(d_U,tFV)
+  CALL CalcIndicator(d_U,tFV,streamID=stream1)
   ! NOTE: Apply switch and update FV_Elems
   END ASSOCIATE
 #endif /*FV_ENABLED*/

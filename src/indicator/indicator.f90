@@ -404,9 +404,10 @@ END FUNCTION IndPersson
 !==================================================================================================================================
 !> Perform calculation of the indicator.
 !==================================================================================================================================
-SUBROUTINE CalcIndicator_GPU(d_U,t)
+SUBROUTINE CalcIndicator_GPU(d_U,t,streamID)
 ! MODULES
-USE MOD_Globals
+USE CUDAFOR
+USE MOD_GPU
 USE MOD_PreProc
 USE MOD_Indicator_Vars    ,ONLY: IndicatorType,IndStartTime,nModes
 USE MOD_Mesh_Vars         ,ONLY: nElems
@@ -425,11 +426,16 @@ IMPLICIT NONE
 ! INPUT / OUTPUT VARIABLES
 REAL,DEVICE,INTENT(IN) :: d_U(1:PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)   !< Solution
 REAL,INTENT(IN)        :: t                                               !< Time
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER                   :: SHMEM_SIZE,nThreads
 REAL                      :: IndValue
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
 IF (t.LT.IndStartTime) THEN
 #if FV_ENABLED == 1
  IndValue = HUGE(1.)
@@ -445,7 +451,8 @@ CASE(INDTYPE_PERSSON) ! Modal Persson indicator
   IF(PP_N.GT.9) CALL ABORT(__STAMP__,'Device Kernel for Indicator only allows for up to N=9!')
   nThreads=(PP_N+1)**2*(PP_NZ+1)
   SHMEM_SIZE=(PP_N+1)**2*(PP_NZ+1)*SIZEOF(IndValue)*2
-  CALL PerssonIndicatorBlend_GPU<<<nElems,nThreads,SHMEM_SIZE>>>(PP_N,nElems,d_U,d_EOS_Vars,d_sVdm_Leg,nModes,FV_alpha_min,FV_alpha_max,d_FV_alpha)
+  CALL PerssonIndicatorBlend_GPU<<<nElems,nThreads,SHMEM_SIZE,mystream>>>(PP_N,nElems,d_U,d_EOS_Vars,d_sVdm_Leg,nModes,FV_alpha_min,FV_alpha_max,d_FV_alpha)
+  !d_FV_alpha=0.
 #endif
 CASE DEFAULT ! unknown Indicator Type
   CALL Abort(__STAMP__,&
@@ -526,16 +533,30 @@ IF ((iElem.LE.nElems)) THEN
   U_modal(i,j,k) = U_tmp**2 ! ATTENTION: Already square for summation below
   CALL SYNCTHREADS() ! Ensure array is filled
 
-  ! 3.) Only first thread actually computes alpha
-  ! TODO: The contraction of U_modal could also be done in parallel
+  ! 3.) Contract array in parallel along the j,k dimensions and save partial result
+  IF (Nloc.GT.nModes) THEN
+    IF ((j.LE.nModes).AND.(k.EQ.0)) THEN
+      iDeg=j
+      U_loc(i,iDeg,0) = SUM(U_Modal(0:Nloc-iDeg,0:Nloc-iDeg,i))
+    END IF
+  ELSE
+    IF ((j.EQ.0).AND.(k.EQ.0)) THEN
+      DO iDeg=0,nModes
+        U_loc(i,iDeg,0) = SUM(U_Modal(0:Nloc-iDeg,0:Nloc-iDeg,i))
+      END DO
+    END IF
+  END IF
+  CALL SYNCTHREADS() ! Ensure array is filled
+
+  ! 4.) Only first thread actually computes final alpha
   IF ((i.EQ.0).AND.(j.EQ.0).AND.(k.EQ.0)) THEN
     ! Modified Persson
-    ! ATTENTION: Square already considered above!
     IndValue=TINY(0.)
     DO iDeg=0,nModes-1
-      IndValue=MAX(IndValue,(SUM(U_Modal(0:Nloc-iDeg  ,0:Nloc-iDeg  ,0:Nloc-iDeg  ))-  &
-                             SUM(U_Modal(0:Nloc-iDeg-1,0:Nloc-iDeg-1,0:Nloc-iDeg-1))) /&
-                             SUM(U_Modal(0:Nloc-iDeg  ,0:Nloc-iDeg  ,0:Nloc-iDeg  ))   )
+      ! Array still has to be contracted in i-direction
+      ! ATTENTION: Square already considered above!
+      IndValue=MAX(IndValue,(SUM(U_loc(0:Nloc-iDeg,iDeg,0))-SUM(U_loc(0:Nloc-iDeg-1,iDeg+1,0)))/  &
+                             SUM(U_loc(0:Nloc-iDeg,iDeg,0)))
     END DO
     IF (IndValue.LT.EPSILON(1.)) IndValue=EPSILON(IndValue)
     T_FV   = 0.5*10**(-1.8*(Nloc+1)**.25) ! Eq.(42) in: S. Hennemann et al., J.Comp.Phy., 2021
