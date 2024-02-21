@@ -567,14 +567,13 @@ INTEGER,INTENT(IN)                  :: nSides   !< number of sides in array
 REAL,DEVICE,DIMENSION(PP_nVarPrim   ,0:Nloc,0:ZDIM(Nloc),  nSides),INTENT(IN)    :: UPrim_L,UPrim_R
                                                                                  !> solution gradients in x/y/z-direction left/right of interface
 REAL,DEVICE,DIMENSION(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc),  nSides),INTENT(IN)    :: gradUx_L,gradUx_R,gradUy_L,gradUy_R,gradUz_L,gradUz_R
-REAL,DEVICE,DIMENSION(3             ,0:Nloc,0:ZDIM(Nloc),1,nSides),INTENT(IN)    :: nv  !< normal vector
+REAL,DEVICE,DIMENSION(3             ,0:Nloc,0:ZDIM(Nloc),  nSides),INTENT(IN)    :: nv  !< normal vector
 REAL,DEVICE,DIMENSION(PP_nVar       ,0:Nloc,0:ZDIM(Nloc),  nSides),INTENT(INOUT) :: F   !< viscous flux
 INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-REAL              :: mu,lambda
 INTEGER           :: nDOF
 INTEGER,PARAMETER :: nThreads=256
 INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
