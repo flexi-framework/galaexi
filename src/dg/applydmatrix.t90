@@ -20,7 +20,7 @@ PPURE ATTRIBUTES(GLOBAL) SUBROUTINE ApplyDMatrix_Kernel(&
 #ifdef WITHnVars
         TP_nVar, &
 #endif
-        Nloc,nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T)
+        Nloc,nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T,doNullify)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
 IMPLICIT NONE
@@ -31,11 +31,12 @@ INTEGER,VALUE,INTENT(IN) :: TP_nVar !< number of variables
 #endif
 INTEGER,VALUE,INTENT(IN)  :: Nloc   !< Polynomial degree
 INTEGER,VALUE,INTENT(IN)  :: nElems !< Number of elements
-REAL,DEVICE,INTENT(OUT)   :: d_Ut(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< time update
+REAL,DEVICE,INTENT(INOUT) :: d_Ut(TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< time update
 REAL,DEVICE,INTENT(IN)    :: d_f( TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< flux in x
 REAL,DEVICE,INTENT(IN)    :: d_g( TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< flux in y
 REAL,DEVICE,INTENT(IN)    :: d_h( TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< flux in z
 REAL,DEVICE,INTENT(IN)    :: d_D_Hat_T(   0:Nloc,0:Nloc)                  !< Dervative matrix
+LOGICAL,VALUE,INTENT(IN)  :: doNullify
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER   :: i,j,k,l,ElemID,rest,threadID
@@ -65,7 +66,11 @@ IF (ElemID.LE.nElems) THEN
                               + d_D_Hat_T(l,j)*d_g(:,i,l,k,ElemID)
   END DO ! l
   ! Write temporary array to global array
-  d_Ut(:,i,j,k,ElemID) = d_Ut_loc(:)
+  IF (doNullify) THEN
+    d_Ut(:,i,j,k,ElemID) =                        d_Ut_loc(:)
+  ELSE
+    d_Ut(:,i,j,k,ElemID) = d_Ut(:,i,j,k,ElemID) + d_Ut_loc(:)
+  END IF
 END IF
 END SUBROUTINE ApplyDMatrix_Kernel
 
@@ -76,7 +81,7 @@ PPURE SUBROUTINE ApplyDMatrix_CUDA(&
 #ifdef WITHnVars
         TP_nVar, &
 #endif
-        nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T,streamID)
+        nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T,doNullify,streamID)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
 USE CUDAFOR
@@ -86,30 +91,35 @@ IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
 #ifdef WITHnVars
-INTEGER,VALUE,INTENT(IN)  :: TP_nVar  !< number of variables
+INTEGER,INTENT(IN)  :: TP_nVar  !< number of variables
 #endif
-INTEGER,VALUE,INTENT(IN)  :: nElems   !< Number of elements
-REAL,DEVICE,INTENT(OUT)   :: d_Ut(TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< time update
+INTEGER,INTENT(IN)  :: nElems   !< Number of elements
+REAL,DEVICE,INTENT(INOUT) :: d_Ut(TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< time update
 REAL,DEVICE,INTENT(IN)    :: d_f( TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< flux in x
 REAL,DEVICE,INTENT(IN)    :: d_g( TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< flux in y
 REAL,DEVICE,INTENT(IN)    :: d_h( TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< flux in z
 REAL,DEVICE,INTENT(IN)    :: d_D_Hat_T(   0:PP_N,0:PP_N)                  !< Dervative matrix
+LOGICAL,OPTIONAL,INTENT(IN) :: doNullify
 INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER            :: nDOF
 INTEGER,PARAMETER  :: nThreads=256
 INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
+LOGICAL            :: doNullify_In
 !==================================================================================================================================
 mystream=DefaultStream
 IF (PRESENT(streamID)) mystream=streamID
+
+doNullify_In=.TRUE.
+IF (PRESENT(doNullify)) doNullify_In=doNullify
 
 nDOF = (PP_N+1)*(PP_N+1)*(PP_NZ+1)*nElems
 CALL ApplyDMatrix_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(&
 #ifdef WITHnVars
                   TP_nVar,&
 #endif
-                  PP_N,nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T)
+                  PP_N,nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T,doNullify_In)
 END SUBROUTINE ApplyDMatrix_CUDA
 
 !==================================================================================================================================
@@ -130,7 +140,7 @@ IMPLICIT NONE
 INTEGER,INTENT(IN) :: TP_nVar  !< number of variables
 #endif
 INTEGER,INTENT(IN) :: nElems   !< Number of elements
-REAL,INTENT(OUT)   :: Ut(TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< time update
+REAL,INTENT(INOUT) :: Ut(TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< time update
 REAL,INTENT(IN)    :: f( TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< flux in x
 REAL,INTENT(IN)    :: g( TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< flux in y
 REAL,INTENT(IN)    :: h( TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< flux in z

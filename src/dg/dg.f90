@@ -366,6 +366,10 @@ CALL VolInt(d_Ut,streamID=stream1)
 CALL FV_VolInt(d_U,d_UPrim,d_Ut,streamID=stream1)
 #endif
 
+#if FV_ENABLED==2 && PARABOLIC
+CALL VolInt_Visc(d_Ut,streamID=stream1)
+#endif
+
 #if PARABOLIC
 #if USE_MPI
 ! Complete send / receive for gradUx, gradUy, gradUz, started in the lifting routines
