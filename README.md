@@ -1,4 +1,4 @@
-[![logo](https://numericsresearchgroup.org/images/icons/flexi.svg "FLEXI")][flexi]
+[![logo](https://numericsresearchgroup.org/images/icons/galexi.svg "Galexi")][flexi]
 
 
 [![license](https://img.shields.io/github/license/flexi-framework/flexi.svg?maxAge=2592000 "GPL-3.0 License")](LICENSE.md)
