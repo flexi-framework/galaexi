@@ -49,6 +49,7 @@ CONTAINS
 SUBROUTINE TimeStepByLSERKW2(t)
 ! MODULES
 USE MOD_PreProc
+USE MOD_GPU
 USE MOD_Vector
 USE MOD_DG            ,ONLY: DGTimeDerivative_weakForm
 USE MOD_DG_Vars       ,ONLY: U,Ut,nTotalU,d_Ut,d_U
@@ -101,6 +102,20 @@ DO iStage = 1,nRKStages
   ! U      =    U + Ut_tmp*b_dt(iStage)
   ! TODO: Unnecessary operations in first stage, since here RKA=0.
   CALL VAXPB_OUT_VAXPB_IN<<<nTotalU/nThreads+1,nThreads>>>(nTotalU,d_Ut,Ut_tmp,d_U,mRKA,b_dt(iStage))
+
+#if FV_ENABLED
+  ! Time needs to be evaluated at the next step because time integration was already performed
+  ASSOCIATE(tFV => MERGE(t+dt,t,iStage.EQ.nRKStages))
+  CALL CalcIndicator(d_U,tFV,streamID=stream1)
+  ! NOTE: Apply switch and update FV_Elems
+  END ASSOCIATE
+#endif /*FV_ENABLED*/
+#if FV_ENABLED == 1
+  CALL FV_Switch(U,Uprev,S2,AllowToDG=(iStage.EQ.nRKStages .OR. FV_toDGinRK))
+#endif /*FV_ENABLED==1*/
+#if PP_LIMITER
+  IF(DoPPLimiter) CALL PPLimiter()
+#endif /*PP_LIMITER*/
 END DO
 END SUBROUTINE TimeStepByLSERKW2
 

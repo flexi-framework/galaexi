@@ -193,13 +193,13 @@ ENDIF()
 SET(FLEXI_FV "OFF" CACHE STRING "Enable Finite Volume subcell shock capturing")
 SET_PROPERTY(CACHE FLEXI_FV PROPERTY STRINGS OFF SWITCH BLEND)
 
-CMAKE_DEPENDENT_OPTION(FLEXI_FV_RECONSTRUCTION "Enable 2nd order reconstruction for FV" ON
+CMAKE_DEPENDENT_OPTION(FLEXI_FV_RECONSTRUCTION "Enable 2nd order reconstruction for FV" OFF
 	                                             "FLEXI_FV" ON) # Everyhting except "OFF" is logically "ON"
 
 IF(NOT (FLEXI_FV STREQUAL "OFF"))
-  MESSAGE(SEND_ERROR "Reduced FLEXI does not support FV.")
   IF(    FLEXI_FV STREQUAL "SWITCH")
     ADD_DEFINITIONS(-DFV_ENABLED=1)
+    MESSAGE(SEND_ERROR "Reduced FLEXI does not support FV switching.")
   ELSEIF(FLEXI_FV STREQUAL "BLEND")
     IF(NOT FLEXI_EQNSYSNAME STREQUAL "navierstokes")
       MESSAGE(SEND_ERROR "FLEXI_FV=BLEND only works for FLEXI_EQNSYSNAME==navierstokes.")
@@ -212,10 +212,11 @@ IF(NOT (FLEXI_FV STREQUAL "OFF"))
   ENDIF()
 
   IF (FLEXI_FV_RECONSTRUCTION)
+    MESSAGE(SEND_ERROR "Reduced FLEXI does not support FV reconstruction.")
     ADD_DEFINITIONS(-DFV_RECONSTRUCT=1)
   ELSE()
     ADD_DEFINITIONS(-DFV_RECONSTRUCT=0)
-    IF (FLEXI_PARABOLIC)
+    IF (FLEXI_PARABOLIC AND (FLEXI_FV STREQUAL "SWITCH"))
       MESSAGE(SEND_ERROR " FLEXI_PARABOLIC is enabled, please also enabled FLEXI_FV_RECONSTRUCTION or disable FLEXI_PARABOLIC")
     ENDIF()
   ENDIF()

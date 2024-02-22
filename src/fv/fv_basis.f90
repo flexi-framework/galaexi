@@ -115,9 +115,11 @@ IF(InterpolationInitIsDone.AND.FVInitBasisIsDone)THEN
 END IF
 
 #if PARABOLIC
+#if FV_ENABLED == 1
 #if !(FV_RECONSTRUCT)
 CALL CollectiveStop(__STAMP__, &
   'FV_RECONSTRUCT=0 and PARABOLIC=T is not allowed. Switch off PARABOLIC or switch on FV_RECONSTRUCT!')
+#endif
 #endif
 #endif
 
@@ -142,6 +144,7 @@ ALLOCATE(FV_BdryX(0:PP_N+1))  ! 1D boundary positions of FV-Subcells
 ALLOCATE(FV_X(0:PP_N))        ! 1D positions of support points of FV-Subcells
 ALLOCATE(FV_w(0:PP_N))        ! 1D width of FV-Subcells
 ALLOCATE(FV_w_inv(0:PP_N))    ! Inverse of 1D width of FV-Subcells
+!@cuf ALLOCATE(d_FV_w_inv(0:PP_N))    ! Inverse of 1D width of FV-Subcells
 
 ! precompute stuff on reference-element
 CALL FV_Build_X_w_BdryX(PP_N, FV_X, FV_w, FV_BdryX, FV_CellType)
@@ -154,6 +157,7 @@ CALL FV_GetVandermonde(PP_N,NodeType,FV_Vdm,FV_sVdm)
 
 ! calculate inverse FV-widths (little speedup)
 FV_w_inv      = 1.0 / FV_w
+!@cuf d_FV_w_inv = FV_w_inv
 
 FVInitBasisIsDone=.TRUE.
 SWRITE(UNIT_stdOut,'(A)')' INIT FV DONE!'

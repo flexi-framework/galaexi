@@ -58,6 +58,7 @@ REAL             :: CFLScaleFV                         !< For FV, this is always
 #endif /*FV*/
 !@cuf REAL,DEVICE:: d_DFLScale(0:FV_SIZE)
 REAL             :: DFLScale(0:FV_SIZE)                !< Viscous CFL number (only if PARABOLIC)
+!@cuf REAL,DEVICE:: d_DFLScale(0:FV_SIZE)
 REAL             :: DFLScale_Readin(0:FV_SIZE)         !< Viscous CFL number (only if PARABOLIC, value from parameter file)
 REAL,ALLOCATABLE :: dtElem(:)                          !< Timestep for each element
 !@cuf REAL,DEVICE,ALLOCATABLE :: d_dtElem(:)

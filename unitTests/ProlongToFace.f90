@@ -14,7 +14,7 @@ USE MOD_Unittest,           ONLY: ReadInReferenceElementData
 USE MOD_ProlongToFaceCons,  ONLY: ProlongToFaceCons
 ! Modules needed to read in reference element
 USE MOD_Interpolation_Vars, ONLY: L_Minus,L_Plus
-#if FV_ENABLED
+#if FV_ENABLED==1
 USE MOD_FV_Vars,            ONLY: FV_Elems,FV_Elems_master,FV_Elems_slave
 #endif
 IMPLICIT NONE
@@ -24,7 +24,7 @@ REAL                           :: Uvol(0:NRef,0:NRef,0:NRefZ,nElemsRef)
 REAL                           :: Uvol_nVar(PP_nVar,0:NRef,0:NRef,0:NRefZ,nElemsRef)
 REAL                           :: Uface_master(PP_nVar,0:NRef,0:NRefZ,1:nSidesRef),Uface_master_ref(0:NRef,0:NRefZ,1:nSidesRef)
 REAL                           :: Uface_slave(PP_nVar,0:NRef,0:NRefZ,1:nSidesRef)!,Uface_slave_ref(0:9,0:9,7:6)
-#if FV_ENABLED
+#if FV_ENABLED==1
 REAL                           :: FV_Uface_master(PP_nVar,0:NRef,0:NRefZ,1:nSidesRef),FV_Uface_master_ref(0:NRef,0:NRefZ,1:nSidesRef)
 REAL                           :: FV_Uface_slave(PP_nVar,0:NRef,0:NRefZ,1:nSidesRef)
 #endif
@@ -89,7 +89,7 @@ END IF
 CALL ReadInReferenceElementData()
 
 ! Call ProlongToFace
-#if FV_ENABLED
+#if FV_ENABLED==1
 ALLOCATE(FV_Elems(1:1))
 ALLOCATE(FV_Elems_master(1:nSidesRef))
 ALLOCATE(FV_Elems_slave (1:nSidesRef))
@@ -98,7 +98,7 @@ FV_Elems_master = 0
 FV_Elems_slave = 0
 #endif
 CALL ProlongToFaceCons(NRef,Uvol_nVar,Uface_master,Uface_slave,L_Minus,L_Plus,.FALSE.)
-#if FV_ENABLED
+#if FV_ENABLED==1
 FV_Elems = 1
 FV_Elems_master = 1
 FV_Elems_slave = 1
@@ -110,7 +110,7 @@ IF (doGenerateReference) THEN
   ! Save the calculated solution to a binary file for later comparison
   OPEN(UNIT = 10, STATUS='replace',FILE=TRIM(BinaryString),FORM='unformatted')  ! replace an existing file or create a new one
   WRITE(10) Uface_master(1,:,:,:)!,Uface_slave(1,:,:,:)
-#if FV_ENABLED
+#if FV_ENABLED==1
   WRITE(10) FV_Uface_master(1,:,:,:)
 #endif
   CLOSE(10) ! close the file
@@ -123,7 +123,7 @@ ELSE
     ! Read the reference solution
     OPEN(UNIT = 10, STATUS='old',FILE=TRIM(BinaryString),FORM='unformatted')  ! open an existing file
     READ(10) Uface_master_ref!,Uface_slave_ref
-#if FV_ENABLED
+#if FV_ENABLED==1
     READ(10) FV_Uface_master_ref
 #endif
     CLOSE(10) ! close the file
@@ -131,7 +131,7 @@ ELSE
     equal =  .TRUE.
     DO i=1,PP_nVar; DO j=0,NRef; DO k=0,NRefZ; DO l=1,nSidesRef
       equal = ALMOSTEQUALABSORREL(Uface_master(i,j,k,l),Uface_master_ref(j,k,l),100.*PP_RealTolerance) .AND. equal
-#if FV_ENABLED
+#if FV_ENABLED==1
       equal = ALMOSTEQUALABSORREL(FV_Uface_master(i,j,k,l),FV_Uface_master_ref(j,k,l),100.*PP_RealTolerance) .AND. equal
 #endif      
     END DO; END DO; END DO; END DO

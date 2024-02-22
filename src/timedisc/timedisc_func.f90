@@ -544,7 +544,6 @@ dummy = Nin_DFL ! prevent compile warning
 #if PARABOLIC
 !@cuf d_DFLScale = DFLScale
 #endif
-
 END SUBROUTINE fillCFL_DFL
 
 !==================================================================================================================================

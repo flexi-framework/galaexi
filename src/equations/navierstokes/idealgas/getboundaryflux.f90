@@ -512,9 +512,9 @@ REAL,DEVICE,INTENT(IN)  :: gradUx_master(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc),nSid
 REAL,DEVICE,INTENT(IN)  :: gradUy_master(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc),nSides) !< inner surface solution gradients in y-direction
 REAL,DEVICE,INTENT(IN)  :: gradUz_master(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc),nSides) !< inner surface solution gradients in z-direction
 #endif /*PARABOLIC*/
-REAL,DEVICE,INTENT(IN)  :: NormVec (  3,0:Nloc,0:ZDIM(Nloc),1,nSides) !< normal vector on surfaces
-REAL,DEVICE,INTENT(IN)  :: TangVec1(  3,0:Nloc,0:ZDIM(Nloc),1,nSides) !< tangential1 vector on surfaces
-REAL,DEVICE,INTENT(IN)  :: TangVec2(  3,0:Nloc,0:ZDIM(Nloc),1,nSides) !< tangential2 vector on surfaces
+REAL,DEVICE,INTENT(IN)  :: NormVec (  3,0:Nloc,0:ZDIM(Nloc),nSides) !< normal vector on surfaces
+REAL,DEVICE,INTENT(IN)  :: TangVec1(  3,0:Nloc,0:ZDIM(Nloc),nSides) !< tangential1 vector on surfaces
+REAL,DEVICE,INTENT(IN)  :: TangVec2(  3,0:Nloc,0:ZDIM(Nloc),nSides) !< tangential2 vector on surfaces
 REAL,DEVICE,INTENT(OUT) :: Flux(PP_nVar,0:Nloc,0:ZDIM(Nloc),nSides)   !< resulting boundary fluxes
 INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -908,10 +908,10 @@ INTEGER,INTENT(IN) :: nRefState  !< number of RefStates provided
 LOGICAL,INTENT(IN) :: doWeakLifting        !< flag to indicate weak or strong form of lifting
 REAL,DEVICE,INTENT(IN)    :: d_UPrim_master(PP_nVarPrim,0:Nloc,0:ZDIM(Nloc),nSides)      !< inner surface solution
 REAL,DEVICE,INTENT(IN)    :: d_RefStatePrim(PP_nVarPrim,nRefState) !< reference solution at BC
-REAL,DEVICE,INTENT(IN)    :: d_NormVec (3,0:Nloc,0:ZDIM(Nloc),1,nSides) !< normal vector on surfaces
-REAL,DEVICE,INTENT(IN)    :: d_TangVec1(3,0:Nloc,0:ZDIM(Nloc),1,nSides) !< tangential1 vector on surfaces
-REAL,DEVICE,INTENT(IN)    :: d_TangVec2(3,0:Nloc,0:ZDIM(Nloc),1,nSides) !< tangential2 vector on surfaces
-REAL,DEVICE,INTENT(IN)    :: d_SurfElem(  0:Nloc,0:ZDIM(Nloc),1,nSides)     !< surface element to multiply with flux
+REAL,DEVICE,INTENT(IN)    :: d_NormVec (3,0:Nloc,0:ZDIM(Nloc),nSides) !< normal vector on surfaces
+REAL,DEVICE,INTENT(IN)    :: d_TangVec1(3,0:Nloc,0:ZDIM(Nloc),nSides) !< tangential1 vector on surfaces
+REAL,DEVICE,INTENT(IN)    :: d_TangVec2(3,0:Nloc,0:ZDIM(Nloc),nSides) !< tangential2 vector on surfaces
+REAL,DEVICE,INTENT(IN)    :: d_SurfElem(  0:Nloc,0:ZDIM(Nloc),nSides) !< surface element to multiply with flux
 REAL,DEVICE,INTENT(OUT)   :: d_Flux(PP_nVarLifting,0:Nloc,0:ZDIM(Nloc),nSides) !< resulting boundary fluxes
 INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------

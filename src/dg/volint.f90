@@ -75,7 +75,7 @@ USE MOD_Lifting_Vars    ,ONLY: d_gradUx,d_gradUy,d_gradUz
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
-REAL,DEVICE,INTENT(OUT)   :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
+REAL,DEVICE,INTENT(INOUT)   :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
 INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
@@ -111,7 +111,9 @@ DO iElem=1,nElems,nElems_Block_volInt
                        ,d_g( :,:,:,:,1:nElems_myBlock) &
                        ,d_h( :,:,:,:,1:nElems_myBlock) &
                        ,d_D_Hat_T &
-                       ,streamID=mystream)
+                       ,doNullify=.FALSE. &
+                       ,streamID=mystream &
+                       )
 END DO ! iElem
 END SUBROUTINE VolInt_weakForm_Visc
 #endif /*PARABOLIC*/
@@ -141,7 +143,7 @@ USE MOD_Lifting_Vars    ,ONLY: d_gradUx,d_gradUy,d_gradUz
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
-REAL,DEVICE,INTENT(OUT)   :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
+REAL,DEVICE,INTENT(OUT)  :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral
 INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
@@ -232,7 +234,7 @@ INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 mystream=DefaultStream
 IF (PRESENT(streamID)) mystream=streamID
 
-#if PARABOLIC
+#if PARABOLIC && !FV_ENABLED
 CALL VolInt_weakForm_Visc(d_Ut,streamID=mystream)
 #endif
 
@@ -340,7 +342,7 @@ IF (ElemID.LE.nElems) THEN
      !d_Ut(:,i,j,l,ElemID) = d_Ut(:,i,j,l,ElemID) + d_DVolSurf(k,l)*d_Flux(:)
   END DO ! l
 #endif /*PP_dim==3*/
-#if PARABOLIC
+#if PARABOLIC && !FV_ENABLED
   d_Ut(:,i,j,k,ElemID) = d_Ut(:,i,j,k,ElemID)+d_Ut_tmp(:) ! Already contains viscous Ut in case of PARABOLIC
 #else
   d_Ut(:,i,j,k,ElemID) = d_Ut_tmp(:)

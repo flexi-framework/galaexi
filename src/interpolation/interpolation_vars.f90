@@ -32,6 +32,7 @@ REAL,ALLOCATABLE   :: wGP(:)                      !< GP integration weights
 REAL,ALLOCATABLE   :: wBary(:)                    !< barycentric weights
 REAL,ALLOCATABLE   :: Vdm_Leg(:,:)                !< Legendre Vandermonde matrix
 REAL,ALLOCATABLE   :: sVdm_Leg(:,:)               !< inverse of Legendre Vandermonde matrix
+!@cuf REAL,DEVICE,ALLOCATABLE   :: d_sVdm_Leg(:,:)!< inverse of Legendre Vandermonde matrix
 
 !==================================================================================================================================
 !@{ Named nodetype parameters

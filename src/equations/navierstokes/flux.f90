@@ -326,9 +326,9 @@ REAL                :: mu,lambda
 !==================================================================================================================================
 i = (blockidx%x-1) * blockdim%x + threadidx%x
 IF (i.LE.nDOF) THEN
+#if PARABOLIC
   mu=VISCOSITY_PRIM_EOS(UPrim(:,i),EOS_Vars)
   lambda=THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)
-#if PARABOLIC
   CALL EvalTransformedEulerDiffFlux3D(U(:,i),UPrim(:,i),gradUx(:,i),gradUy(:,i),gradUz(:,i) &
                                      ,f(:,i),g(:,i),h(:,i),Mf(:,i),Mg(:,i),Mh(:,i),mu,lambda)
 #else

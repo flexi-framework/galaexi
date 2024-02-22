@@ -83,7 +83,7 @@ DO SideID=firstSideID,lastSideID
   ! Transformation with NormVec is applied in separate routine
   DO q=0,PP_NZ; DO p=0,PP_N
     DO iVar=1,PP_nVarLifting
-      d_Flux(iVar,p,q,SideID) = 0.5*d_SurfElem(p,q,0,SideID)*&
+      d_Flux(iVar,p,q,SideID) = 0.5*d_SurfElem(p,q,SideID)*&
                               ( sig*d_UPrimface_master(d_LiftToPrim(iVar),p,q,SideID) &
                                   + d_UPrimface_slave( d_LiftToPrim(iVar),p,q,SideID) )
     END DO
@@ -131,10 +131,10 @@ IF (PRESENT(streamID)) mystream=streamID
 CALL Lifting_GetBoundaryFlux(PP_N,nBCSides &
                             ,d_Flux(:,:,:,1:nBCSides) &
                             ,d_UPrim_master(:,:,:,1:nBCSides),nRefState,d_RefStatePrim &
-                            ,d_NormVec( :,:,:,:,1:nBCSides)&
-                            ,d_TangVec1(:,:,:,:,1:nBCSides)&
-                            ,d_TangVec2(:,:,:,:,1:nBCSides)&
-                            ,d_SurfElem(  :,:,:,1:nBCSides)&
+                            ,d_NormVec( :,:,:,1:nBCSides)&
+                            ,d_TangVec1(:,:,:,1:nBCSides)&
+                            ,d_TangVec2(:,:,:,1:nBCSides)&
+                            ,d_SurfElem(  :,:,1:nBCSides)&
                             ,doWeakLifting &
                             ,mystream)
 END SUBROUTINE Lifting_FillFlux_BC
@@ -248,9 +248,9 @@ END IF
 !$cuf kernel do(3) <<< *, *, 0, mystream >>>
 DO SideID=firstSideID,lastSideID
   DO q=0,PP_NZ; DO p=0,PP_N
-    d_FluxX(:,p,q,SideID)=d_Flux(:,p,q,SideID)*d_NormVec(1,p,q,0,SideID)
-    d_FluxY(:,p,q,SideID)=d_Flux(:,p,q,SideID)*d_NormVec(2,p,q,0,SideID)
-    d_FluxZ(:,p,q,SideID)=d_Flux(:,p,q,SideID)*d_NormVec(3,p,q,0,SideID)
+    d_FluxX(:,p,q,SideID)=d_Flux(:,p,q,SideID)*d_NormVec(1,p,q,SideID)
+    d_FluxY(:,p,q,SideID)=d_Flux(:,p,q,SideID)*d_NormVec(2,p,q,SideID)
+    d_FluxZ(:,p,q,SideID)=d_Flux(:,p,q,SideID)*d_NormVec(3,p,q,SideID)
   END DO; END DO
 END DO
 END SUBROUTINE Lifting_FillFlux_NormVec

@@ -295,6 +295,9 @@ USE MOD_Lifting_Vars        ,ONLY: d_gradUx_slave,d_gradUy_slave,d_gradUz_slave
 USE MOD_MPI_Vars
 USE MOD_MPI                 ,ONLY: StartReceiveMPIData_GPU,StartSendMPIData_GPU,FinishExchangeMPIData
 #endif /*USE_MPI*/
+#if FV_ENABLED
+USE MOD_FV_VolInt           ,ONLY: FV_VolInt
+#endif /*USE_MPI*/
 !@cuf USE MOD_Mesh_Vars     ,ONLY: d_sJ
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -359,6 +362,14 @@ CALL Lifting(d_UPrim,d_UPrim_master,d_UPrim_slave,t)
 
 ! 8. Compute volume integral contribution and add to Ut
 CALL VolInt(d_Ut,streamID=stream1)
+
+#if FV_ENABLED
+CALL FV_VolInt(d_U,d_UPrim,d_Ut,streamID=stream1)
+#endif
+
+#if FV_ENABLED==2 && PARABOLIC
+CALL VolInt_Visc(d_Ut,streamID=stream1)
+#endif
 
 #if PARABOLIC
 #if USE_MPI

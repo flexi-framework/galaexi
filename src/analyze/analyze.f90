@@ -390,7 +390,7 @@ USE MOD_Exactfunc,          ONLY: ExactFunc
 USE MOD_ChangeBasisByDim,   ONLY: ChangeBasisVolume
 USE MOD_Analyze_Vars,       ONLY: NAnalyze,NAnalyzeZ,Vdm_GaussN_NAnalyze
 USE MOD_Analyze_Vars,       ONLY: wGPVolAnalyze,Vol,AnalyzeExactFunc,AnalyzeRefState
-#if FV_ENABLED
+#if FV_ENABLED==1
 USE MOD_FV_Vars,            ONLY: FV_Elems,FV_Vdm,FV_w
 #endif
 IMPLICIT NONE
@@ -408,7 +408,7 @@ REAL                            :: Coords_NAnalyze(3,0:NAnalyze,0:NAnalyze,0:NAn
 REAL                            :: J_NAnalyze(1,0:NAnalyze,0:NAnalyze,0:NAnalyzeZ)
 REAL                            :: J_N(1,0:PP_N,0:PP_N,0:PP_NZ)
 REAL                            :: IntegrationWeight
-#if FV_ENABLED
+#if FV_ENABLED==1
 REAL                            :: U_DG(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ)
 REAL                            :: U_FV(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ)
 #endif
@@ -418,7 +418,7 @@ L_Inf_Error(:)=-1.E10
 L_2_Error(:)=0.
 ! Interpolate values of Error-Grid from GP's
 DO iElem=1,nElems
-#if FV_ENABLED
+#if FV_ENABLED==1
   IF (FV_Elems(iElem).GT.0) THEN ! FV Element
     DO m=0,PP_NZ
       DO l=0,PP_N
@@ -458,7 +458,7 @@ DO iElem=1,nElems
        END DO ! k
      END DO ! l
    END DO ! m
-#if FV_ENABLED
+#if FV_ENABLED==1
   END IF
 #endif
 END DO ! iElem=1,nElems

@@ -46,6 +46,7 @@ END INTERFACE
 
 INTERFACE CalcIndicator
   MODULE PROCEDURE CalcIndicator
+  MODULE PROCEDURE CalcIndicator_GPU
 END INTERFACE
 
 INTERFACE IndPersson
@@ -398,6 +399,181 @@ END DO
 IndValue=LOG10(IndValue)
 
 END FUNCTION IndPersson
+
+
+!==================================================================================================================================
+!> Perform calculation of the indicator.
+!==================================================================================================================================
+SUBROUTINE CalcIndicator_GPU(d_U,t,streamID)
+! MODULES
+USE CUDAFOR
+USE MOD_GPU
+USE MOD_PreProc
+USE MOD_Indicator_Vars    ,ONLY: IndicatorType,IndStartTime,nModes
+USE MOD_Mesh_Vars         ,ONLY: nElems
+#if FV_ENABLED == 2
+USE MOD_FV_Blending       ,ONLY: FV_ExtendAlpha
+USE MOD_FV_Vars           ,ONLY: FV_alpha,d_FV_alpha,FV_alpha_min,FV_alpha_max,FV_doExtendAlpha
+USE MOD_Indicator_Vars    ,ONLY: sdT_FV,T_FV
+USE MOD_Interpolation_Vars,ONLY: d_sVdm_Leg
+USE MOD_EOS_Vars          ,ONLY: d_EOS_Vars
+#else
+USE MOD_FV_Vars           ,ONLY: FV_Elems,FV_sVdm
+#endif /*FV_ENABLED==2*/
+! IMPLICIT VARIABLE HANDLING
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+REAL,DEVICE,INTENT(IN) :: d_U(1:PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems)   !< Solution
+REAL,INTENT(IN)        :: t                                               !< Time
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                   :: SHMEM_SIZE,nThreads
+REAL                      :: IndValue
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
+!==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
+IF (t.LT.IndStartTime) THEN
+#if FV_ENABLED == 1
+ IndValue = HUGE(1.)
+#elif FV_ENABLED == 2
+  d_FV_alpha = FV_alpha_max
+#endif /*FV_ENABLED*/
+  RETURN
+END IF
+
+SELECT CASE (IndicatorType)
+#if FV_ENABLED == 2
+CASE(INDTYPE_PERSSON) ! Modal Persson indicator
+  IF(PP_N.GT.9) CALL ABORT(__STAMP__,'Device Kernel for Indicator only allows for up to N=9!')
+  nThreads=(PP_N+1)**2*(PP_NZ+1)
+  SHMEM_SIZE=(PP_N+1)**2*(PP_NZ+1)*SIZEOF(IndValue)*2
+  CALL PerssonIndicatorBlend_GPU<<<nElems,nThreads,SHMEM_SIZE,mystream>>>(PP_N,nElems,d_U,d_EOS_Vars,d_sVdm_Leg,nModes,FV_alpha_min,FV_alpha_max,d_FV_alpha)
+  !d_FV_alpha=0.
+#endif
+CASE DEFAULT ! unknown Indicator Type
+  CALL Abort(__STAMP__,&
+    "Unknown IndicatorType!")
+END SELECT
+END SUBROUTINE CalcIndicator_GPU
+
+#if FV_ENABLED == 2
+!==================================================================================================================================
+!> Perform calculation of the indicator.
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE PerssonIndicatorBlend_GPU(Nloc,nElems,U,EOS_Vars,sVdm_Leg,nModes,FV_alpha_min,FV_alpha_max,FV_alpha)
+! IMPLICIT VARIABLE HANDLING
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT / OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN) :: Nloc
+INTEGER,VALUE,INTENT(IN) :: nElems
+INTEGER,VALUE,INTENT(IN) :: nModes
+REAL,DEVICE,INTENT(IN)   :: U(PP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),nElems)  !< Solution
+REAL,DEVICE,INTENT(IN)   :: sVdm_Leg(0:Nloc,0:Nloc)                       !< Vandermonde nodal -> modal
+REAL,DEVICE,INTENT(IN)   :: EOS_Vars(PP_nVarEOS)                          !< Solution
+REAL,VALUE,INTENT(IN)    :: FV_alpha_min
+REAL,VALUE,INTENT(IN)    :: FV_alpha_max
+REAL,DEVICE,INTENT(INOUT):: FV_alpha(nElems)                            !< Blending coefficient
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                   :: iElem,i,j,k,threadID,rest
+INTEGER                   :: l,iDeg
+REAL                      :: IndValue,T_FV
+REAL,PARAMETER            :: s_FV = 9.21024              !< "Sharpness factor" for FV blending function according to
+REAL                      :: UE(1:PP_2Var)
+REAL                      :: U_tmp
+REAL,SHARED,DIMENSION(0:Nloc,0:Nloc,0:ZDIM(Nloc)) :: U_Modal
+REAL,SHARED,DIMENSION(0:Nloc,0:Nloc,0:ZDIM(Nloc)) :: U_loc
+!==================================================================================================================================
+! Get thread indices
+threadID = (blockidx%x-1) * blockdim%x + threadidx%x
+! Get ElemID of current thread
+iElem   =        (threadID-1)/((Nloc+1)**3)+1 ! Elems are 1-indexed
+rest    =  threadID-(iElem-1)*((Nloc+1)**3)
+! Get jk indices of current thread
+k       = (rest-1)/(Nloc+1)**2
+rest    =  rest- k*(Nloc+1)**2
+j       = (rest-1)/(Nloc+1)!**1
+rest    =  rest- j*(Nloc+1)!**1
+i       = (rest-1)!/(Nloc+1)**0
+rest    =  rest- i!*(Nloc+1)**0
+
+IF ((iElem.LE.nElems)) THEN
+  ! 1.) Compute indicator variable
+  UE(EXT_CONS)=U(:,i,j,k,iElem)
+  UE(EXT_SRHO)=1./UE(EXT_DENS)
+  UE(EXT_VELV)=VELOCITY_HE(UE)
+  U_loc(i,j,k)=PRESSURE_UE_EOS(UE,EOS_Vars)*UE(EXT_DENS)
+  CALL SYNCTHREADS() ! Ensure array is filled
+
+  ! 2.) Transform nodal solution to a modal representation
+  ! 2.1) XI-direction
+  U_tmp = 0.
+  DO l=0,Nloc
+    U_tmp = U_tmp + sVdm_Leg(i,l)*U_loc(l,j,k)
+  END DO
+  U_modal(i,j,k) = U_tmp
+  CALL SYNCTHREADS() ! Ensure array is filled
+  ! 2.2) ETA-direction
+  U_tmp = 0.
+  DO l=0,Nloc
+    U_tmp = U_tmp + sVdm_Leg(j,l)*U_modal(i,l,k)
+  END DO
+  U_loc(i,j,k) = U_tmp
+  CALL SYNCTHREADS() ! Ensure array is filled
+  ! 2.3) ZETA-direction
+  U_tmp = 0.
+  DO l=0,Nloc
+    U_tmp = U_tmp + sVdm_Leg(k,l)*U_loc(i,j,l)
+  END DO
+  U_modal(i,j,k) = U_tmp**2 ! ATTENTION: Already square for summation below
+  CALL SYNCTHREADS() ! Ensure array is filled
+
+  ! 3.) Contract array in parallel along the j,k dimensions and save partial result
+  IF (Nloc.GT.nModes) THEN
+    IF ((j.LE.nModes).AND.(k.EQ.0)) THEN
+      iDeg=j
+      U_loc(i,iDeg,0) = SUM(U_Modal(0:Nloc-iDeg,0:Nloc-iDeg,i))
+    END IF
+  ELSE
+    IF ((j.EQ.0).AND.(k.EQ.0)) THEN
+      DO iDeg=0,nModes
+        U_loc(i,iDeg,0) = SUM(U_Modal(0:Nloc-iDeg,0:Nloc-iDeg,i))
+      END DO
+    END IF
+  END IF
+  CALL SYNCTHREADS() ! Ensure array is filled
+
+  ! 4.) Only first thread actually computes final alpha
+  IF ((i.EQ.0).AND.(j.EQ.0).AND.(k.EQ.0)) THEN
+    ! Modified Persson
+    IndValue=TINY(0.)
+    DO iDeg=0,nModes-1
+      ! Array still has to be contracted in i-direction
+      ! ATTENTION: Square already considered above!
+      IndValue=MAX(IndValue,(SUM(U_loc(0:Nloc-iDeg,iDeg,0))-SUM(U_loc(0:Nloc-iDeg-1,iDeg+1,0)))/  &
+                             SUM(U_loc(0:Nloc-iDeg,iDeg,0)))
+    END DO
+    IF (IndValue.LT.EPSILON(1.)) IndValue=EPSILON(IndValue)
+    T_FV   = 0.5*10**(-1.8*(Nloc+1)**.25) ! Eq.(42) in: S. Hennemann et al., J.Comp.Phy., 2021
+    ! Normalize indicator value
+    IndValue = 1. / (1. + EXP(-s_FV/T_FV * (IndValue - T_FV)))
+    ! Limit to alpha_max
+    IndValue = MIN(IndValue,FV_alpha_max)
+    !CALL FV_ExtendAlpha(FV_alpha)
+    ! Do not compute FV contribution for elements below threshold
+    IF (IndValue .LT. FV_alpha_min) IndValue = 0.
+    FV_alpha(iElem) = IndValue
+  END IF
+ELSE
+  RETURN
+END IF
+END SUBROUTINE PerssonIndicatorBlend_GPU
+#endif
 
 #if EQNSYSNR == 2 /* NAVIER-STOKES */
 #if PARABOLIC

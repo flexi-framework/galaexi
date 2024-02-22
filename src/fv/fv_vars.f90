@@ -64,6 +64,7 @@ REAL,ALLOCATABLE       :: FV_Elems_Amount(:)     !< counts for every element the
 ! FV/DG Blending
 #if FV_ENABLED == 2
 REAL,ALLOCATABLE       :: FV_alpha(:)            !< Blending coefficient
+REAL,DEVICE,ALLOCATABLE:: d_FV_alpha(:)          !< Blending coefficient
 REAL,ALLOCATABLE       :: FV_alpha_master(:)     !< Prolongated blending coefficient on master sides
 REAL,ALLOCATABLE       :: FV_alpha_slave( :)     !< Prolongated blending coefficient on slave  sides
 REAL                   :: FV_alpha_min           !< Minimal blending coefficient (all elems below are treated as pure DG)
@@ -78,6 +79,7 @@ REAL,ALLOCATABLE       :: FV_X(:)                !< positions of 'midpoints' of 
 REAL,ALLOCATABLE       :: FV_BdryX(:)            !< positions of boundaries of FV subcells in [-1,1]
 REAL,ALLOCATABLE       :: FV_w(:)                !< weights of FV subcells (lenght of subcell)
 REAL,ALLOCATABLE       :: FV_w_inv(:)            !< 1/FV_w
+!@cuf REAL,DEVICE,ALLOCATABLE  :: d_FV_w_inv(:)            !< 1/FV_w
 REAL,ALLOCATABLE       :: FV_Vdm(:,:)            !< Vandermonde to switch from DG to FV
 REAL,ALLOCATABLE       :: FV_sVdm(:,:)           !< Vandermonde to switch from FV to DG
 INTEGER                :: FV_CellType            !< Type of FV Cell: -1 = SAME              ,0 = EQUIDISTANT
@@ -135,6 +137,18 @@ REAL,ALLOCATABLE       :: FV_TangVec2Eta(:,:,:,:,:)  !< Tangent2 vector for inne
 REAL,ALLOCATABLE       :: FV_NormVecZeta (:,:,:,:,:) !< Normal vector for inner FV faces in ZETA direction
 REAL,ALLOCATABLE       :: FV_TangVec1Zeta(:,:,:,:,:) !< Tangent1 vector for inner FV faces in ZETA direction
 REAL,ALLOCATABLE       :: FV_TangVec2Zeta(:,:,:,:,:) !< Tangent2 vector for inner FV faces in ZETA direction
+!@cuf REAL,DEVICE,ALLOCATABLE       :: d_FV_SurfElemXi_sw(:,:,:,:)  !< SurfElem for inner FV faces in XI direction  (1:PP_N,0:PP_N,0:PP_N,PP_nElems)
+!@cuf REAL,DEVICE,ALLOCATABLE       :: d_FV_SurfElemEta_sw(:,:,:,:) !< SurfElem for inner FV faces in ETA direction (0:PP_N,1:PP_N,0:PP_N,PP_nElems)
+!@cuf REAL,DEVICE,ALLOCATABLE       :: d_FV_SurfElemZeta_sw(:,:,:,:)!< SurfElem for inner FV faces in ZETA direction(0:PP_N,0:PP_N,1:PP_N,PP_nElems)
+!@cuf REAL,DEVICE,ALLOCATABLE       :: d_FV_NormVecXi (:,:,:,:,:)   !< Normal vector for inner FV faces in XI direction
+!@cuf REAL,DEVICE,ALLOCATABLE       :: d_FV_TangVec1Xi(:,:,:,:,:)   !< Tangent1 vector for inner FV faces in XI direction
+!@cuf REAL,DEVICE,ALLOCATABLE       :: d_FV_TangVec2Xi(:,:,:,:,:)   !< Tangent2 vector for inner FV faces in XI direction
+!@cuf REAL,DEVICE,ALLOCATABLE       :: d_FV_NormVecEta (:,:,:,:,:)  !< Normal vector for inner FV faces in ETA direction
+!@cuf REAL,DEVICE,ALLOCATABLE       :: d_FV_TangVec1Eta(:,:,:,:,:)  !< Tangent1 vector for inner FV faces in ETA direction
+!@cuf REAL,DEVICE,ALLOCATABLE       :: d_FV_TangVec2Eta(:,:,:,:,:)  !< Tangent2 vector for inner FV faces in ETA direction
+!@cuf REAL,DEVICE,ALLOCATABLE       :: d_FV_NormVecZeta (:,:,:,:,:) !< Normal vector for inner FV faces in ZETA direction
+!@cuf REAL,DEVICE,ALLOCATABLE       :: d_FV_TangVec1Zeta(:,:,:,:,:) !< Tangent1 vector for inner FV faces in ZETA direction
+!@cuf REAL,DEVICE,ALLOCATABLE       :: d_FV_TangVec2Zeta(:,:,:,:,:) !< Tangent2 vector for inner FV faces in ZETA direction
 
 #if PARABOLIC
 REAL,ALLOCATABLE       :: FV_Metrics_fTilde_sJ(:,:,:,:,:) !< Metrics for FV subcells multiplied with sJ
