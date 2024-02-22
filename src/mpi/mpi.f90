@@ -386,7 +386,7 @@ DO iNbProc=1,nNbProcs
 END DO !iProc=1,nNBProcs
 END SUBROUTINE StartSendMPIData_GPU
 
-#if FV_ENABLED
+#if FV_ENABLED==1
 !==================================================================================================================================
 !> Subroutine that performs the send and receive operations for the FV_elems information at the face
 !> that has to be exchanged between processors.
@@ -434,7 +434,7 @@ DO iNbProc=1,nNbProcs
   END IF
 END DO !iProc=1,nNBProcs
 END SUBROUTINE StartExchange_FV_Elems
-#endif
+#endif /*FV_ENABLED == 1*/
 
 #if FV_ENABLED == 2
 !==================================================================================================================================

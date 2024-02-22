@@ -533,7 +533,7 @@ USE MOD_DG_Vars     ,ONLY: U
 !@cuf USE MOD_Sponge_Vars ,ONLY: d_SpongeMat, d_SpBaseFlow, d_SpongeMap
 !@cuf USE MOD_DG_Vars     ,ONLY: d_U
 USE MOD_Mesh_Vars   ,ONLY: nElems
-#if FV_ENABLED
+#if FV_ENABLED == 1
 USE MOD_ChangeBasis ,ONLY: ChangeBasis3D
 USE MOD_FV_Vars     ,ONLY: FV_Vdm,FV_Elems
 USE MOD_Mesh_Vars   ,ONLY: sJ
@@ -547,7 +547,7 @@ REAL,INTENT(INOUT)  :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< DG solution
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER             :: iElem,iSpongeElem,i,j,k
-#if FV_ENABLED
+#if FV_ENABLED == 1
 REAL                :: SpongeMatTmp(1,0:PP_N,0:PP_N,0:PP_NZ)
 REAL                :: SpongeMat_FV(1,0:PP_N,0:PP_N,0:PP_NZ)
 REAL                :: SpBaseFlow_FV(1:PP_nVar,0:PP_N,0:PP_N,0:PP_NZ)
@@ -555,7 +555,7 @@ REAL                :: SpBaseFlow_FV(1:PP_nVar,0:PP_N,0:PP_N,0:PP_NZ)
 !==================================================================================================================================
 DO iSpongeElem=1,nSpongeElems
   iElem=spongeMap(iSpongeElem)
-#if FV_ENABLED
+#if FV_ENABLED == 1
   IF (FV_Elems(iElem).GT.0) THEN ! FV elem
     ! Remove DG Jacobi from SpongeMat
     DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
@@ -576,7 +576,7 @@ DO iSpongeElem=1,nSpongeElems
       d_Ut(:,i,j,k,iElem) = d_Ut(:,i,j,k,iElem) - d_SpongeMat(   i,j,k,iSpongeElem) * &
                           (d_U(:,i,j,k,iElem) - d_SpBaseFlow(:,i,j,k,iElem))
     END DO; END DO; END DO
-#if FV_ENABLED
+#if FV_ENABLED == 1
   END IF
 #endif
 
