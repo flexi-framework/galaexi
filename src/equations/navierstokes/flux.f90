@@ -1056,7 +1056,7 @@ END SUBROUTINE EvalDiffFlux3D_Elems_CUDA
 !==================================================================================================================================
 PPURE SUBROUTINE EvalEulerFlux1D(U,F)
 ! MODULES
-USE MOD_EOS_Vars ,ONLY:KappaM1
+USE MOD_EOS_Vars ,ONLY:Kappa
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES

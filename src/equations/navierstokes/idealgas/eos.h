@@ -58,9 +58,9 @@
 #define THERMAL_CONDUCTIVITY_H(mu)     (mu*cp/Pr)
 #define TOTAL_TEMPERATURE_H(T,Mach)    (T*(1+0.5*(kappa-1)*Mach**2))
 #define TOTAL_PRESSURE_H(p,Mach)       (p/((1+0.5*(kappa-1)*Mach**2)**(-kappa/(kappa-1.))))
-#define BETA_RIEMANN_H()               (SQRT(0.5*kappaM1/kappa))
-#define ROEC_RIEMANN_H(RoeH,RoeVel)    (SQRT(kappaM1*(RoeH-0.5*DOT_PRODUCT(RoeVel,RoeVel))))
-#define ALPHA2_RIEMANN_H(RoeH,RoeVel,Roec,Delta_U)     (kappaM1/(Roec*Roec) * (Delta_U(1)*(RoeH-RoeVel(1)*RoeVel(1)) - Delta_U(6) + RoeVel(1)*Delta_U(2)))
+#define BETA_RIEMANN_H()               (SQRT(0.5*(Kappa-1.)/kappa))
+#define ROEC_RIEMANN_H(RoeH,RoeVel)    (SQRT((Kappa-1.)*(RoeH-0.5*DOT_PRODUCT(RoeVel,RoeVel))))
+#define ALPHA2_RIEMANN_H(RoeH,RoeVel,Roec,Delta_U)     ((Kappa-1.)/(Roec*Roec) * (Delta_U(1)*(RoeH-RoeVel(1)*RoeVel(1)) - Delta_U(6) + RoeVel(1)*Delta_U(2)))
 
 ! routines to compute physical quantities from conservative variables or extended variables
 ! conservative
@@ -74,7 +74,7 @@
 ! extended (NOTE: compute from cons. When computing derived (neither prim or cons) variables
 ! assume that both prim and cons vars are filled
 #define VELOCITY_HE(UE)                (UE(EXT_MOMV)*UE(EXT_SRHO))
-#define PRESSURE_HE(UE)                (KappaM1*(UE(EXT_ENER)-0.5*DOT_PRODUCT(UE(EXT_VELV),UE(EXT_MOMV))))
+#define PRESSURE_HE(UE)                ((Kappa-1.)*(UE(EXT_ENER)-0.5*DOT_PRODUCT(UE(EXT_VELV),UE(EXT_MOMV))))
 #define SPEEDOFSOUND_HE(UE)            (SQRT(Kappa*UE(EXT_PRES)*UE(EXT_SRHO)))
 #define TOTALENERGY_HE(UE)             (UE(EXT_ENER)*UE(EXT_SRHO))
 #define TOTALENTHALPY_HE(UE)           ((UE(EXT_ENER)+UE(EXT_PRES))*UE(EXT_SRHO))
