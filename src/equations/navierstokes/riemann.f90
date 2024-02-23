@@ -187,6 +187,23 @@ INTEGER                 :: Riemann
 !  CALL CollectiveStop(__STAMP__,&
 !    'Riemann solver not defined!')
 !END SELECT
+#if   RIEMANN==0
+  SWRITE(*,'(A,A2)')' | Riemann is set to Lax-Friedrichs (LF)'
+#elif RIEMANN==1
+  SWRITE(*,'(A,A2)')' | Riemann is set to Roe'
+#elif RIEMANN==2
+  SWRITE(*,'(A,A2)')' | Riemann is set to RoeL2'
+#elif RIEMANN==3
+  SWRITE(*,'(A,A2)')' | Riemann is set to RoeEntropyFix'
+#elif RIEMANN==4
+  SWRITE(*,'(A,A2)')' | Riemann is set to HLL'
+#elif RIEMANN==5
+  SWRITE(*,'(A,A2)')' | Riemann is set to HLLC'
+#elif RIEMANN==6
+  SWRITE(*,'(A,A2)')' | Riemann is set to HLLE'
+#elif RIEMANN==7
+  SWRITE(*,'(A,A2)')' | Riemann is set to HLLEM'
+#endif /*RIEMANN*/
 END SUBROUTINE InitRiemann
 
 !==================================================================================================================================
@@ -839,7 +856,7 @@ F=0.5*((F_L+F_R) - &
        Alpha5*ABS(a(5))*r5)
 #else
 ! get split flux
-CALL SplitDGSurface_pointer(U_LL,U_RR,F)
+CALL SplitSurfaceFlux(U_LL,U_RR,F)
 ! assemble Roe flux
 F = F - 0.5*(Alpha1*ABS(a(1))*r1 + &
              Alpha2*ABS(a(2))*r2 + &
@@ -949,7 +966,7 @@ F=0.5*((F_L+F_R)        - &
        Alpha(5)*a(5)*r5)
 #else
 ! get split flux
-CALL SplitDGSurface_pointer(U_LL,U_RR,F)
+CALL SplitSurfaceFlux(U_LL,U_RR,F)
 ! for KG or PI flux eigenvalues have to be altered to ensure consistent KE dissipation
 ! assemble Roe flux
 F= F - 0.5*(Alpha(1)*a(1)*r1 + &
@@ -1031,7 +1048,7 @@ F=0.5*((F_L+F_R) - &
        Alpha5*ABS(a(5))*r5)
 #else
 ! get split flux
-CALL SplitDGSurface_pointer(U_LL,U_RR,F)
+CALL SplitSurfaceFlux(U_LL,U_RR,F)
 ! assemble Roe flux
 F = F - 0.5*(Alpha1*ABS(a(1))*r1 + &
              Alpha2*ABS(a(2))*r2 + &
@@ -1225,57 +1242,57 @@ REAL,INTENT(IN)                    :: Kappa     !> ratio of specific heats
 ! LOCAL VARIABLES
 !==================================================================================================================================
 ! get split flux
-CALL SplitDGSurface_pointer(U_LL,U_RR,F)
+CALL SplitSurfaceFlux(U_LL,U_RR,F)
 END SUBROUTINE Riemann_FluxAverage
 
-!==================================================================================================================================
-!> kinetic energy preserving and entropy consistent flux according to Chandrashekar (2012)
-!==================================================================================================================================
-PPURE ATTRIBUTES(DEVICE,HOST) SUBROUTINE Riemann_CH(F,F_L,F_R,U_LL,U_RR,Kappa)
-! MODULES
-USE MOD_SplitFlux     ,ONLY: SplitSurfaceFlux
-IMPLICIT NONE
-!----------------------------------------------------------------------------------------------------------------------------------
-! INPUT / OUTPUT VARIABLES
-REAL,DIMENSION(PP_nVar),INTENT(OUT):: F         !< resulting Riemann flux
-REAL,DIMENSION(PP_2Var),INTENT(IN) :: U_LL,U_RR !> extended solution vector on the left/right side of the interface
-REAL,DIMENSION(PP_nVar),INTENT(IN) :: F_L,F_R   !> advection fluxes on the left/right side of the interface
-REAL,INTENT(IN)                    :: Kappa     !> ratio of specific heats
-!----------------------------------------------------------------------------------------------------------------------------------
-! LOCAL VARIABLES
-REAL                               :: LambdaMax
-REAL                               :: beta_LL,beta_RR   ! auxiliary variables for the inverse Temperature
-REAL                               :: rhoMean           ! auxiliary variable for the mean density
-REAL                               :: uMean,vMean,wMean ! auxiliary variable for the average velocities
-REAL                               :: betaLogMean       ! auxiliary variable for the logarithmic mean inverse temperature
-!==================================================================================================================================
-! Lax-Friedrichs
-LambdaMax = MAX( ABS(U_RR(EXT_VEL1)),ABS(U_LL(EXT_VEL1)) ) + MAX( SPEEDOFSOUND_HE(U_LL),SPEEDOFSOUND_HE(U_RR) )
-
-! average quantities
-rhoMean = 0.5*(U_LL(EXT_DENS) + U_RR(EXT_DENS))
-uMean   = 0.5*(U_LL(EXT_VEL1) + U_RR(EXT_VEL1))
-vMean   = 0.5*(U_LL(EXT_VEL2) + U_RR(EXT_VEL2))
-wMean   = 0.5*(U_LL(EXT_VEL3) + U_RR(EXT_VEL3))
-
-! inverse temperature
-beta_LL = 0.5*U_LL(EXT_DENS)/U_LL(EXT_PRES)
-beta_RR = 0.5*U_RR(EXT_DENS)/U_RR(EXT_PRES)
-
-! logarithmic mean
-CALL GetLogMean(beta_LL,beta_RR,betaLogMean)
-
-! get split flux
-CALL SplitDGSurface_pointer(U_LL,U_RR,F)
-
-!compute flux
-F(DENS:MOM3) = F(DENS:MOM3) - 0.5*LambdaMax*(U_RR(EXT_DENS:EXT_MOM3)-U_LL(EXT_DENS:EXT_MOM3))
-F(ENER)      = F(ENER)      - 0.5*LambdaMax*( &
-         (U_RR(EXT_DENS)-U_LL(EXT_DENS))*(0.5/(Kappa-1.)/betaLogMean +0.5*(U_RR(EXT_VEL1)*U_LL(EXT_VEL1)+U_RR(EXT_VEL2)*U_LL(EXT_VEL2)+U_RR(EXT_VEL3)*U_LL(EXT_VEL3))) &
-         +rhoMean*uMean*(U_RR(EXT_VEL1)-U_LL(EXT_VEL1)) + rhoMean*vMean*(U_RR(EXT_VEL2)-U_LL(EXT_VEL2)) + rhoMean*wMean*(U_RR(EXT_VEL3)-U_LL(EXT_VEL3)) &
-         +0.5*rhoMean/(Kappa-1.)*(1./beta_RR - 1./beta_LL))
-
-END SUBROUTINE Riemann_CH
+!!==================================================================================================================================
+!!> kinetic energy preserving and entropy consistent flux according to Chandrashekar (2012)
+!!==================================================================================================================================
+!PPURE ATTRIBUTES(DEVICE,HOST) SUBROUTINE Riemann_CH(F,F_L,F_R,U_LL,U_RR,Kappa)
+!! MODULES
+!USE MOD_SplitFlux     ,ONLY: SplitSurfaceFlux
+!IMPLICIT NONE
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! INPUT / OUTPUT VARIABLES
+!REAL,DIMENSION(PP_nVar),INTENT(OUT):: F         !< resulting Riemann flux
+!REAL,DIMENSION(PP_2Var),INTENT(IN) :: U_LL,U_RR !> extended solution vector on the left/right side of the interface
+!REAL,DIMENSION(PP_nVar),INTENT(IN) :: F_L,F_R   !> advection fluxes on the left/right side of the interface
+!REAL,INTENT(IN)                    :: Kappa     !> ratio of specific heats
+!!----------------------------------------------------------------------------------------------------------------------------------
+!! LOCAL VARIABLES
+!REAL                               :: LambdaMax
+!REAL                               :: beta_LL,beta_RR   ! auxiliary variables for the inverse Temperature
+!REAL                               :: rhoMean           ! auxiliary variable for the mean density
+!REAL                               :: uMean,vMean,wMean ! auxiliary variable for the average velocities
+!REAL                               :: betaLogMean       ! auxiliary variable for the logarithmic mean inverse temperature
+!!==================================================================================================================================
+!! Lax-Friedrichs
+!LambdaMax = MAX( ABS(U_RR(EXT_VEL1)),ABS(U_LL(EXT_VEL1)) ) + MAX( SPEEDOFSOUND_HE(U_LL),SPEEDOFSOUND_HE(U_RR) )
+!
+!! average quantities
+!rhoMean = 0.5*(U_LL(EXT_DENS) + U_RR(EXT_DENS))
+!uMean   = 0.5*(U_LL(EXT_VEL1) + U_RR(EXT_VEL1))
+!vMean   = 0.5*(U_LL(EXT_VEL2) + U_RR(EXT_VEL2))
+!wMean   = 0.5*(U_LL(EXT_VEL3) + U_RR(EXT_VEL3))
+!
+!! inverse temperature
+!beta_LL = 0.5*U_LL(EXT_DENS)/U_LL(EXT_PRES)
+!beta_RR = 0.5*U_RR(EXT_DENS)/U_RR(EXT_PRES)
+!
+!! logarithmic mean
+!CALL GetLogMean(beta_LL,beta_RR,betaLogMean)
+!
+!! get split flux
+!CALL SplitSurfaceFlux(U_LL,U_RR,F)
+!
+!!compute flux
+!F(DENS:MOM3) = F(DENS:MOM3) - 0.5*LambdaMax*(U_RR(EXT_DENS:EXT_MOM3)-U_LL(EXT_DENS:EXT_MOM3))
+!F(ENER)      = F(ENER)      - 0.5*LambdaMax*( &
+!         (U_RR(EXT_DENS)-U_LL(EXT_DENS))*(0.5/(Kappa-1.)/betaLogMean +0.5*(U_RR(EXT_VEL1)*U_LL(EXT_VEL1)+U_RR(EXT_VEL2)*U_LL(EXT_VEL2)+U_RR(EXT_VEL3)*U_LL(EXT_VEL3))) &
+!         +rhoMean*uMean*(U_RR(EXT_VEL1)-U_LL(EXT_VEL1)) + rhoMean*vMean*(U_RR(EXT_VEL2)-U_LL(EXT_VEL2)) + rhoMean*wMean*(U_RR(EXT_VEL3)-U_LL(EXT_VEL3)) &
+!         +0.5*rhoMean/(Kappa-1.)*(1./beta_RR - 1./beta_LL))
+!
+!END SUBROUTINE Riemann_CH
 #endif /*SPLIT_DG*/
 
 !==================================================================================================================================
