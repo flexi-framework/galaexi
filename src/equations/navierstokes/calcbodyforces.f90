@@ -72,9 +72,11 @@ REAL                           :: Box(6,nBCs)
 ! SurfElem and NormVec are only changed in mesh init and are, at this point, sync'd between CPU and device
 !@cuf iError=CudaDeviceSynchronize()
 !@cuf UPrim_master = d_UPrim_master
+#if PARABOLIC
 !@cuf gradUx_master = d_gradUx_master
 !@cuf gradUy_master = d_gradUy_master
 !@cuf gradUz_master = d_gradUz_master
+#endif
 
 Fp=0.
 Fv=0.

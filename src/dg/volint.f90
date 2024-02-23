@@ -182,7 +182,7 @@ DO iElem=1,nElems,nElems_Block_volInt
                        ,d_g( :,:,:,:,1:nElems_myBlock) &
                        ,d_h( :,:,:,:,1:nElems_myBlock) &
                        ,d_D_Hat_T &
-                       ,mystream)
+                       ,streamID=mystream)
 END DO ! iElem
 END SUBROUTINE VolInt_weakForm
 #endif
