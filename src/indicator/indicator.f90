@@ -637,7 +637,7 @@ FUNCTION JamesonIndicator(U) RESULT(IndValue)
 USE MOD_PreProc
 USE MOD_Globals
 USE MOD_Indicator_Vars     ,ONLY: IndVar
-USE MOD_EOS_Vars           ,ONLY: KappaM1
+USE MOD_EOS_Vars           ,ONLY: Kappa
 USE MOD_Interpolation_Vars ,ONLY: L_Minus,L_Plus
 USE MOD_Mesh_Vars          ,ONLY: nElems,nSides
 USE MOD_Mesh_Vars          ,ONLY: firstMortarInnerSide,lastMortarInnerSide,firstMortarMPISide,lastMortarMPISide
