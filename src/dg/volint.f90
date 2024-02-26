@@ -57,7 +57,7 @@ CONTAINS
 !> Attention 1: 1/J(i,j,k) is not yet accounted for
 !> Attention 2: input Ut is NOT overwritten, but instead added to the volume flux derivatives
 !==================================================================================================================================
-SUBROUTINE VolInt_weakForm_Visc(d_Ut,streamID)
+SUBROUTINE VolInt_weakForm_Visc(d_Ut,doOverwrite,streamID)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
 USE CUDAFOR
@@ -76,6 +76,7 @@ IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
 REAL,DEVICE,INTENT(INOUT)   :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< Time derivative of the volume integral (viscous part)
+LOGICAL,INTENT(IN)          :: doOverwrite   !< Flag whether contribution to Ut is added or used to overwrite
 INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
@@ -111,7 +112,7 @@ DO iElem=1,nElems,nElems_Block_volInt
                        ,d_g( :,:,:,:,1:nElems_myBlock) &
                        ,d_h( :,:,:,:,1:nElems_myBlock) &
                        ,d_D_Hat_T &
-                       ,doNullify=.FALSE. &
+                       ,doOverwrite=doOverwrite &
                        ,streamID=mystream &
                        )
 END DO ! iElem
@@ -235,7 +236,7 @@ mystream=DefaultStream
 IF (PRESENT(streamID)) mystream=streamID
 
 #if PARABOLIC && !FV_ENABLED
-CALL VolInt_weakForm_Visc(d_Ut,streamID=mystream)
+CALL VolInt_weakForm_Visc(d_Ut,doOverwrite=.TRUE.,streamID=mystream)
 #endif
 
 nDOF = nDOFElem*nElems

@@ -354,10 +354,12 @@ REAL                            :: DR_u_Glob,DR_S_glob,DR_Sd_Glob,DR_p_Glob,ED_S
 ! 6. Normalize
 ! 7. Write to File
 
+#if PARABOLIC
 !@cuf U = d_U
 !@cuf gradUx = d_gradUx
 !@cuf gradUy = d_gradUy
 !@cuf gradUz = d_gradUz
+#endif
 
 !----------------------------------------------------------------------------------------------------------------------------------
 ! 1. Nullify Quantities
