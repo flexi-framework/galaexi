@@ -378,9 +378,6 @@ DO iElem=1,nElems
   END IF
 END DO
 
-! If using GPU accleration, update SpongeMap on the device
-!@cuf d_spongeMap = spongeMap
-
 ! Calculate the final sponge strength in the sponge region
 SpongeMat=0.
 DO iSpongeElem=1,nSpongeElems
@@ -408,9 +405,6 @@ DO iSpongeElem=1,nSpongeElems
   ! Apply damping factor
   SpongeMat(:,:,:,iSpongeElem) = damping*sigma(:,:,:)
 END DO !iSpongeElem=1,nSpongeElems
-
-! If using GPU accleration, update SpongeMat on the device
-!@cuf d_SpongeMat = SpongeMat
 
 DEALLOCATE(SpongeShape)
 DEALLOCATE(SpDistance)
@@ -451,6 +445,10 @@ DO iSpongeElem=1,nSpongeElems
     SpongeMat(i,j,k,iSpongeElem) = SpongeMat(i,j,k,iSpongeElem)/sJ(i,j,k,iElem,0)
   END DO; END DO; END DO
 END DO
+
+! If using GPU accleration, update SpongeMap and SpongeMat on the device
+!@cuf d_SpongeMat = SpongeMat
+!@cuf d_spongeMap = spongeMap
 
 END SUBROUTINE CalcSpongeRamp
 
@@ -526,18 +524,19 @@ END SUBROUTINE ReadBaseFlow
 !==================================================================================================================================
 SUBROUTINE Sponge(d_Ut)
 ! MODULES
-USE MOD_Globals
+!USE MOD_Globals
 USE MOD_PreProc
-USE MOD_Sponge_Vars ,ONLY: SpongeMap,SpongeMat,SpBaseFlow,nSpongeElems
-USE MOD_DG_Vars     ,ONLY: U
+!USE MOD_Sponge_Vars ,ONLY: SpongeMap,SpongeMat,SpBaseFlow,nSpongeElems
+!USE MOD_DG_Vars     ,ONLY: U
+USE MOD_Sponge_Vars ,ONLY: nSpongeElems
 !@cuf USE MOD_Sponge_Vars ,ONLY: d_SpongeMat, d_SpBaseFlow, d_SpongeMap
 !@cuf USE MOD_DG_Vars     ,ONLY: d_U
 USE MOD_Mesh_Vars   ,ONLY: nElems
-#if FV_ENABLED == 1
-USE MOD_ChangeBasis ,ONLY: ChangeBasis3D
-USE MOD_FV_Vars     ,ONLY: FV_Vdm,FV_Elems
-USE MOD_Mesh_Vars   ,ONLY: sJ
-#endif
+!#if FV_ENABLED == 1
+!USE MOD_ChangeBasis ,ONLY: ChangeBasis3D
+!USE MOD_FV_Vars     ,ONLY: FV_Vdm,FV_Elems
+!USE MOD_Mesh_Vars   ,ONLY: sJ
+!#endif
 ! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -547,42 +546,42 @@ REAL,INTENT(INOUT)  :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< DG solution
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER             :: iElem,iSpongeElem,i,j,k
-#if FV_ENABLED == 1
-REAL                :: SpongeMatTmp(1,0:PP_N,0:PP_N,0:PP_NZ)
-REAL                :: SpongeMat_FV(1,0:PP_N,0:PP_N,0:PP_NZ)
-REAL                :: SpBaseFlow_FV(1:PP_nVar,0:PP_N,0:PP_N,0:PP_NZ)
-#endif
+!#if FV_ENABLED == 1
+!REAL                :: SpongeMatTmp(1,0:PP_N,0:PP_N,0:PP_NZ)
+!REAL                :: SpongeMat_FV(1,0:PP_N,0:PP_N,0:PP_NZ)
+!REAL                :: SpBaseFlow_FV(1:PP_nVar,0:PP_N,0:PP_N,0:PP_NZ)
+!#endif
 !==================================================================================================================================
+!$cuf kernel do (4) <<< *, * >>>
 DO iSpongeElem=1,nSpongeElems
-  iElem=spongeMap(iSpongeElem)
-#if FV_ENABLED == 1
-  IF (FV_Elems(iElem).GT.0) THEN ! FV elem
-    ! Remove DG Jacobi from SpongeMat
+  !iElem=spongeMap(iSpongeElem)
+!#if FV_ENABLED == 1
+!  IF (FV_Elems(iElem).GT.0) THEN ! FV elem
+!    ! Remove DG Jacobi from SpongeMat
+!    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
+!      SpongeMatTmp(1,i,j,k) = sJ(i,j,k,iElem,0)*SpongeMat(i,j,k,iSpongeElem)
+!    END DO; END DO; END DO ! i,j,k
+!    ! Change Basis of SpongeMat and SpongeBaseFlow to FV grid
+!    CALL ChangeBasis3D(1,PP_N,PP_N,FV_Vdm,SpongeMatTmp(:,:,:,:),SpongeMat_FV(:,:,:,:))
+!    CALL ChangeBasis3D(PP_nVar,PP_N,PP_N,FV_Vdm,SpBaseFlow(:,:,:,:,iElem),SpBaseFlow_FV(:,:,:,:))
+!    ! Calc and add source, take the FV Jacobian into account
+!    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
+!      Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) - SpongeMat_Fv(1,i,j,k)/sJ(i,j,k,iElem,1) * &
+!                          (U(:,i,j,k,iElem) - SpBaseFlow_FV(:,i,j,k))
+!    END DO; END DO; END DO ! i,j,k
+!  ELSE
+!#endif
     DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      SpongeMatTmp(1,i,j,k) = sJ(i,j,k,iElem,0)*SpongeMat(i,j,k,iSpongeElem)
-    END DO; END DO; END DO ! i,j,k
-    ! Change Basis of SpongeMat and SpongeBaseFlow to FV grid
-    CALL ChangeBasis3D(1,PP_N,PP_N,FV_Vdm,SpongeMatTmp(:,:,:,:),SpongeMat_FV(:,:,:,:))
-    CALL ChangeBasis3D(PP_nVar,PP_N,PP_N,FV_Vdm,SpBaseFlow(:,:,:,:,iElem),SpBaseFlow_FV(:,:,:,:))
-    ! Calc and add source, take the FV Jacobian into account
-    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      Ut(:,i,j,k,iElem) = Ut(:,i,j,k,iElem) - SpongeMat_Fv(1,i,j,k)/sJ(i,j,k,iElem,1) * &
-                          (U(:,i,j,k,iElem) - SpBaseFlow_FV(:,i,j,k))
-    END DO; END DO; END DO ! i,j,k
-  ELSE
-#endif
-    !$cuf kernel do (3) <<< *, * >>>
-    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
+      iElem=d_spongeMap(iSpongeElem)
       d_Ut(:,i,j,k,iElem) = d_Ut(:,i,j,k,iElem) - d_SpongeMat(   i,j,k,iSpongeElem) * &
-                          (d_U(:,i,j,k,iElem) - d_SpBaseFlow(:,i,j,k,iElem))
+                            (d_U(:,i,j,k,iElem) - d_SpBaseFlow(:,i,j,k,iElem))
     END DO; END DO; END DO
-#if FV_ENABLED == 1
-  END IF
-#endif
+!#if FV_ENABLED == 1
+!  END IF
+!#endif
 
 END DO
 END SUBROUTINE Sponge
-
 
 !==================================================================================================================================
 !> Deallocate sponge arrays

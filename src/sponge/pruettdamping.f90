@@ -67,22 +67,28 @@ END SUBROUTINE InitPruettDamping
 !>Integrate the Pruett baseflow (time-filtered solution) in time using a simple Euler forward approach:
 !>\f$ \frac{d}{dt} \bar{u} \approx \frac{\bar{u}^{n+1} - \bar{u}^{n}}{\Delta t}= \frac{u^n-\bar{u}^n}{\Delta} \f$
 !==================================================================================================================================
-SUBROUTINE TempFilterTimeDeriv(UIn,dt)
+SUBROUTINE TempFilterTimeDeriv(d_UIn,dt)
 ! MODULES
 USE MOD_PreProc
-USE MOD_Sponge_Vars,ONLY:SpBaseFlow
+USE MOD_Sponge_Vars,ONLY:d_SpBaseFlow
 USE MOD_Mesh_Vars,  ONLY:nElems
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
-REAL,INTENT(IN) :: UIn(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< Global solution array
-REAL,INTENT(IN) :: dt                                       !< Current timestep
+REAL,DEVICE,INTENT(IN) :: d_UIn(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< Global solution array
+REAL,INTENT(IN)        :: dt                                          !< Current timestep
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 REAL            :: fac
+INTEGER         :: i,j,k,iElem
 !==================================================================================================================================
 fac=dt/tempFilterWidth
-SpBaseFlow = SpBaseFlow+(UIn - SpBaseFlow)*fac
+!$cuf kernel do (4) <<< *, * >>>
+DO iElem=1,nElems
+  DO k=0,PP_NZ;DO j=0,PP_N;DO i=0,PP_N
+    d_SpBaseFlow(:,i,j,k,iElem) = d_SpBaseFlow(:,i,j,k,iElem) + (d_UIn(:,i,j,k,iElem) - d_SpBaseFlow(:,i,j,k,iElem))*fac
+  END DO;END DO; END DO
+END DO
 END SUBROUTINE TempFilterTimeDeriv
 
 
