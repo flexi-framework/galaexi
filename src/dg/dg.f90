@@ -368,7 +368,7 @@ CALL FV_VolInt(d_U,d_UPrim,d_Ut,streamID=stream1)
 #endif
 
 #if FV_ENABLED==2 && PARABOLIC
-CALL VolInt_Visc(d_Ut,streamID=stream1)
+CALL VolInt_Visc(d_Ut,doOverwrite=.FALSE.,streamID=stream1)
 #endif
 
 #if PARABOLIC

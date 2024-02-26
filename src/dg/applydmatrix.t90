@@ -20,7 +20,7 @@ PPURE ATTRIBUTES(GLOBAL) SUBROUTINE ApplyDMatrix_Kernel(&
 #ifdef WITHnVars
         TP_nVar, &
 #endif
-        Nloc,nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T,doNullify)
+        Nloc,nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T,doOverwrite)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
 IMPLICIT NONE
@@ -36,7 +36,7 @@ REAL,DEVICE,INTENT(IN)    :: d_f( TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !
 REAL,DEVICE,INTENT(IN)    :: d_g( TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< flux in y
 REAL,DEVICE,INTENT(IN)    :: d_h( TP_nVar,0:Nloc,0:Nloc,0:ZDIM(Nloc),1:nElems) !< flux in z
 REAL,DEVICE,INTENT(IN)    :: d_D_Hat_T(   0:Nloc,0:Nloc)                  !< Dervative matrix
-LOGICAL,VALUE,INTENT(IN)  :: doNullify
+LOGICAL,VALUE,INTENT(IN)  :: doOverwrite
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER   :: i,j,k,l,ElemID,rest,threadID
@@ -66,7 +66,7 @@ IF (ElemID.LE.nElems) THEN
                               + d_D_Hat_T(l,j)*d_g(:,i,l,k,ElemID)
   END DO ! l
   ! Write temporary array to global array
-  IF (doNullify) THEN
+  IF (doOverwrite) THEN
     d_Ut(:,i,j,k,ElemID) =                        d_Ut_loc(:)
   ELSE
     d_Ut(:,i,j,k,ElemID) = d_Ut(:,i,j,k,ElemID) + d_Ut_loc(:)
@@ -81,7 +81,7 @@ PPURE SUBROUTINE ApplyDMatrix_CUDA(&
 #ifdef WITHnVars
         TP_nVar, &
 #endif
-        nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T,doNullify,streamID)
+        nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T,doOverwrite,streamID)
 !----------------------------------------------------------------------------------------------------------------------------------
 ! MODULES
 USE MOD_PreProc
@@ -100,27 +100,27 @@ REAL,DEVICE,INTENT(IN)    :: d_f( TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< flu
 REAL,DEVICE,INTENT(IN)    :: d_g( TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< flux in y
 REAL,DEVICE,INTENT(IN)    :: d_h( TP_nVar,0:PP_N,0:PP_N,0:PP_NZ,1:nElems) !< flux in z
 REAL,DEVICE,INTENT(IN)    :: d_D_Hat_T(   0:PP_N,0:PP_N)                  !< Dervative matrix
-LOGICAL,OPTIONAL,INTENT(IN) :: doNullify
+LOGICAL,OPTIONAL,INTENT(IN) :: doOverwrite
 INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 INTEGER            :: nDOF
 INTEGER,PARAMETER  :: nThreads=256
 INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
-LOGICAL            :: doNullify_In
+LOGICAL            :: doOverwrite_In
 !==================================================================================================================================
 mystream=DefaultStream
 IF (PRESENT(streamID)) mystream=streamID
 
-doNullify_In=.TRUE.
-IF (PRESENT(doNullify)) doNullify_In=doNullify
+doOverwrite_In=.TRUE.
+IF (PRESENT(doOverwrite)) doOverwrite_In=doOverwrite
 
 nDOF = (PP_N+1)*(PP_N+1)*(PP_NZ+1)*nElems
 CALL ApplyDMatrix_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(&
 #ifdef WITHnVars
                   TP_nVar,&
 #endif
-                  PP_N,nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T,doNullify_In)
+                  PP_N,nElems,d_Ut,d_f,d_g,d_h,d_D_Hat_T,doOverwrite_In)
 END SUBROUTINE ApplyDMatrix_CUDA
 
 !==================================================================================================================================
