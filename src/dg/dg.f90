@@ -404,7 +404,7 @@ iError=CudaDeviceSynchronize()
 ! =================================================================================
 
 ! 11.5)
-CALL SurfIntCons(PP_N,d_Flux_master,d_Flux_slave,d_Ut,d_L_HatMinus,d_L_hatPlus,doApplyJacobian=.TRUE.)
+CALL SurfIntCons(PP_N,d_Flux_master,d_Flux_slave,d_Ut,d_L_HatMinus,d_L_hatPlus,doApplyJacobian=.FALSE.)
 
 ! 12. Swap to right sign :)
 CALL VAX_GPU(nTotalU,d_Ut,-1.) ! Multiply array by -1
@@ -415,9 +415,9 @@ CALL VAX_GPU(nTotalU,d_Ut,-1.) ! Multiply array by -1
 IF(doSponge) CALL Sponge(d_Ut)
 !IF(doTCSource)   CALL TestcaseSource(Ut)
 
-!! 14. apply Jacobian
-! TODO: This is now accounted for in SurfaceIntegral to save memory bandwidth. This is not valid if sources are added afterwards.
-!CALL ApplyJacobianCons(d_Ut,toPhysical=.TRUE.)
+! 14. apply Jacobian
+! TODO: This could be accounted for in SurfaceIntegral to save memory bandwidth. This is not valid if sources are added afterwards.
+CALL ApplyJacobianCons(d_Ut,toPhysical=.TRUE.)
 
 END SUBROUTINE DGTimeDerivative_weakForm
 

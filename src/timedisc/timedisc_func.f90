@@ -315,7 +315,7 @@ USE MOD_Output              ,ONLY: Visualize,PrintAnalyze,PrintStatusLine
 USE MOD_PruettDamping       ,ONLY: TempFilterTimeDeriv
 USE MOD_RecordPoints        ,ONLY: RecordPoints,WriteRP
 USE MOD_RecordPoints_Vars   ,ONLY: RP_onProc
-USE MOD_Sponge_Vars         ,ONLY: CalcPruettDamping
+USE MOD_Sponge_Vars         ,ONLY: CalcPruettDamping,SpBaseFlow,d_SpBaseFlow
 USE MOD_TestCase            ,ONLY: AnalyzeTestCase
 USE MOD_TestCase_Vars       ,ONLY: nAnalyzeTestCase
 USE MOD_TimeAverage         ,ONLY: CalcTimeAverage
@@ -354,7 +354,7 @@ IF((MOD(iter,INT(nAnalyzeTestCase,KIND=8)).EQ.0).OR.doAnalyze) CALL AnalyzeTestC
 ! Evaluate recordpoints
 IF(RP_onProc) CALL RecordPoints(PP_nVar,StrVarNames,iter,t,doAnalyze)
 ! Update Pruett filter base flow
-IF(CalcPruettDamping) CALL TempFilterTimeDeriv(U,dt)
+IF(CalcPruettDamping) CALL TempFilterTimeDeriv(d_U,dt)
 
 ! Analyze and output now
 IF(doAnalyze)THEN
@@ -374,7 +374,10 @@ IF(doAnalyze)THEN
     ! Write various derived data
     IF(doCalcTimeAverage) CALL CalcTimeAverage(.TRUE.,dt,t)
     IF(RP_onProc)         CALL WriteRP(PP_nVar,StrVarNames,t,.TRUE.)
-    IF(CalcPruettDamping) CALL WriteBaseFlow(TRIM(MeshFile),t,tWriteData)
+    IF(CalcPruettDamping) THEN
+      SpBaseFlow = d_SpBaseFlow ! Copy back to CPU before writing
+      CALL WriteBaseFlow(TRIM(MeshFile),t,tWriteData)
+    END IF
     ! Write state file
     ! NOTE: this should be last in the series, so we know all previous data
     ! has been written correctly when the state file is present
