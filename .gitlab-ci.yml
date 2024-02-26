@@ -156,12 +156,12 @@ parabolic:
 # ----------------------------------------------------------------------------------------------------------------------------------------------------
 # Stage "reggie_weekly": Build and run more complex tests, basically complete simulatons
 # ----------------------------------------------------------------------------------------------------------------------------------------------------
-#tgv:
-#  <<: *defaults_weekly
-#  stage: reggie_weekly
-#  script:
-#    - cd build
-#    - python3 ../reggie/reggie.py ../regressioncheck/checks/tgv -j 6
+tgv:
+  <<: *defaults_weekly
+  stage: reggie_weekly
+  script:
+    - cd build
+    - python3 ../reggie/reggie.py ../regressioncheck/checks/tgv -j 6
 
 naca:
   <<: *defaults_weekly
