@@ -126,22 +126,22 @@ IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
 !==================================================================================================================================
-!CALL prms%SetSection("Riemann")
-!CALL prms%CreateIntFromStringOption('Riemann',   "Riemann solver to be used: LF, HLLC, Roe, RoeEntropyFix, HLL, HLLE, HLLEM", &
-!                                                 "RoeEntropyFix")
-!CALL addStrListEntry('Riemann','lf',           PRM_RIEMANN_LF)
-!CALL addStrListEntry('Riemann','hllc',         PRM_RIEMANN_HLLC)
-!CALL addStrListEntry('Riemann','roe',          PRM_RIEMANN_ROE)
-!CALL addStrListEntry('Riemann','roeentropyfix',PRM_RIEMANN_ROEENTROPYFIX)
-!CALL addStrListEntry('Riemann','roel2',        PRM_RIEMANN_ROEL2)
-!#ifndef SPLIT_DG
-!CALL addStrListEntry('Riemann','hll',          PRM_RIEMANN_HLL)
-!CALL addStrListEntry('Riemann','hlle',         PRM_RIEMANN_HLLE)
-!CALL addStrListEntry('Riemann','hllem',        PRM_RIEMANN_HLLEM)
-!#else
-!CALL addStrListEntry('Riemann','ch',           PRM_RIEMANN_CH)
-!CALL addStrListEntry('Riemann','avg',          PRM_RIEMANN_Average)
-!#endif
+! CALL prms%SetSection("Riemann")
+! CALL prms%CreateIntFromStringOption('Riemann',   "Riemann solver to be used: LF, HLLC, Roe, RoeEntropyFix, HLL, HLLE, HLLEM", &
+!                                                  "RoeEntropyFix")
+! CALL addStrListEntry('Riemann','lf',           PRM_RIEMANN_LF)
+! CALL addStrListEntry('Riemann','hllc',         PRM_RIEMANN_HLLC)
+! CALL addStrListEntry('Riemann','roe',          PRM_RIEMANN_ROE)
+! CALL addStrListEntry('Riemann','roeentropyfix',PRM_RIEMANN_ROEENTROPYFIX)
+! CALL addStrListEntry('Riemann','roel2',        PRM_RIEMANN_ROEL2)
+! #ifndef SPLIT_DG
+! CALL addStrListEntry('Riemann','hll',          PRM_RIEMANN_HLL)
+! CALL addStrListEntry('Riemann','hlle',         PRM_RIEMANN_HLLE)
+! CALL addStrListEntry('Riemann','hllem',        PRM_RIEMANN_HLLEM)
+! #else
+! CALL addStrListEntry('Riemann','ch',           PRM_RIEMANN_CH)
+! CALL addStrListEntry('Riemann','avg',          PRM_RIEMANN_Average)
+! #endif
 END SUBROUTINE DefineParametersRiemann
 
 !==================================================================================================================================!
@@ -187,6 +187,8 @@ INTEGER                 :: Riemann
 !  CALL CollectiveStop(__STAMP__,&
 !    'Riemann solver not defined!')
 !END SELECT
+SWRITE(*, '(A)') " | GALAEXI currently only supports selection of the Riemann solver during compilation."
+SWRITE(*, '(A)') " | Any setting found in the parameter file will be ignored."
 #if   RIEMANN==0
   SWRITE(*,'(A,A2)')' | Riemann is set to Lax-Friedrichs (LF)'
 #elif RIEMANN==1
