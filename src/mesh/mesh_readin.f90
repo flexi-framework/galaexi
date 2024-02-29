@@ -494,8 +494,8 @@ nNodes=nElems*(NGeo+1)**3 ! total number of nodes on this processor
 DO iElem=1,nElems
   IF (NodeCoords(3,0,0,0,iElem).GT.NodeCoords(3,0,0,1,iElem))THEN
     CALL Abort(__STAMP__, &
-        "Zeta is oriented in negative z-direction, has to be oriented in positive z-direction instead" // &
-        "Please set 'orientZ = T' in HOPR parameter file.")
+        "Zeta is oriented in negative z-direction, has to be oriented in positive z-direction instead." // &
+        " Please set 'orientZ = T' in HOPR parameter file.")
   END IF
 END DO
 #endif
@@ -530,6 +530,11 @@ IF(dsExists)&
   CALL ReadAttribute(File_ID,'isMortarMesh',1,IntScalar=iMortar)
 isMortarMesh=(iMortar.EQ.1)
 IF(isMortarMesh)THEN
+  ! TODO: Remove this block once mortars are ported.
+  CALL Abort(__STAMP__, &
+        "Mortars (non-conforming elements) detected in the mesh. Non-conforming" // &
+        " elements are not currently supported by GALAEXI.")
+
   CALL ReadAttribute(File_ID,'NgeoTree',1,IntScalar=NGeoTree)
   CALL ReadAttribute(File_ID,'nTrees',1,IntScalar=nGlobalTrees)
 

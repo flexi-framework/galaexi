@@ -84,6 +84,12 @@ IMPLICIT NONE
 !===================================================================================================================================
 eddyViscType = GETINTFROMSTR('eddyViscType')
 
+! TODO: Remove this break when Eddy Viscosity ported
+IF (eddyViscType) THEN
+  CALL CollectiveStop(__STAMP__, &
+      "the Eddy Viscosity feature is not currently available in Galaexi")
+END IF
+
 ! Allocate arrays needed by all SGS models
 ALLOCATE(DeltaS(nElems))
 DeltaS=0.
