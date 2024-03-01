@@ -287,7 +287,7 @@ ENDIF()
 # =========================================================================
 SET(   FLEXI_TESTCASE   "default"      CACHE STRING
                         "Name of testcase which is used. Must be identical to directory name in testcase folder.")
-IF (NOT (FLEXI_TESTCASE STREQUAL "default") AND NOT (FLEXI_TESTSCASE STREQUAL "taylorgreenvortex"))
+IF (NOT (FLEXI_TESTCASE STREQUAL "default") AND NOT (FLEXI_TESTCASE STREQUAL "taylorgreenvortex"))
   MESSAGE(SEND_ERROR " GALAEXI currently only supports the Taylor-Green Vortex test case. Please reconfigure with the default build or with the TGV test case.")
 ENDIF()
 
