@@ -136,7 +136,7 @@ FilterType = GETINTFROMSTR('FilterType')
 NFilter = PP_N
 Filter_Pointer=>Filter
 IF(FilterType.GT.0) THEN
-  CALL CollectiveStop(__STAMP__,'Filter is not supported in reduced Flexi.')
+  CALL CollectiveStop(__STAMP__,'Filtering is not supported in GALAEXI.')
   RETURN
 
   ALLOCATE(FilterMat(0:PP_N,0:PP_N))

@@ -118,6 +118,8 @@ CALL CollectiveStop(__STAMP__,&
   'Wrong Pointset: Gauss-Lobatto-Points are mandatory for using SplitDG !')
 #endif
 
+SWRITE(*, '(A)') " | GALAEXI currently only supports selection of the Split DG formulation during compilation."
+SWRITE(*, '(A)') " | Any setting found in the parameter file will be ignored."
 #if   SPLIT_DG==0
 SWRITE(*,'(A,A2)')' | SplitDG is set to SD'
 #elif SPLIT_DG==1

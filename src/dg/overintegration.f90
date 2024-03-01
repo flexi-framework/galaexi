@@ -108,14 +108,18 @@ SWRITE(UNIT_stdOut,'(A)') ' INIT OVERINTEGRATION...'
 NUnder=PP_N
 
 OverintegrationType = GETINTFROMSTR('OverintegrationType')
+
+! TODO: Remove this break after overintegration is ported
 IF(OverintegrationType .NE. 0)THEN
   CALL CollectiveStop(__STAMP__,&
-    'Overintegration not supported in reduced FLEXI.')
+    "Overintegration is not currently supported by GALAEXI. Please set OverintegrationType = none (0) in the ini file.")
 END IF
+
 SELECT CASE(OverintegrationType)
 CASE (OVERINTEGRATIONTYPE_NONE) ! no overintegration, collocation DGSEM
   OverintegrationType = 0
 CASE (OVERINTEGRATIONTYPE_CUTOFF) ! modal cut-off filter on Ju_t
+
   ! Prepare filter matrix for modal filtering: Identity matrix up to Nunder, then zero diagonal entries
   ALLOCATE(OverintegrationMat(0:PP_N,0:PP_N))
   OverintegrationMat = 0.
@@ -132,6 +136,7 @@ CASE (OVERINTEGRATIONTYPE_CONSCUTOFF) ! conservative modal cut-off filter: Here,
                         ! then sJ is applied on Nunder u_t is then interpolated back onto N grid: ensures that the modal content
                         ! of u_t between NUnder and N is zero. Here, the sJ on Nunder is prepared for later use from projection
                         ! of J from N to Under and inverting.
+
   NUnder = GETINT('NUnder')
   IF(NUnder.LT.PP_N)THEN
     !global
