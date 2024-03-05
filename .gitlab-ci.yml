@@ -109,7 +109,7 @@ run_basic:
   stage: reggie_checkin
   script:
     - cd build
-    - python3 ../reggie/reggie.py ../regressioncheck/checks/run_basic/freestream_3D -j 6 -e ./bin/flexi
+    - python3 ../reggie/reggie.py ../regressioncheck/checks/run_basic/freestream_3D -j 6 -e ./bin/galaexi
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------------
 # Stage "reggie_nightly": Build and run
