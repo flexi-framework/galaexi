@@ -368,8 +368,10 @@ END DO !iElem=1,nElems
 nSpongeElems=COUNT(applySponge)
 ALLOCATE(SpongeMat(0:PP_N,0:PP_N,0:PP_NZ,nSpongeElems))
 ALLOCATE(SpongeMap(nSpongeElems))
+!@cuf IF(nSpongeElems.GT.0) THEN
 !@cuf ALLOCATE( d_SpongeMat(0:PP_N,0:PP_N,0:PP_NZ,nSpongeElems) )
 !@cuf ALLOCATE( d_SpongeMap(nSpongeElems) )
+!@cuf END IF
 iSpongeElem=0
 DO iElem=1,nElems
   IF(applySponge(iElem))THEN
@@ -447,8 +449,10 @@ DO iSpongeElem=1,nSpongeElems
 END DO
 
 ! If using GPU accleration, update SpongeMap and SpongeMat on the device
+!@cuf IF(nSpongeElems.GT.0) THEN
 !@cuf d_SpongeMat = SpongeMat
 !@cuf d_spongeMap = spongeMap
+!@cuf END IF
 
 END SUBROUTINE CalcSpongeRamp
 
