@@ -431,8 +431,8 @@ SET_TARGET_PROPERTIES(stacksizelib userblocklib PROPERTIES LANGUAGE C LINKER_LAN
 ADD_LIB_SHARED(       libflexishared ./src/flexilib.f90)
 SET_TARGET_PROPERTIES(libflexishared PROPERTIES OUTPUT_NAME "libflexi")
 ADD_DEPENDENCIES(     libflexishared libflexistatic userblocklib stacksizelib ${INTERNALLIBS})
-ADD_EXEC(        flexi ./src/flexi.f90)
-ADD_DEPENDENCIES(flexi libflexistatic userblocklib stacksizelib ${INTERNALLIBS})
+ADD_EXEC(        galaexi ./src/flexi.f90)
+ADD_DEPENDENCIES(galaexi libflexistatic userblocklib stacksizelib ${INTERNALLIBS})
 
 # special compiler flags to avoid warnings for empty functions of testcase.f90 and overwrite of intrinsic abort in globals.f90
 IF (CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
@@ -472,5 +472,5 @@ IF(CTAGS_PATH)
   ADD_CUSTOM_COMMAND(OUTPUT ctags.txt COMMAND cd ${CMAKE_CURRENT_SOURCE_DIR} && ${CTAGS_PATH} -R --fortran-kinds=+i+L -f ctags.txt ${EXLUDES} src && ${CTAGS_PATH} -R --fortran-kinds=+i+L -f ctags.txt ${EXLUDES} --append posti)
   ADD_CUSTOM_TARGET(tags DEPENDS ctags.txt)
   MESSAGE(STATUS "Found ctags: ${CTAGS_PATH}")
-  ADD_DEPENDENCIES(flexi tags)
+  ADD_DEPENDENCIES(galaexi tags)
 ENDIF(CTAGS_PATH)
