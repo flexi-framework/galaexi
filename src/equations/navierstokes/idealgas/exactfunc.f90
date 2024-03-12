@@ -39,6 +39,7 @@ END INTERFACE
 
 INTERFACE CalcSource
   MODULE PROCEDURE CalcSource
+  MODULE PROCEDURE CalcSource_GPU
 END INTERFACE
 
 
@@ -112,7 +113,7 @@ USE MOD_PreProc
 USE MOD_Globals
 USE MOD_ReadInTools
 USE MOD_ExactFunc_Vars
-USE MOD_Equation_Vars      ,ONLY: IniExactFunc,IniRefState
+USE MOD_Equation_Vars      ,ONLY: IniExactFunc,IniRefState,doCalcSource
 
 ! IMPLICIT VARIABLE HANDLING
  IMPLICIT NONE
@@ -126,10 +127,22 @@ SWRITE(UNIT_stdOut,'(A)') ' INIT EXACT FUNCTION...'
 
 IniExactFunc = GETINTFROMSTR('IniExactFunc')
 IniRefState  = GETINT('IniRefState', "-1")
+
+! Set flag to compute source terms if required
+SELECT CASE (IniExactFunc)
+CASE(4,41,42,43) ! synthetic test cases with source term
+  doCalcSource=.TRUE.
+  SWRITE(UNIT_stdOut,'(A,I2)') ' | Source terms WILL get computed for exact function ',IniExactFunc
+CASE DEFAULT
+  doCalcSource=.FALSE.
+  SWRITE(UNIT_stdOut,'(A,I2)') ' | NO source terms get computed for exact function ',IniExactFunc
+END SELECT ! IniExactFunc
+
 ! Read in boundary parameters
 SELECT CASE (IniExactFunc)
 CASE(2,21,3,4,41,42,43) ! synthetic test cases
-  AdvVel       = GETREALARRAY('AdvVel',3)
+  AdvVel   = GETREALARRAY('AdvVel',3)
+  d_AdvVel = AdvVel
 CASE(7) ! Shu Vortex
   IniCenter    = GETREALARRAY('IniCenter',3,'(/0.,0.,0./)')
   IniAxis      = GETREALARRAY('IniAxis',3,'(/0.,0.,1./)')
@@ -713,14 +726,14 @@ CASE(4) ! exact function
       cosXGP=COS(omega*SUM(Elem_xGP(1:PP_dim,i,j,k,iElem))-at)
       sinXGP=SIN(omega*SUM(Elem_xGP(1:PP_dim,i,j,k,iElem))-at)
       sinXGP2=2.*sinXGP*cosXGP !=SIN(2.*(omega*SUM(Elem_xGP(:,i,j,k,iElem))-a*t))
-      Ut_src(DENS      ,i,j,k) = tmp(1)*cosXGP
+      Ut_src(DENS     ,i,j,k) = tmp(1)*cosXGP
 #if (PP_dim == 3)
-      Ut_src(MOM1:MOM3,i,j,k)  = tmp(2)*cosXGP + tmp(3)*sinXGP2
+      Ut_src(MOM1:MOM3,i,j,k) = tmp(2)*cosXGP + tmp(3)*sinXGP2
 #else
-      Ut_src(MOM1:MOM2,i,j,k)  = tmp(2)*cosXGP + tmp(3)*sinXGP2
-      Ut_src(MOM3      ,i,j,k) = 0.
+      Ut_src(MOM1:MOM2,i,j,k) = tmp(2)*cosXGP + tmp(3)*sinXGP2
+      Ut_src(MOM3     ,i,j,k) = 0.
 #endif
-      Ut_src(ENER,i,j,k)       = tmp(4)*cosXGP + tmp(5)*sinXGP2 + tmp(6)*sinXGP
+      Ut_src(ENER,i,j,k)      = tmp(4)*cosXGP + tmp(5)*sinXGP2 + tmp(6)*sinXGP
     END DO; END DO; END DO ! i,j,k
 #if FV_ENABLED
     IF (FV_Elems(iElem).GT.0) THEN ! FV elem
@@ -895,5 +908,206 @@ CASE DEFAULT
   doCalcSource=.FALSE.
 END SELECT ! ExactFunction
 END SUBROUTINE CalcSource
+
+!==================================================================================================================================
+!> Compute source terms for some specific testcases and adds it to DG time derivative
+!==================================================================================================================================
+SUBROUTINE CalcSource_GPU(d_Ut,t,streamID)
+! MODULES
+USE CUDAFOR
+USE MOD_Globals
+USE MOD_PreProc
+USE MOD_GPU           ,ONLY: DefaultStream
+USE MOD_Equation_Vars ,ONLY: IniExactFunc
+USE MOD_Exactfunc_Vars,ONLY: d_AdvVel
+USE MOD_Mesh_Vars     ,ONLY: d_Elem_xGP,d_sJ,nElems
+USE MOD_EOS_Vars      ,ONLY: d_EOS_Vars
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+REAL,INTENT(IN)            :: t                                          !< current solution time
+REAL,DEVICE,INTENT(INOUT)  :: d_Ut(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< DG time derivative
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
+INTEGER,PARAMETER              :: nThreads = 256
+INTEGER                        :: nDOF
+!==================================================================================================================================
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
+nDOF=(PP_N+1)*(PP_N+1)*(PP_NZ+1)*nElems
+CALL CalcSource_CUDA_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nDOF,d_Ut,t,d_Elem_xGP,d_sJ,d_EOS_Vars,d_AdvVel,IniExactFunc)
+END SUBROUTINE CalcSource_GPU
+!==================================================================================================================================
+!> Compute source terms for some specific testcases and adds it to DG time derivative
+!==================================================================================================================================
+PPURE ATTRIBUTES(GLOBAL) SUBROUTINE CalcSource_CUDA_Kernel(nDOF,Ut,t,Elem_xGP,sJ,EOS_Vars,AdvVel,IniExactFunc)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)  :: nDOF                 !< number of degrees of freedom in array
+INTEGER,VALUE,INTENT(IN)  :: IniExactFunc         !< type of source term specified by exact func
+REAL,VALUE,INTENT(IN)     :: t                    !< current solution time
+REAL,DEVICE,INTENT(IN)    :: Elem_xGP(3,1:nDOF)   !< physical coordinates for each solution point
+REAL,DEVICE,INTENT(IN)    :: sJ(        1:nDOF)   !< inverse Jacobian
+REAL,DEVICE,INTENT(IN)    :: EOS_Vars(PP_nVarEOS) !< equation-of-state variables
+REAL,DEVICE,INTENT(IN)    :: AdvVel(3)            !< array containing advection velocity
+REAL,DEVICE,INTENT(INOUT) :: Ut(PP_nVar,1:nDOF)   !< DG time derivative
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER             :: i
+REAL                :: sinXGP,sinXGP2,cosXGP
+REAL                :: Omega,a,PP_pi
+REAL                :: Ut_src(PP_nVar)
+REAL                :: tmp(6)
+REAL,PARAMETER      :: Frequency=1.
+REAL,PARAMETER      :: Amplitude=0.1
+REAL,PARAMETER      :: C=2.0
+REAL                :: Kappa
+#if PARABOLIC
+REAL                :: mu0,Pr
+#endif
+!==================================================================================================================================
+! Get thread indices
+i = (blockidx%x-1) * blockdim%x + threadidx%x
+
+! If we exceed array limits, exit.
+IF(i.GT.nDOF) RETURN
+
+! Get necessary EOS variables
+Kappa = EOS_Vars(EOS_KAPPA)
+#if PARABOLIC
+mu0 = EOS_Vars(EOS_MU0)
+Pr  = EOS_Vars(EOS_PR)
+#endif
+
+! Easy as pi
+PP_Pi = ACOS(-1.0D0)
+
+SELECT CASE (IniExactFunc)
+CASE(4) ! exact function
+  Omega=PP_Pi*Frequency
+  a=AdvVel(1)*2.*PP_Pi
+  tmp(1)=-a+REAL(PP_dim)*Omega
+#if (PP_dim == 3)
+  tmp(2)=-a+0.5*Omega*(1.+kappa*5.)
+  tmp(3)=Amplitude*Omega*(Kappa-1.)
+  tmp(4)=0.5*((9.+Kappa*15.)*Omega-8.*a)
+  tmp(5)=Amplitude*(3.*Omega*Kappa-a)
+#else
+  tmp(2)=-a+Omega*(-1.+kappa*3.)
+  tmp(3)=Amplitude*Omega*(Kappa-1.)
+  tmp(4)=((2.+Kappa*6.)*Omega-4.*a)
+  tmp(5)=Amplitude*(2.*Omega*Kappa-a)
+#endif
+#if PARABOLIC
+  tmp(6)=REAL(PP_dim)*mu0*Kappa*Omega*Omega/Pr
+#else
+  tmp(6)=0.
+#endif
+  tmp=tmp*Amplitude
+  cosXGP=COS(omega*SUM(Elem_xGP(1:PP_dim,i))-a*t)
+  sinXGP=SIN(omega*SUM(Elem_xGP(1:PP_dim,i))-a*t)
+  sinXGP2=2.*sinXGP*cosXGP !=SIN(2.*(omega*SUM(Elem_xGP(:,i))-a*t))
+  Ut_src(DENS     ) = tmp(1)*cosXGP
+#if (PP_dim == 3)
+  Ut_src(MOM1:MOM3) = tmp(2)*cosXGP + tmp(3)*sinXGP2
+#else
+  Ut_src(MOM1:MOM2) = tmp(2)*cosXGP + tmp(3)*sinXGP2
+  Ut_src(MOM3     ) = 0.
+#endif
+  Ut_src(ENER     ) = tmp(4)*cosXGP + tmp(5)*sinXGP2 + tmp(6)*sinXGP
+
+CASE(41) ! Sinus in x
+  Omega=PP_Pi*Frequency
+  a=AdvVel(1)*2.*PP_Pi
+#if PARABOLIC
+  Ut_src(DENS) = (-Amplitude*a+Amplitude*omega)*cos(omega*Elem_xGP(1,i)-a*t)
+  Ut_src(MOM1) = (-Amplitude**2*omega+Amplitude**2*omega*kappa)*sin(2.*omega*Elem_xGP(1,i)-2.*a*t)+&
+                 (-Amplitude*a+2.*Amplitude*omega*kappa*C-1./2.*Amplitude*omega*kappa+&
+                 3./2.*Amplitude*omega-2.*Amplitude*omega*C)*cos(omega*Elem_xGP(1,i)-a*t)
+  Ut_src(MOM2) = 0.
+  Ut_src(MOM3) = 0.
+  Ut_src(ENER) = mu0*kappa*Amplitude*sin(omega*Elem_xGP(1,i)-a*t)*omega**2/Pr+&
+                 (-Amplitude**2*a+Amplitude**2*omega*kappa)*sin(2.*omega*Elem_xGP(1,i)-2.*a*t)+&
+                 1./2.*(-4.*Amplitude*a*C+4.*Amplitude*omega*kappa*C-Amplitude*omega*kappa+&
+                       Amplitude*omega)*cos(omega*Elem_xGP(1,i)-a*t)
+#else
+  Ut_src(DENS) = (-amplitude*a+amplitude*omega)*cos(omega*Elem_xGP(1,i)-a*t)
+  Ut_src(MOM1) = (-amplitude**2*omega+amplitude**2*omega*kappa)*sin(2.*omega*Elem_xGP(1,i)-2.*a*t)+ &
+                  (-amplitude*a+2.*amplitude*omega*kappa*C-1./2.*omega*kappa*amplitude+ &
+                  3./2.*amplitude*omega-2.*amplitude*omega*C)*cos(omega*Elem_xGP(1,i)-a*t)
+  Ut_src(MOM2) = 0.
+  Ut_src(MOM3) = 0.
+  Ut_src(ENER) = (-amplitude**2*a+amplitude**2*omega*kappa)*sin(2.*omega*Elem_xGP(1,i)-2.*a*t)+&
+                 (-2.*amplitude*a*C+2.*amplitude*omega*kappa*C-1./2.*omega*kappa*amplitude+&
+                 1./2.*amplitude*omega)*cos(omega*Elem_xGP(1,i)-a*t)
+#endif
+
+CASE(42) ! Sinus in y
+  Omega=PP_Pi*Frequency
+  a=AdvVel(2)*2.*PP_Pi
+#if PARABOLIC
+  Ut_src(DENS) = (-Amplitude*a+Amplitude*omega)*cos(omega*Elem_xGP(2,i)-a*t)
+  Ut_src(MOM1) = 0.
+  Ut_src(MOM2) = (-Amplitude**2*omega+Amplitude**2*omega*kappa)*sin(2.*omega*Elem_xGP(2,i)-2.*a*t)+&
+                 (-Amplitude*a+2.*Amplitude*omega*kappa*C-1./2.*Amplitude*omega*kappa+&
+                 3./2.*Amplitude*omega-2.*Amplitude*omega*C)*cos(omega*Elem_xGP(2,i)-a*t)
+  Ut_src(MOM3) = 0.
+  Ut_src(ENER) = mu0*kappa*Amplitude*sin(omega*Elem_xGP(2,i)-a*t)*omega**2/Pr+&
+                 (-Amplitude**2*a+Amplitude**2*omega*kappa)*sin(2.*omega*Elem_xGP(2,i)-2.*a*t)+&
+                 1./2.*(-4.*Amplitude*a*C+4.*Amplitude*omega*kappa*C-Amplitude*omega*kappa+&
+                      Amplitude*omega)*cos(omega*Elem_xGP(2,i)-a*t)
+#else
+  Ut_src(DENS) = (-amplitude*a+amplitude*omega)*cos(omega*Elem_xGP(2,i)-a*t)
+  Ut_src(MOM1) = 0.
+  Ut_src(MOM2) = (-amplitude**2*omega+amplitude**2*omega*kappa)*sin(2.*omega*Elem_xGP(2,i)-2.*a*t)+ &
+                 (-amplitude*a+2.*amplitude*omega*kappa*C-1./2.*omega*kappa*amplitude+ &
+                 3./2.*amplitude*omega-2.*amplitude*omega*C)*cos(omega*Elem_xGP(2,i)-a*t)
+  Ut_src(MOM3) = 0.
+  Ut_src(ENER) = (-amplitude**2*a+amplitude**2*omega*kappa)*sin(2.*omega*Elem_xGP(2,i)-2.*a*t)+&
+                 (-2.*amplitude*a*C+2.*amplitude*omega*kappa*C-1./2.*omega*kappa*amplitude+&
+                 1./2.*amplitude*omega)*cos(omega*Elem_xGP(2,i)-a*t)
+#endif
+
+#if PP_dim==3
+CASE(43) ! Sinus in z
+  Omega=PP_Pi*Frequency
+  a=AdvVel(3)*2.*PP_Pi
+#if PARABOLIC
+  Ut_src(DENS) = (-Amplitude*a+Amplitude*omega)*cos(omega*Elem_xGP(3,i)-a*t)
+  Ut_src(MOM1) = 0.
+  Ut_src(MOM2) = 0.
+  Ut_src(MOM3) = (-Amplitude**2*omega+Amplitude**2*omega*kappa)*sin(2.*omega*Elem_xGP(3,i)-2.*a*t)+&
+                 (-Amplitude*a+2.*Amplitude*omega*kappa*C-1./2.*Amplitude*omega*kappa+&
+                 3./2.*Amplitude*omega-2.*Amplitude*omega*C)*cos(omega*Elem_xGP(3,i)-a*t)
+  Ut_src(ENER) = mu0*kappa*Amplitude*sin(omega*Elem_xGP(3,i)-a*t)*omega**2/Pr+&
+                 (-Amplitude**2*a+Amplitude**2*omega*kappa)*sin(2.*omega*Elem_xGP(3,i)-2.*a*t)+&
+                 1./2.*(-4.*Amplitude*a*C+4.*Amplitude*omega*kappa*C-Amplitude*omega*kappa+&
+                     Amplitude*omega)*cos(omega*Elem_xGP(3,i)-a*t)
+#else
+  Ut_src(DENS) = (-amplitude*a+amplitude*omega)*cos(omega*Elem_xGP(3,i)-a*t)
+  Ut_src(MOM1) = 0.
+  Ut_src(MOM1) = 0.
+  Ut_src(MOM3) = (-amplitude**2*omega+amplitude**2*omega*kappa)*sin(2.*omega*Elem_xGP(3,i)-2.*a*t)+ &
+                 (-amplitude*a+2.*amplitude*omega*kappa*C-1./2.*omega*kappa*amplitude+ &
+                 3./2.*amplitude*omega-2.*amplitude*omega*C)*cos(omega*Elem_xGP(3,i)-a*t)
+  Ut_src(ENER) = (-amplitude**2*a+amplitude**2*omega*kappa)*sin(2.*omega*Elem_xGP(3,i)-2.*a*t)+&
+                 (-2.*amplitude*a*C+2.*amplitude*omega*kappa*C-1./2.*omega*kappa*amplitude+&
+                 1./2.*amplitude*omega)*cos(omega*Elem_xGP(3,i)-a*t)
+#endif
+#endif
+CASE DEFAULT
+  ! No source -> do nothing
+  Ut_src = 0.
+END SELECT ! ExactFunction
+
+! Write to global Ut
+Ut(:,i) = Ut(:,i)+Ut_src(:)/sJ(i)
+
+END SUBROUTINE CalcSource_CUDA_Kernel
 
 END MODULE MOD_Exactfunc

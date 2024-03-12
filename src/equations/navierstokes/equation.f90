@@ -116,12 +116,6 @@ SWRITE(UNIT_stdOut,'(A)') ' INIT NAVIER-STOKES...'
 s43=4./3.
 s23=2./3.
 
-! Always set docalcsource true, set false by calcsource itself on first run if not needed
-!doCalcSource=.TRUE.
-! TODO: For now, Galaexi doesn't support source terms. Revert to above when they have been ported.
-doCalcSource = .FALSE.
-SWRITE(UNIT_stdOut,'(A)')' WARNING: Source terms are not currently supported by GALAEXI.'
-
 ! Read in boundary parameters
 IniRefState  = 0
 
