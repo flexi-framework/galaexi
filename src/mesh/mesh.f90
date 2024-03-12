@@ -241,6 +241,8 @@ IF(interpolateFromTree)THEN
 ELSE
   CALL BuildCoords(NodeCoords,NodeType,PP_N,Elem_xGP)
 ENDIF
+!@cuf ALLOCATE(d_Elem_xGP(3,0:PP_N,0:PP_N,0:PP_NZ,nElems))
+!@cuf d_Elem_xGP=Elem_xGP
 
 ! Return if no connectivity and metrics are required (e.g. for visualization mode)
 IF (meshMode.GT.0) THEN
@@ -484,6 +486,7 @@ SDEALLOCATE(BoundaryType)
 
 ! Volume
 SDEALLOCATE(Elem_xGP)
+!@cuf SDEALLOCATE(d_Elem_xGP)
 SDEALLOCATE(Metrics_fTilde)
 SDEALLOCATE(Metrics_gTilde)
 SDEALLOCATE(Metrics_hTilde)
