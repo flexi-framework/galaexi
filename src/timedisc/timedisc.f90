@@ -144,7 +144,7 @@ ELSE
 END IF
 
 ! Call Testcase analyze routines for the initial solution
-!CALL AnalyzeTestCase(t,.FALSE.)
+CALL AnalyzeTestCase(t,.FALSE.)
 
 ! Write the state at time=0, i.e. the initial condition
 CALL WriteState(MeshFileName=TRIM(MeshFile),OutputTime=t,FutureTime=tWriteData,isErrorFile=.FALSE.)

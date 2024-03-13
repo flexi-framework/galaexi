@@ -188,11 +188,17 @@ mu0     =mu0/Tref**ExpoSuth
 #endif /*PARABOLIC*/
 
 ! Fill global EOS array
-EOS_Vars(EOS_KAPPA) = Kappa
-EOS_Vars(EOS_R    ) = R
+EOS_Vars(EOS_KAPPA    ) = Kappa
+EOS_Vars(EOS_R        ) = R
 #if PARABOLIC
-EOS_Vars(EOS_PR   ) = Pr
-EOS_Vars(EOS_MU0  ) = mu0
+EOS_Vars(EOS_PR       ) = Pr
+EOS_Vars(EOS_MU0      ) = mu0
+#if   PP_VISC == 1
+EOS_Vars(EOS_TS       ) = Ts
+EOS_Vars(EOS_TREF     ) = Tref
+EOS_Vars(EOS_EXPOSUTH ) = ExpoSuth
+EOS_Vars(EOS_CSUTH    ) = cSuth
+#endif
 #endif
 d_EOS_Vars = EOS_Vars
 

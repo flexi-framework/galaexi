@@ -46,7 +46,15 @@
 #define EOS_R      2  /* specific gas constant R      */
 #define EOS_PR     3  /* Prandtl number Pr            */
 #define EOS_MU0    4  /* reference viscosity mu0      */
+#if PP_VISC == 0
 #define PP_nVarEOS 4
+#elif PP_VISC == 1
+#define EOS_TS       5 /* Sutherland constant */
+#define EOS_TREF     6 /* Sutherland constant */
+#define EOS_EXPOSUTH 7 /* Sutherland constant */
+#define EOS_CSUTH    8 /* Sutherland constant */
+#define PP_nVarEOS   8
+#endif /*PP_VISC == 1*/
 #else
 #define EOS_KAPPA  1  /* isentropic coefficient kappa */
 #define EOS_R      2  /* specific gas constant R      */
@@ -85,7 +93,8 @@
 #define VISCOSITY_PRIM(U)              mu0
 #define VISCOSITY_PRIM_EOS(U,EOS_Vars) EOS_Vars(EOS_MU0)
 #elif PP_VISC == 1
-#define VISCOSITY_PRIM(U,EOS_Vars)     muSuth(U(TEMP))
+#define VISCOSITY_PRIM(U)              muSuth(U(TEMP))
+#define VISCOSITY_PRIM_EOS(U,EOS_Vars) muSuth(U(TEMP),EOS_Vars)
 #elif PP_VISC == 2
 #define VISCOSITY_PRIM(U,EOS_Vars)     mu0*U(TEMP)**ExpoSuth
 #endif
