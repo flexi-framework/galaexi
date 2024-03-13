@@ -495,6 +495,9 @@ PPURE ATTRIBUTES(DEVICE,HOST) SUBROUTINE ViscousFlux(F,UPrim_L,UPrim_R, &
                             )
 ! MODULES
 USE MOD_Flux,ONLY: EvalDiffFlux3D
+#if PP_VISC == 1
+USE MOD_Viscosity,ONLY:muSuth
+#endif
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -518,7 +521,7 @@ REAL                     :: mu,lambda
 !==================================================================================================================================
 ! Don't forget the diffusion contribution, my young padawan
 ! Compute NSE Diffusion flux
-mu=VISCOSITY_PRIM_EOS(UPrim_L(:,i),EOS_Vars)
+mu=VISCOSITY_PRIM_EOS(UPrim_L,EOS_Vars)
 lambda=THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)
 CALL EvalDiffFlux3D(UPrim_L,   gradUx_L,   gradUy_L,   gradUz_L  &
                            ,diffFluxX_L,diffFluxY_L,diffFluxZ_L  &
@@ -527,7 +530,7 @@ CALL EvalDiffFlux3D(UPrim_L,   gradUx_L,   gradUy_L,   gradUz_L  &
 #endif
                    ,mu,lambda&
       )
-mu=VISCOSITY_PRIM_EOS(UPrim_R(:,i),EOS_Vars)
+mu=VISCOSITY_PRIM_EOS(UPrim_R,EOS_Vars)
 lambda=THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)
 CALL EvalDiffFlux3D(UPrim_R,   gradUx_R,   gradUy_R,   gradUz_R  &
                            ,diffFluxX_R,diffFluxY_R,diffFluxZ_R  &
@@ -637,6 +640,9 @@ PPURE ATTRIBUTES(GLOBAL) SUBROUTINE ViscousFlux_Kernel_CUDA(nDOF,F,UPrim_L,UPrim
                                     ,EOS_Vars)
 ! MODULES
 USE MOD_Flux, ONLY: EvalDiffFlux3D
+#if PP_VISC == 1
+USE MOD_Viscosity,ONLY:muSuth
+#endif
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES
@@ -655,13 +661,15 @@ REAL,DEVICE,DIMENSION(PP_nVarEOS),INTENT(IN) :: EOS_Vars !< EOS-specific variabl
 INTEGER :: i
 REAL    :: mu,lambda
 REAL,DEVICE,DIMENSION(PP_nVar) :: normalDiffFlux
+REAL    :: UPrimTmp(PP_nVarPrim)
 !==================================================================================================================================
 ! Don't forget the diffusion contribution, my young padawan
 ! Compute NSE Diffusion flux
 i = (blockidx%x-1) * blockdim%x + threadidx%x
 IF (i.LE.nDOF) THEN
   ! Left material parameters
-  mu=VISCOSITY_PRIM_EOS(UPrim_L(:,i),EOS_Vars)
+  UPrimTmp=UPrim_L(:,i)
+  mu=VISCOSITY_PRIM_EOS(UPrimTmp,EOS_Vars)
   lambda=THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)
   ! Left flux
   CALL EvalDiffFlux3D( UPrim_L(:,i), &
@@ -675,7 +683,8 @@ IF (i.LE.nDOF) THEN
   F(:,i) = F(:,i) + 0.5*normalDiffFlux ! F = F+0.5*(Flux_L+Flux_R)
 
   ! Right material parameters
-  mu=VISCOSITY_PRIM_EOS(UPrim_L(:,i),EOS_Vars)
+  UPrimTmp=UPrim_R(:,i)
+  mu=VISCOSITY_PRIM_EOS(UPrimTmp,EOS_Vars)
   lambda=THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)
   ! Right flux
   CALL EvalDiffFlux3D( UPrim_R(:,i), &

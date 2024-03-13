@@ -550,6 +550,9 @@ USE MOD_Riemann, ONLY: Riemann
 #if PARABOLIC
 USE MOD_Flux,    ONLY: EvalDiffFlux3D
 USE MOD_Riemann, ONLY: ViscousFlux
+#if PP_VISC == 1
+USE MOD_Viscosity,ONLY:muSuth
+#endif
 #endif
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT / OUTPUT VARIABLES

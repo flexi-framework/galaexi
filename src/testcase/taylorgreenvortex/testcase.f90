@@ -14,9 +14,9 @@
 #include "flexi.h"
 #include "eos.h"
 
-#if FV_ENABLED
-#error "This testcase is not tested with FV"
-#endif
+!#if FV_ENABLED
+!#error "This testcase is not tested with FV"
+!#endif
 
 !==================================================================================================================================
 !> Subroutines defining the Taylor-Green isentropic vortex testcase
@@ -114,6 +114,7 @@ USE MOD_Output,         ONLY: InitOutputToFile
 USE MOD_EOS_Vars,       ONLY: Kappa,R
 #if (PP_VISC==1)
 USE MOD_EOS_Vars,       ONLY: Tref,Ts
+USE MOD_EOS_Vars,       ONLY: EOS_Vars,d_EOS_Vars
 #elif (PP_VISC==2)
 USE MOD_EOS_Vars,       ONLY: Tref,ExpoSuth,mu0
 #endif
@@ -132,10 +133,10 @@ SWRITE(UNIT_stdOut,'(A)') ' AnalyzeTestcase is currently not supported on GPUs!!
 nWriteStats      = GETINT( 'nWriteStats')
 nAnalyzeTestCase = GETINT( 'nAnalyzeTestCase')
 
-#if FV_ENABLED
-CALL CollectiveStop(__STAMP__, &
-  'The testcase has not been implemented for FV yet!')
-#endif
+!#if FV_ENABLED
+!CALL CollectiveStop(__STAMP__, &
+  !'The testcase has not been implemented for FV yet!')
+!#endif
 
 ! Check whether initial density or rather temperature field should be constant
 IniConstDens = GETLOGICAL('IniConstDens')
@@ -151,6 +152,8 @@ T0 = p0/(rho0*R)
 #if PP_VISC == 1
 ! Reformulate Sutherland's law (ratio Ts/Tref is kept constant, hence, Ts doesnt change)
 Tref = 1./T0  ! ATTENTION: Tref = 1./Tref | Ts = Ts/Tref
+EOS_Vars(EOS_TREF) = Tref
+d_EOS_Vars = EOS_Vars
 ! Provide user warning
 CALL PrintWarning("  Viscosity via Sutherland's Law is computed in dimensionless form for the TGV testcase.\n&
                   &  Hence, Tref is set to dimensionless reference temperature T0 = 1/(Kappa*R*MachNumber^2)")

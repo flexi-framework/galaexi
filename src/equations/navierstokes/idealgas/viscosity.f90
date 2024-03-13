@@ -36,7 +36,10 @@ IMPLICIT NONE
 #if PP_VISC == 1
 INTERFACE muSuth
   MODULE PROCEDURE muSuth
+  MODULE PROCEDURE muSuth_CUDA
 END INTERFACE
+
+PUBLIC::muSuth
 #endif
 
 !==================================================================================================================================
@@ -81,6 +84,43 @@ ELSE
   muSuth=mu0*TnoDim*cSuth
 END IF
 END FUNCTION muSuth
+
+!==================================================================================================================================
+!> Sutherland's formula can be used to derive the dynamic viscosity of an ideal gas as a function of the temperature
+!>
+!> Initialization of mu0, Ts, Tref, ExpoSuth and cSuth takes place in SUBROUTINE IniEquation
+!>
+!> Temperatures above the Sutherlands Temperature Ts are computed according to (1)
+!> 1) T >= Ts:    mu = mu0 * (T/Tref)^(expo) *  (Tref+TS)/(T+TS)
+!>
+!> below Ts a linear dependence is assumed, (2)
+!> 2) T < Ts:    mu = mu0*T/Tref*c
+!>
+!> with c = (Ts/Tref)^exp*(1+(Ts/Tref))/(2(Ts/Tref)²) for steady transition from (1) to (2) at T = Ts.
+!>
+!> This is only valid for Temperatures in the range 0 < T < 555 K
+!> For more detail see White, F. M.
+!> ATTENTION!!!!! The global variable Tref=1./Tref and Ts=Ts/Tref !!!!!
+!==================================================================================================================================
+PPURE ATTRIBUTES(HOST,DEVICE) FUNCTION muSuth_CUDA(T,EOS_Vars)
+! MODULES
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+REAL,INTENT(IN)        :: T !< Temperature
+REAL,DEVICE,INTENT(IN) :: EOS_Vars(PP_nVarEOS) !< EOS-specific variables
+REAL                   :: muSuth_CUDA
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+REAL                           :: TnoDim
+!==================================================================================================================================
+TnoDim=T*EOS_Vars(EOS_TREF) ! Tref=1./Tref !
+IF(TnoDim .GE. EOS_Vars(EOS_TS))THEN  ! Attention: only valid for T < 550K. But we don't know what to do for higher temperatures...
+  muSuth_CUDA=EOS_Vars(EOS_MU0)*TnoDim**EOS_Vars(EOS_EXPOSUTH)*(1+EOS_Vars(EOS_TS))/(TnoDim+EOS_Vars(EOS_TS))  ! Ts=Ts/Tref !
+ELSE
+  muSuth_CUDA=EOS_Vars(EOS_MU0)*TnoDim*EOS_Vars(EOS_CSUTH)
+END IF
+END FUNCTION muSuth_CUDA
 #endif /*PP_VISC == 1*/
 
 #endif /*PARABOLIC*/

@@ -199,6 +199,9 @@ ATTRIBUTES(GLOBAL) SUBROUTINE CalcMaxEigenvalue(Nloc,nElems,U,EOS_Vars,&
                                                      MaxEigenvalue)
 ! MODULES
 ! IMPLICIT VARIABLE HANDLING
+#if PP_VISC == 1
+USE MOD_Viscosity,ONLY:muSuth
+#endif
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -226,6 +229,7 @@ REAL                           :: c
 REAL                           :: mu
 REAL,SHARED                    :: Max_Lambda(6,0:Nloc,0:ZDIM(Nloc))
 REAL                           :: Max_LambdaTmp(6)
+REAL                           :: UPrimTmp(PP_nVarPrim)
 #else
 REAL,SHARED                    :: Max_Lambda(3,0:Nloc,0:ZDIM(Nloc))
 REAL                           :: Max_LambdaTmp(3)
@@ -262,7 +266,8 @@ DO i=0,Nloc
   Max_LambdaTmp(  3)=MAX(Max_LambdaTmp(3),ABS(SUM(Metrics_hTilde(:,i,j,k,ElemID)*vsJ)) &
                                           + c*MetricsAdv(3,i,j,k,ElemID))
 #if PARABOLIC
-  mu=VISCOSITY_PRIM_EOS(UE(EXT_PRIM,i,j,k,ElemID),EOS_Vars)
+  UPrimTmp=UE(EXT_PRIM)
+  mu=VISCOSITY_PRIM_EOS(UPrimTmp,EOS_Vars)
   Max_LambdaTmp(4:6)=MAX(Max_LambdaTmp(4:6),mu*UE(EXT_SRHO)*MetricsVisc(:,i,j,k,ElemID))
 #endif
 END DO ! i
