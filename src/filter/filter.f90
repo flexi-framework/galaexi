@@ -22,15 +22,18 @@ IMPLICIT NONE
 PRIVATE
 
 ABSTRACT INTERFACE
-  SUBROUTINE FilterInt(U_in,FilterMat)
+  SUBROUTINE FilterInt(U_in,FilterMat,streamID)
     USE MOD_PreProc
+    USE CUDAFOR
+    USE MOD_GPU
     USE MOD_Mesh_Vars,ONLY: nElems
-    REAL,INTENT(INOUT) :: U_in(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems)
-    REAL,INTENT(IN)    :: FilterMat(   0:PP_N,0:PP_N)
+    REAL,DEVICE,INTENT(INOUT) :: U_in(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems)
+    REAL,DEVICE,INTENT(IN)    :: FilterMat(   0:PP_N,0:PP_N)
+    INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
   END SUBROUTINE
 END INTERFACE
 
-PROCEDURE(FilterInt),POINTER :: Filter_pointer     !< Point to the filter routine to be used
+PROCEDURE(FilterInt),POINTER :: Filter_Pointer     !< Point to the filter routine to be used
 
 !----------------------------------------------------------------------------------------------------------------------------------
 
@@ -52,7 +55,7 @@ INTERFACE Filter_Selective
 END INTERFACE
 
 PUBLIC :: InitFilter
-PUBLIC :: Filter_pointer
+PUBLIC :: Filter_Pointer
 PUBLIC :: Filter_Selective
 PUBLIC :: FinalizeFilter
 PUBLIC :: DefineParametersFilter
@@ -116,16 +119,16 @@ IMPLICIT NONE
 ! INPUT/OUTPUT VARIABLES
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
+CHARACTER(3)        :: tmpString
 INTEGER             :: iDeg
 REAL                :: Vol
 #if EQNSYSNR==2
 INTEGER             :: iElem,i,j,k
 #endif
 !==================================================================================================================================
-IF(FilterInitIsDone.OR.(.NOT.InterpolationInitIsDone))THEN
+IF (FilterInitIsDone.OR.(.NOT.InterpolationInitIsDone)) &
    CALL CollectiveStop(__STAMP__,'InitFilter not ready to be called or already called.')
-   RETURN
-END IF
+
 SWRITE(UNIT_stdOut,'(132("-"))')
 SWRITE(UNIT_stdOut,'(A)') ' INIT FILTER...'
 
@@ -136,80 +139,78 @@ FilterType = GETINTFROMSTR('FilterType')
 NFilter = PP_N
 Filter_Pointer=>Filter
 IF(FilterType.GT.0) THEN
-  CALL CollectiveStop(__STAMP__,'Filtering is not supported in GALAEXI.')
-  RETURN
+  ! CALL CollectiveStop(__STAMP__,'Filtering is not supported in GALAEXI.')
+  ! RETURN
 
   ALLOCATE(FilterMat(0:PP_N,0:PP_N))
   FilterMat = 0.
   SELECT CASE (FilterType)
-  CASE (FILTERTYPE_CUTOFF) ! Modal Filter cut-off
-    NFilter = GETINT('NFilter')
-    DO iDeg=0,NFilter
-      FilterMat(iDeg,iDeg) = 1.
-    END DO
-  CASE (FILTERTYPE_MODAL) ! Modal Filter (e.g. Hesthaven book)
-    ! Read in modal filter parameter
-    HestFilterParam = GETREALARRAY('HestFilterParam',3,'(/36.,12.,1./)')
-    CALL HestFilter()
+    CASE (FILTERTYPE_CUTOFF) ! Modal Filter cut-off
+      NFilter = GETINT('NFilter')
+      DO iDeg=0,NFilter
+        FilterMat(iDeg,iDeg) = 1.
+      END DO
+    CASE (FILTERTYPE_MODAL) ! Modal Filter (e.g. Hesthaven book)
+      ! Read in modal filter parameter
+      HestFilterParam = GETREALARRAY('HestFilterParam',3,'(/36.,12.,1./)')
+      CALL HestFilter()
 #if EQNSYSNR==2
-  CASE (FILTERTYPE_LAF) ! Modal Filter cut-off, adaptive (LAF), only Euler/Navier-Stokes
-    NFilter   = GETINT('NFilter')
-    LAF_alpha = GETREAL('LAF_alpha')
-    ! LAF uses a special filter routine
-    Filter_Pointer=>Filter_LAF
-    DO iDeg=0,NFilter
-      FilterMat(iDeg,iDeg) = 1.
-    END DO
-    ALLOCATE(lim(nElems))
-    ALLOCATE(eRatio(nElems))
-    ALLOCATE(r(nElems))
-    ALLOCATE(ekin_avg_old(nElems))
-    ALLOCATE(ekin_fluc_avg_old(nElems))
-    ALLOCATE(IntegrationWeight(0:PP_N,0:PP_N,0:PP_NZ,nElems,0:0))
-    CALL AddToElemData(ElementOut,'LAF_eRatio',RealArray=eRatio)
-    CALL AddToElemData(ElementOut,'LAF_lim'   ,RealArray=lim)
-    CALL AddToElemData(ElementOut,'LAF_r'     ,RealArray=r)
-    DO iElem=1,nElems
-      Vol = 0.
-      DO k=0,PP_NZ
-        DO j=0,PP_N
-          DO i=0,PP_N
+    CASE (FILTERTYPE_LAF) ! Modal Filter cut-off, adaptive (LAF), only Euler/Navier-Stokes
+      NFilter   = GETINT('NFilter')
+      LAF_alpha = GETREAL('LAF_alpha')
+      ! LAF uses a special filter routine
+      Filter_Pointer=>Filter_LAF
+      DO iDeg=0,NFilter
+        FilterMat(iDeg,iDeg) = 1.
+      END DO
+      ALLOCATE(lim(nElems))
+      ALLOCATE(eRatio(nElems))
+      ALLOCATE(r(nElems))
+      ALLOCATE(ekin_avg_old(nElems))
+      ALLOCATE(ekin_fluc_avg_old(nElems))
+      ALLOCATE(IntegrationWeight(0:PP_N,0:PP_N,0:PP_NZ,nElems,0:0))
+      CALL AddToElemData(ElementOut,'LAF_eRatio',RealArray=eRatio)
+      CALL AddToElemData(ElementOut,'LAF_lim'   ,RealArray=lim)
+      CALL AddToElemData(ElementOut,'LAF_r'     ,RealArray=r)
+      DO iElem=1,nElems
+        Vol = 0.
+        DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
 #if PP_dim == 3
-            IntegrationWeight(i,j,k,iElem,0) = wGP(i)*wGP(j)*wGP(k)/sJ(i,j,k,iElem,0)
+          IntegrationWeight(i,j,k,iElem,0) = wGP(i)*wGP(j)*wGP(k)/sJ(i,j,k,iElem,0)
 #else
-            IntegrationWeight(i,j,k,iElem,0) = wGP(i)*wGP(j)/sJ(i,j,k,iElem,0)
+          IntegrationWeight(i,j,k,iElem,0) = wGP(i)*wGP(j)/sJ(i,j,k,iElem,0)
 #endif
-            Vol = Vol + IntegrationWeight(i,j,k,iElem,0)
-          END DO ! i
-        END DO ! j
-      END DO ! k
-      IntegrationWeight(:,:,:,iElem,0) = IntegrationWeight(:,:,:,iElem,0) / Vol
-    END DO !iElem
+          Vol = Vol + IntegrationWeight(i,j,k,iElem,0)
+        END DO; END DO; END DO ! k,j,i
+        IntegrationWeight(:,:,:,iElem,0) = IntegrationWeight(:,:,:,iElem,0) / Vol
+      END DO !iElem
 
-  ! Compute normalization for LAF
-    normMod=((REAL(NFilter)+1)**(-2./3.)-2.**(-2./3.))/(REAL(PP_N+1)**(-2./3.)-REAL(NFilter+1)**(-2./3.))
-    lim=1E-8
-    eRatio=0.
-    r=0.
-    ekin_avg_old=1.E-16
-    ekin_fluc_avg_old=1.E-16
+      ! Compute normalization for LAF
+      normMod=((REAL(NFilter)+1)**(-2./3.)-2.**(-2./3.))/(REAL(PP_N+1)**(-2./3.)-REAL(NFilter+1)**(-2./3.))
+      lim=1E-8
+      eRatio=0.
+      r=0.
+      ekin_avg_old=1.E-16
+      ekin_fluc_avg_old=1.E-16
 #endif /*EQNSYSNR==2*/
 
-  CASE DEFAULT
-    CALL CollectiveStop(__STAMP__,&
-                        "FilterType unknown!")
+    CASE DEFAULT
+      CALL CollectiveStop(__STAMP__,"FilterType unknown!")
   END SELECT
 
-  !INFO
-  SWRITE(*,'(A)',ADVANCE='NO')'FILTER DIAGONAL: '
-  DO iDeg=0,PP_N-1
-    SWRITE(*,'(F7.3)',ADVANCE='NO')FilterMat(iDeg,iDeg)
+  ! INFO
+  SWRITE(UNIT_stdOut,'(A)',ADVANCE='NO') 'FILTER DIAGONAL: '
+  DO iDeg = 0,PP_N
+    tmpString = MERGE('YES','NO ',iDeg.EQ.PP_N)
+    SWRITE(UNIT_stdOut,'(F7.3)',ADVANCE=tmpString) FilterMat(iDeg,iDeg)
   END DO
-  SWRITE(*,'(F7.3)')FilterMat(PP_N,PP_N)
 
   ! Assemble filter matrix in nodal space
   FilterMat=MATMUL(MATMUL(Vdm_Leg,FilterMat),sVdm_Leg)
 END IF !FilterType=0
+
+!@cuf ALLOCATE(d_FilterMat(0:PP_N,0:PP_N))
+!@cuf d_FilterMat=FilterMat
 
 #if PP_LIMITER
 CALL InitPPLimiter()
@@ -217,6 +218,7 @@ CALL InitPPLimiter()
 FilterInitIsDone = .TRUE.
 SWRITE(UNIT_stdOut,'(A)')' INIT FILTER DONE!'
 SWRITE(UNIT_stdOut,'(132("-"))')
+
 END SUBROUTINE InitFilter
 
 
@@ -257,8 +259,8 @@ IF(alpha.GE.0.) THEN
     FilterMat(iDeg,iDeg) = EXP(-alpha*((eta-etac)/(1.-etac))**s)
   END DO
 END IF
-END SUBROUTINE HestFilter
 
+END SUBROUTINE HestFilter
 
 
 !==================================================================================================================================
@@ -267,10 +269,12 @@ END SUBROUTINE HestFilter
 !> defined by (N_out+1) interpolation point  positions xi_Out(0:N_Out)
 !>  xi is defined in the 1DrefElem xi=[-1,1]
 !==================================================================================================================================
-SUBROUTINE Filter(U_in,FilterMat)
+SUBROUTINE Filter(U_in,FilterMat,streamID)
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU
 USE MOD_PreProc
-USE MOD_ChangeBasisByDim,  ONLY: ChangeBasisVolume
+USE MOD_ChangeBasisByDim,  ONLY: ChangeBasisVolume_GPU
 USE MOD_Mesh_Vars,         ONLY: nElems
 #if FV_ENABLED
 USE MOD_FV_Vars,           ONLY: FV_Elems
@@ -278,18 +282,29 @@ USE MOD_FV_Vars,           ONLY: FV_Elems
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
-REAL,INTENT(INOUT)  :: U_in(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< solution vector to be filtered
-REAL,INTENT(IN)     :: FilterMat(0:PP_N,0:PP_N)                   !< filter matrix to be used
+REAL,DEVICE,INTENT(INOUT)  :: U_in(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< solution vector to be filtered
+REAL,DEVICE,INTENT(IN)     :: FilterMat(0:PP_N,0:PP_N)                   !< filter matrix to be used
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER             :: iElem
+INTEGER                        :: iElem
+INTEGER                        :: SHMEM_SIZE,nThreads
+INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
-DO iElem=1,nElems
-#if FV_ENABLED
-  IF (FV_Elems(iElem).GT.0) CYCLE ! Do only, when DG element
-#endif
-  CALL ChangeBasisVolume(PP_nVar,PP_N,PP_N,FilterMat,U_in(:,:,:,:,iElem))
-END DO ! iElem
+! DO iElem=1,nElems
+! #if FV_ENABLED
+!   IF (FV_Elems(iElem).GT.0) CYCLE ! Do only, when DG element
+! #endif
+!   CALL ChangeBasisVolume(PP_nVar,PP_N,PP_N,FilterMat,U_in(:,:,:,:,iElem))
+! END DO ! iElem
+
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
+
+nThreads   = (PP_N+1)**2*(PP_NZ+1)
+SHMEM_SIZE = (PP_N+1)**2*(PP_NZ+1)*PP_nVar*SIZEOF(REAL(1.))*2
+CALL ChangeBasisVolume_GPU<<<nElems,nThreads,SHMEM_SIZE,streamID>>>(PP_nVar,PP_N,PP_N,nElems,FilterMat,U_in)
+
 END SUBROUTINE Filter
 
 
@@ -297,8 +312,10 @@ END SUBROUTINE Filter
 !===============================================================================================================================
 !> LAF implementation via filter (only for Euler/Navier-Stokes)
 !===============================================================================================================================
-SUBROUTINE Filter_LAF(U_in,FilterMat)
+SUBROUTINE Filter_LAF(U_in,FilterMat,streamID)
 ! MODULES
+USE CUDAFOR
+USE MOD_GPU
 USE MOD_PreProc
 USE MOD_Filter_Vars,ONLY: lim,eRatio,r,ekin_avg_old,normMod,IntegrationWeight,ekin_fluc_avg_old,LAF_alpha
 USE MOD_Mesh_Vars,  ONLY: nElems
@@ -310,6 +327,7 @@ IMPLICIT NONE
 !-------------------------------------------------------------------------------------------------------------------------------
 ! INPUT VARIABLES
 REAL,INTENT(IN)     :: FilterMat(0:PP_N,0:PP_N)                   !< filter matrix to be used
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !-------------------------------------------------------------------------------------------------------------------------------
 ! OUTPUT VARIABLES
 REAL,INTENT(INOUT)  :: U_in(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< solution vector to be filtered
@@ -520,6 +538,7 @@ ELSE
   U_in = U_Eta
 END IF
 END SUBROUTINE Filter_Selective
+
 
 !==================================================================================================================================
 !> Deallocate filter arrays

@@ -284,7 +284,7 @@ USE MOD_Equation_Vars       ,ONLY: doCalcSource
 USE MOD_Sponge              ,ONLY: Sponge
 USE MOD_Sponge_Vars         ,ONLY: doSponge
 USE MOD_Filter              ,ONLY: Filter_Pointer
-USE MOD_Filter_Vars         ,ONLY: FilterType,FilterMat
+USE MOD_Filter_Vars         ,ONLY: FilterType,d_FilterMat
 USE MOD_Mesh_Vars           ,ONLY: nElems,nSides,lastInnerSide,firstMPISide_MINE,lastMPISide_MINE,firstMPISide_YOUR,lastMPISide_YOUR
 USE NVTX
 #if PARABOLIC
@@ -326,6 +326,9 @@ INTEGER :: i,j,k,iSide,iElem
 ! 13.  Sponge and source terms
 ! 14.  Perform overintegration and apply Jacobian
 ! -----------------------------------------------------------------------------
+
+! TODO: change basis
+IF(FilterType.GT.0) CALL Filter_Pointer(d_U,d_FilterMat,streamID=stream1)
 
 ! 2. Prolong the solution to the face integration points for flux computation (and do overlapping communication)
 #if USE_MPI

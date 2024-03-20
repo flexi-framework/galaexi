@@ -83,7 +83,12 @@ INTERFACE ChangeBasisVolume
   MODULE PROCEDURE ChangeBasis3D
   MODULE PROCEDURE ChangeBasis3D_singleVar
 END INTERFACE
-#endif
+
+INTERFACE ChangeBasisVolume_GPU
+  MODULE PROCEDURE ChangeBasis3D_GPU
+  ! MODULE PROCEDURE ChangeBasis3D_singleVar
+END INTERFACE
+#endif /*PP_dim == 3*/
 
 #if PP_dim == 3
 INTERFACE ChangeBasisSurf

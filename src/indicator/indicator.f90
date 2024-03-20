@@ -209,6 +209,7 @@ SWRITE(UNIT_stdOut,'(A)')' INIT INDICATOR DONE!'
 SWRITE(UNIT_stdOut,'(132("-"))')
 END SUBROUTINE InitIndicator
 
+
 !==================================================================================================================================
 !> Perform calculation of the indicator.
 !==================================================================================================================================
@@ -447,18 +448,19 @@ END IF
 
 SELECT CASE (IndicatorType)
 #if FV_ENABLED == 2
-CASE(INDTYPE_PERSSON) ! Modal Persson indicator
-  IF(PP_N.GT.9) CALL ABORT(__STAMP__,'Device Kernel for Indicator only allows for up to N=9!')
-  nThreads=(PP_N+1)**2*(PP_NZ+1)
-  SHMEM_SIZE=(PP_N+1)**2*(PP_NZ+1)*SIZEOF(IndValue)*2
-  CALL PerssonIndicatorBlend_GPU<<<nElems,nThreads,SHMEM_SIZE,mystream>>>(PP_N,nElems,d_U,d_EOS_Vars,d_sVdm_Leg,nModes,FV_alpha_min,FV_alpha_max,d_FV_alpha)
-  !d_FV_alpha=0.
+  CASE(INDTYPE_PERSSON) ! Modal Persson indicator
+    IF(PP_N.GT.9) CALL ABORT(__STAMP__,'Device Kernel for Indicator only allows for up to N=9!')
+    nThreads=(PP_N+1)**2*(PP_NZ+1)
+    SHMEM_SIZE=(PP_N+1)**2*(PP_NZ+1)*SIZEOF(IndValue)*2
+    CALL PerssonIndicatorBlend_GPU<<<nElems,nThreads,SHMEM_SIZE,mystream>>>(PP_N,nElems,d_U,d_EOS_Vars,d_sVdm_Leg,nModes,FV_alpha_min,FV_alpha_max,d_FV_alpha)
+    !d_FV_alpha=0.
 #endif
-CASE DEFAULT ! unknown Indicator Type
-  CALL Abort(__STAMP__,&
-    "Unknown IndicatorType!")
+  CASE DEFAULT ! unknown Indicator Type
+    CALL Abort(__STAMP__,"Unknown IndicatorType!")
 END SELECT
+
 END SUBROUTINE CalcIndicator_GPU
+
 
 #if FV_ENABLED == 2
 !==================================================================================================================================

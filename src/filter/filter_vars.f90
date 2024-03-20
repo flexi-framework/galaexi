@@ -28,6 +28,7 @@ INTEGER                :: FilterType            !< filter to be applied 0: no fi
 REAL                   :: HestFilterParam(3)    !< filter parameters for modal Hesthaven style filter
 REAL,ALLOCATABLE       :: FilterMat(:,:)        !< 1D nodal filter matrix
 LOGICAL                :: FilterInitIsDone = .FALSE. !< filter routines have been initialized
+!@cuf REAL,DEVICE,ALLOCATABLE   :: d_FilterMat(:,:)
 #if EQNSYSNR==2
 REAL,ALLOCATABLE       :: lim(:)                !< Analysis data for LAF model
 REAL,ALLOCATABLE       :: eRatio(:)             !< Analysis data for LAF model
