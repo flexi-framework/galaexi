@@ -9,30 +9,29 @@
 
 # About
 
-[FLEXI][flexi] is a high-order numerical framework for solving PDEs, with a special focus on Computational Fluid Dynamics.
-[FLEXI][flexi] is based on the Discontinuous Galerkin Spectral Element Method (DGSEM), which allows for high-order of accuracy 
-and fully unstructured hexahedral meshes. The solver is parallelized very efficiently for large-scale applications and
-scales to 500,000+ cores. Moreover, [FLEXI][flexi] comes with a capable pre- and postprocessing suite that enables complex
+[GALÆXI][flexi] is a GPGPU-enabled extension of FLEXI, a high-order numerical framework for solving PDEs, with a special focus on Computational Fluid Dynamics.
+[GALÆXI][flexi] is based on the Discontinuous Galerkin Spectral Element Method (DGSEM), which allows for high-order of accuracy 
+and fully unstructured hexahedral meshes. The solver is parallelized very efficiently for large-scale applications using MPI-aware CUDA Fortran and has demonstrated excellent scaling on over 1000 NVIDIA GPUs. Moreover, [GALÆXI][flexi] comes with a capable pre- and postprocessing suite that enables complex
 simulation setups up to the finished visualization.
 
-[FLEXI][flexi] has been developed by the [Numerics Research Group (NRG)][nrg] founded by Prof. Claus-Dieter Munz and currently
+[GALÆXI][flexi] has been developed by the [Numerics Research Group (NRG)][nrg] founded by Prof. Claus-Dieter Munz and currently
 lead by Prof. Andrea Beck at the Institute of Aerodynamics and Gasdynamics at the University of Stuttgart, Germany.
 
-You can find detailed installation instructions, the extensive documentation and
-several tutorial cases for FLEXI [here][flexi].
+You can find detailed installation instructions, extensive documentation and
+several tutorial cases for GALÆXI [here][flexi].
 
-FLEXI is Copyright (C) 2016, Prof. Claus-Dieter Munz and is released under the **GNU General Public License v3.0**.
+GALÆXI is Copyright (C) 2016, Prof. Claus-Dieter Munz and is released under the **GNU General Public License v3.0**.
 For the full license terms see the included [license file](LICENSE.md).
 
-Numerous people have worked on and with FLEXI over the last years.
-We would like to thank all these [contributors](CONTRIBUTORS.md) for their efforts they spent on building FLEXI.
+Numerous people have worked on and with GALÆXI over the last years.
+We would like to thank all these [contributors](CONTRIBUTORS.md) for their efforts they spent on building GALÆXI.
  
-In case you have questions regarding FLEXI or want to contribute yourself
+In case you have questions regarding GALÆXI or want to contribute yourself
 by either reporting bugs, requesting features or adding somthing
 different to the project, feel free to open an issue or pull request.
 
 # Cite
-FLEXI is a scientific project. If you use FLEXI for publications or
+GALÆXI is a scientific project. If you use GALÆXI for publications or
 presentations in science, please support the project by citing it.
 As general reference, please cite
 ```
@@ -57,10 +56,10 @@ To refer to specific applications and features, you can also cite the appropriat
 # Quick Start Guide
 For a more detailed installation instructions, please see the documention [here][userguide].
 
-FLEXI is tested for various Linux distributions including Ubuntu, OpenSUSE, CentOS or Arch and also runs on MacOS.
+GALÆXI is tested for various Linux distributions including Ubuntu, OpenSUSE, CentOS and Arch. It currenly only supports offloading to NVIDIA GPUs. Also, compilation is currently only possible with the NVIDIA HPC SDK compilers (nvfortran).
 For installation you require the following dependencies:
 
-| Package          | Required | Installed by FLEXI |
+| Package          | Required | Installed by GALÆXI|
 |:-----------------|:--------:|:------------------:|
 | Git              |      x   |                    |
 | CMake            |      x   |                    |
@@ -69,38 +68,39 @@ For installation you require the following dependencies:
 | LAPACK           |      x   |      x             |
 | HDF5             |      x   |      x             |
 | MPI              |     (x)  |                    |
+| CUDA             |      x   |                    |
 
 The MPI library is only required for running parallel simulations on multiple ranks and the HDF5 and LAPACK libraries
-can be installed automatically during the FLEXI build process.
+can be installed automatically during the GALÆXI build process.
 The names of the packages and the package manager might differ depending on the specific distribution used.
 
 ### Getting the code
-Open a terminal, download FLEXI via git and optionally export the FLEXI directory:
+Open a terminal, download GALÆXI via git and optionally export the GALÆXI directory:
 
-    git clone https://github.com/flexi-framework/flexi.git
-    export FLEXI_DIR="$(pwd)/flexi"
+    git clone https://github.com/flexi-framework/galaexi.git
+    export GALAEXI_DIR="$(pwd)/galaexi"
 
 ### Compiling the code
-Enter the FLEXI directory, create a build directory and use CMake to configure and compile the code
+Enter the GALÆXI directory, create a build directory and use CMake to configure and compile the code
 
-    cd $FLEXI_DIR
+    cd $GALAEXI_DIR
     mkdir build; cd build
     cmake ../
     make
 
-The executable `flexi` is now contained in the FLEXI directory in `build/bin/`.
+The executable `galaexi` is now contained in the GALÆXI directory in `build/bin/`.
 Custom configurations of the compiler options, dependencies and code features can be set using
 
     ccmake ../
 
 ### Running the code
-Navigate to the directory of the tutorial **cavity** and run FLEXI
+Navigate to the directory of the tutorial **naca0012** and run GALÆXI
 
-    cd $FLEXI_DIR/tutorials/cavity
-    $FLEXI_DIR/build/bin/flexi parameter_flexi.ini
+    cd $GALAEXI_DIR/tutorials/naca0012
+    $GALAEXI_DIR/build/bin/galaexi parameter_flexi_navierstokes.ini
 
 # Used libraries
-FLEXI uses several external libraries as well as auxiliary functions from open source projects, including:
+GALÆXI uses several external libraries as well as auxiliary functions from open source projects, including:
 * [HDF5](https://www.hdfgroup.org/)
 * [MPI](https://www.mcs.anl.gov/research/projects/mpi/)
 * [LAPACK](https://www.netlib.org/lapack/)
@@ -109,6 +109,7 @@ FLEXI uses several external libraries as well as auxiliary functions from open s
 * [CMake](https://cmake.org/)
 * [Reggie2.0](https://github.com/reggie-framework/reggie2.0/)
 * [PAPI](https://icl.cs.utk.edu/papi/)
+* [CUDA](https://developer.nvidia.com/cuda-toolkit)
 
 [nrg]:           https://numericsresearchgroup.org/index.html
 [flexi]:         https://numericsresearchgroup.org/flexi_index.html
