@@ -1,6 +1,6 @@
 # List of Contributors
 
-This is a (possibly incomplete) list of the people who contributed to FLEXI.
+This is a (possibly incomplete) list of the people who contributed to GALÆXI.
 
 Christoph Altmann<br/>
 Muhammed Atak<br/>
@@ -36,4 +36,5 @@ Philip Ortwein<br/>
 Anna Schwarz<br/>
 Matthias Sonntag<br/>
 Marc Staudenmaier<br/>
+Spencer Starr<br/>
 Jonas Zeifang
