@@ -273,6 +273,7 @@ SUBROUTINE Filter(U_in,FilterMat,streamID)
 ! MODULES
 USE CUDAFOR
 USE MOD_GPU
+USE MOD_Globals,           ONLY: iError
 USE MOD_PreProc
 USE MOD_ChangeBasisByDim,  ONLY: ChangeBasisVolume_GPU
 USE MOD_Mesh_Vars,         ONLY: nElems
@@ -297,13 +298,15 @@ INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 ! #endif
 !   CALL ChangeBasisVolume(PP_nVar,PP_N,PP_N,FilterMat,U_in(:,:,:,:,iElem))
 ! END DO ! iElem
-
 mystream=DefaultStream
 IF (PRESENT(streamID)) mystream=streamID
 
 nThreads   = (PP_N+1)**2*(PP_NZ+1)
 SHMEM_SIZE = (PP_N+1)**2*(PP_NZ+1)*PP_nVar*SIZEOF(REAL(1.))*2
 CALL ChangeBasisVolume_GPU<<<nElems,nThreads,SHMEM_SIZE,streamID>>>(PP_nVar,PP_N,PP_N,nElems,FilterMat,U_in)
+
+! DEVICE SYNCHRONIZE: All streams have to be ready, cannot progress on unfiltered solution
+iError=CudaDeviceSynchronize()
 
 END SUBROUTINE Filter
 
