@@ -555,6 +555,7 @@ USE MOD_PPLimiter,    ONLY: FinalizePPLimiter
 IMPLICIT NONE
 !==================================================================================================================================
 SDEALLOCATE(FilterMat)
+!@cuf SDEALLOCATE(d_FilterMat)
 #if EQNSYSNR==2
 SDEALLOCATE(lim)
 SDEALLOCATE(eRatio)

@@ -45,16 +45,25 @@ CHARACTER(LEN=255),ALLOCATABLE :: Filename_WallVel(:)     !< output files for wa
 
 ! Time averaging and fluctuation variables
 
+LOGICAL              :: calcPrims           =.FALSE.
+LOGICAL              :: calcEOS             =.FALSE.
 LOGICAL              :: doCalcTimeAverage   =.FALSE.      !< marks if time averaging should be performed
 LOGICAL              :: doCalcFluctuations  =.FALSE.      !< marks if time fluctuations should be computed
-REAL   ,ALLOCATABLE  :: UAvg(:,:,:,:,:)                   !< time averaged solution U
+REAL   ,ALLOCATABLE  :: UAvg( :,:,:,:,:)                   !< time averaged solution U
+!@cuf REAL,DEVICE,ALLOCATABLE   :: d_UAvg( :,:,:,:,:)
 REAL   ,ALLOCATABLE  :: UFluc(:,:,:,:,:)                  !< time averaged solution squared (U^2)
+!@cuf REAL,DEVICE,ALLOCATABLE   :: d_UFluc(:,:,:,:,:)
 LOGICAL,ALLOCATABLE  :: CalcAvg(:)                        !< variables for which time averages should be computed (global indexing)
+!@cuf LOGICAL,DEVICE,ALLOCATABLE  :: d_CalcAvg(:)
 LOGICAL,ALLOCATABLE  :: CalcFluc(:)                       !< variables for which fluctuations should be computed (global indexing)
+!@cuf LOGICAL,DEVICE,ALLOCATABLE  :: d_CalcFluc(:)
 INTEGER,ALLOCATABLE  :: iAvg(:)                           !< map from (global) VariableList to index in UAvg array
+!@cuf INTEGER,DEVICE,ALLOCATABLE  :: d_iAvg(:)
 INTEGER,ALLOCATABLE  :: iFluc(:)                          !< map from (global) VariableList to index in UFluc array
+!@cuf INTEGER,DEVICE,ALLOCATABLE  :: d_iFluc(:)
 INTEGER,ALLOCATABLE  :: FlucAvgMap(:,:)                   !< map from index in UFluc array to index in UAvg array
                                                           !< (e.g. for mixed term uv: iFluc(1,1) -> u iFluc(2,1) -> v)
+!@cuf INTEGER,DEVICE,ALLOCATABLE  :: d_FlucAvgMap(:,:)
 INTEGER              :: nVarAvg                           !< number of time averag variables
 INTEGER              :: nVarFluc                          !< number of fluctuation variables
 INTEGER              :: nVarFlucHasAvg                    !< number of fluctuations depending only on one time average

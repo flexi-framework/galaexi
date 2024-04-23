@@ -44,9 +44,8 @@ END INTERFACE
 
 PUBLIC::InitCalcTimeAverage, FinalizeTimeAverage, CalcTimeAverage
 !==================================================================================================================================
+
 CONTAINS
-
-
 
 !==================================================================================================================================
 !> Initializes the time averaging variables and builds map from fluctuation quantities to required time averaged variables
@@ -196,10 +195,14 @@ IF(CalcFluc(GETMAPBYNAME('DR_u',VarNamesFlucList,nMaxVarFluc)).OR.&
    CalcAvg(GETMAPBYNAME('VelocityX',VarNamesAvgList,nMaxVarAvg)) = .TRUE.
    CalcAvg(GETMAPBYNAME  ('Density',VarNamesAvgList,nMaxVarAvg)) = .TRUE.
 END IF
+
 nVarAvg=0 ! recount nVarAvg
 DO iVar=1,nMaxVarAvg
   IF(CalcAvg(iVar)) nVarAvg=nVarAvg+1
 END DO
+
+! IF(ANY(CalcAvg(6:nMaxVarAvg))) calcPrims = .TRUE.
+! IF(ANY(CalcAvg(11:15)))        calcEOS   = .TRUE.
 
 ! Set indices (iAvg,iFluc) and Varnames
 ALLOCATE(VarNamesFlucOut(nVarFluc),VarNamesAvgOut(nVarAvg))
@@ -208,12 +211,12 @@ ALLOCATE(iAvg(nMaxVarAvg),iFluc(nMaxVarFluc))
 ! iFluc    -> Mapping from index in UFluc array to index in UAvg array
 !             (e.g. for mixed term uv: iFluc(1,1) -> u iFluc(2,1) -> v)
 
-VarNamesFlucOut(:)=''
-VarNamesAvgOut(:)=''
-nVarAvg=0
-nVarFluc=0
-iAvg=0
-iFluc=0
+VarNamesFlucOut(:) = ''
+VarNamesAvgOut(:)  = ''
+nVarAvg  = 0
+nVarFluc = 0
+iAvg     = 0
+iFluc    = 0
 ! Build map for avg
 DO iVar=1,nMaxVarAvg
   IF(CalcAvg(iVar))THEN
@@ -269,11 +272,32 @@ END IF
 #endif /* PARABOLIC */
 
 ! Allocate arrays
-ALLOCATE(UAvg(nVarAvg,0:PP_N,0:PP_N,0:PP_NZ,nElems),UFluc(nVarFluc,0:PP_N,0:PP_N,0:PP_NZ,nElems))
-UAvg = 0.
+ALLOCATE(UAvg( nVarAvg ,0:PP_N,0:PP_N,0:PP_NZ,nElems))
+ALLOCATE(UFluc(nVarFluc,0:PP_N,0:PP_N,0:PP_NZ,nElems))
+UAvg  = 0.
 UFluc = 0.
-dtOld=0.
-dtAvg=0.
+dtOld = 0.
+dtAvg = 0.
+
+!@cuf ALLOCATE(d_UAvg( nVarAvg ,0:PP_N,0:PP_N,0:PP_N,nElems))
+!@cuf ALLOCATE(d_UFluc(nVarFluc,0:PP_N,0:PP_N,0:PP_N,nElems))
+d_UAvg  = UAvg
+d_UFluc = UFluc
+
+!@cuf ALLOCATE(d_CalcAvg (nMaxVarAvg ))
+!@cuf ALLOCATE(d_CalcFluc(nMaxVarFluc))
+d_CalcAvg  = CalcAvg
+d_CalcFluc = CalcFluc
+
+IF (nVarFlucHasAvg.GT.0) THEN
+!@cuf ALLOCATE(d_FlucAvgMap(2,nVarFlucHasAvg))
+  d_FlucAvgMap = FlucAvgMap
+END IF
+
+!@cuf ALLOCATE(d_iAvg(nMaxVarAvg))
+!@cuf ALLOCATE(d_iFluc(nMaxVarFluc))
+d_iAvg  = iAvg
+d_iFluc = iFluc
 
 DEALLOCATE(VarNamesAvgList,VarNamesAvgIni,VarNamesFlucIni)
 DEALLOCATE(VarNamesFlucList)
@@ -306,18 +330,19 @@ END DO
 END FUNCTION
 
 
-
 !==================================================================================================================================
 !> Compute time averages by trapezoidal rule
 !> TODO: extend description
 !==================================================================================================================================
-SUBROUTINE CalcTimeAverage(Finalize,dt,t)
+SUBROUTINE CalcTimeAverage(Finalize,dt,t,streamID)
 ! MODULES
 USE MOD_Globals
+USE MOD_GPU
+USE CUDAFOR
 USE MOD_PreProc
-USE MOD_DG_Vars      ,ONLY: U
+USE MOD_DG_Vars      ,ONLY: d_U,d_UPrim
 #if PARABOLIC
-USE MOD_Lifting_Vars ,ONLY: GradUx,GradUy,GradUz
+USE MOD_Lifting_Vars ,ONLY: d_GradUx,d_GradUy,d_GradUz
 #endif
 USE MOD_Mesh_Vars    ,ONLY: MeshFile,nElems
 USE MOD_HDF5_Output  ,ONLY: WriteTimeAverage
@@ -335,185 +360,217 @@ IMPLICIT NONE
 LOGICAL,INTENT(IN)              :: Finalize               !< finalized trapezoidal rule and output file
 REAL,INTENT(IN)                 :: dt                     !< current timestep for averaging
 REAL,INTENT(IN),OPTIONAL        :: t                      !< current simulation time
+INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-INTEGER                         :: i,j,k,iElem
 REAL                            :: tFuture
 REAL                            :: dtStep
 REAL                            :: vel(3), Mach
-REAL                            :: tmpVars(nVarAvg,0:PP_N,0:PP_N,0:PP_NZ)
-LOGICAL                         :: getPrims=.FALSE.
 REAL                            :: prim(PRIM,0:PP_N,0:PP_N,0:PP_NZ),UE(PP_2Var)
-#if PARABOLIC
-INTEGER                         :: p,q
-REAL                            :: GradVel(1:3,1:3), Shear(1:3,1:3)
-#endif
 REAL,POINTER                    :: Uloc(:,:,:,:)
 #if FV_ENABLED
 REAL,TARGET                     :: UFV(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ)
 #endif
 INTEGER                         :: FV_Elems_loc(1:nElems)
+INTEGER                         :: nThreads
+INTEGER(KIND=CUDA_STREAM_KIND)  :: mystream
 !----------------------------------------------------------------------------------------------------------------------------------
 dtStep = (dtOld+dt)*0.5
 IF(Finalize) dtStep = dt*0.5
 dtAvg  = dtAvg+dtStep
 dtOld  = dt
-IF(ANY(CalcAvg(6:nMaxVarAvg))) getPrims=.TRUE.
 
-DO iElem=1,nElems
+mystream=DefaultStream
+IF (PRESENT(streamID)) mystream=streamID
 
-#if FV_ENABLED
-  IF(FV_Elems(iElem).EQ.0) THEN ! DG Element
-    CALL ChangeBasisVolume(PP_nVar,PP_N,PP_N,FV_Vdm,U(:,:,:,:,iElem),UFV)
-    Uloc(CONS,0:PP_N,0:PP_N,0:PP_NZ) => UFV
-  ELSE ! already FV
-    Uloc(CONS,0:PP_N,0:PP_N,0:PP_NZ) => U(:,:,:,:,iElem)
-  END IF
-#else
-    Uloc(CONS,0:PP_N,0:PP_N,0:PP_NZ) => U(:,:,:,:,iElem)
-#endif
-
-  IF(getPrims)THEN
-    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      CALL ConsToPrim(prim(:,i,j,k),Uloc(:,i,j,k))
-    END DO; END DO; END DO
-  END IF
-
-  ! Compute time averaged variables and fluctuations of these variables
-  IF(CalcAvg(1)) &  !'Density'
-    tmpVars(iAvg(1),:,:,:) = Uloc(DENS,:,:,:)
-
-  IF(CalcAvg(2)) &  !'MomentumX'
-    tmpVars(iAvg(2),:,:,:) = Uloc(MOM1,:,:,:)
-
-  IF(CalcAvg(3)) &  !'MomentumY'
-    tmpVars(iAvg(3),:,:,:) = Uloc(MOM2,:,:,:)
-
-  IF(CalcAvg(4)) &  !'MomentumZ'
-    tmpVars(iAvg(4),:,:,:) = Uloc(MOM3,:,:,:)
-
-  IF(CalcAvg(5)) &  !'EnergyStagnationDensity'
-    tmpVars(iAvg(5),:,:,:) = Uloc(ENER,:,:,:)
-
-  IF(CalcAvg(6)) &  !'VelocityX'
-    tmpVars(iAvg(6),:,:,:) = prim(VEL1,:,:,:)
-
-  IF(CalcAvg(7)) &  !'VelocityY'
-    tmpVars(iAvg(7),:,:,:) = prim(VEL2,:,:,:)
-
-  IF(CalcAvg(8)) &  !'VelocityZ'
-    tmpVars(iAvg(8),:,:,:) = prim(VEL3,:,:,:)
-
-  IF(CalcAvg(9))THEN  !'VelocityMagnitude'
-    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      tmpVars(iAvg(9),i,j,k)=SQRT(SUM(prim(VELV,i,j,k)**2))
-    END DO; END DO; END DO
-  END IF
-
-  IF(CalcAvg(10)) & !'Pressure'
-    tmpVars(iAvg(10),:,:,:)=prim(PRES,:,:,:)
-
-  IF(CalcAvg(11))THEN !'VelocitySound'
-    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      UE(EXT_CONS)=Uloc(:,i,j,k)
-      UE(EXT_PRIM)=prim(:,i,j,k)
-      UE(EXT_SRHO)=1./prim(DENS,i,j,k)
-      tmpVars(iAvg(11),i,j,k)=SPEEDOFSOUND_HE(UE)
-    END DO; END DO; END DO
-  END IF
-
-  IF(CalcAvg(12))THEN !'Mach'
-    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      UE(EXT_CONS)=Uloc(:,i,j,k)
-      UE(EXT_PRIM)=prim(:,i,j,k)
-      UE(EXT_SRHO)=1./prim(DENS,i,j,k)
-      tmpVars(iAvg(12),i,j,k)=SQRT(SUM(prim(VELV,i,j,k)**2))/SPEEDOFSOUND_HE(UE)
-    END DO; END DO; END DO
-  END IF
-
-  IF(CalcAvg(13))THEN !'Temperature'
-    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      tmpVars(iAvg(13),i,j,k)=prim(TEMP,i,j,k)
-    END DO; END DO; END DO
-  END IF
-
-  IF(CalcAvg(14))THEN !'TotalTemperature'
-    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      UE(EXT_CONS)=Uloc(:,i,j,k)
-      UE(EXT_PRIM)=prim(:,i,j,k)
-      UE(EXT_SRHO)=1./prim(DENS,i,j,k)
-      Mach=SQRT(SUM(prim(2:4,i,j,k)**2))/SPEEDOFSOUND_HE(UE)
-      tmpVars(iAvg(14),i,j,k)=TOTAL_TEMPERATURE_H(UE(EXT_TEMP),Mach)
-    END DO; END DO; END DO
-  END IF
-
-  IF(CalcAvg(15))THEN !'TotalPressure
-    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      UE(EXT_CONS)=Uloc(:,i,j,k)
-      UE(EXT_PRIM)=prim(:,i,j,k)
-      UE(EXT_SRHO)=1./prim(DENS,i,j,k)
-      Mach=SQRT(SUM(prim(VELV,i,j,k)**2))/SPEEDOFSOUND_HE(UE)
-      tmpVars(iAvg(15),i,j,k)=TOTAL_PRESSURE_H(UE(EXT_PRES),Mach)
-    END DO; END DO; END DO
-  END IF
-
-  UAvg(:,:,:,:,iElem)= UAvg (:,:,:,:,iElem) + tmpVars(1:nVarAvg,:,:,:)*dtStep
-  IF(nVarFluc.GT.0)&
-    UFluc(1:nVarFlucHasAvg,:,:,:,iElem) = UFluc(1:nVarFlucHasAvg,:,:,:,iElem) + &
-                                 tmpVars(FlucAvgMap(1,1:nVarFlucHasAvg),:,:,:)*tmpVars(FlucAvgMap(2,1:nVarFlucHasAvg),:,:,:)*dtStep
-
-
+CALL ConsToPrim(PP_N,d_UPrim,d_U,streamID=mystream)
+nThreads=(PP_N+1)**3
+CALL TimeAvg<<<nElems,nThreads,0,mystream>>>(PP_N,nElems,Kappa,dtStep,d_U,d_UPrim,nVarAvg,nVarFluc,nMaxVarAvg,nMaxVarFluc, &
+             nVarFlucHasAvg,d_CalcAvg,d_CalcFluc,d_iAvg,d_iFluc,d_FlucAvgMap,d_UAvg,d_UFluc                                &
 #if PARABOLIC
-  IF(CalcFluc(17).OR.CalcFluc(18))THEN  !'Dissipation via vel gradients'
-#if FV_ENABLED
-  STOP 'WriteTimeAverage for dissipation via vel gradients (DR_u / DR_S) not implemented yet for FV!'
-#endif
-    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      GradVel(:,1)=GradUx(LIFT_VELV,i,j,k,iElem)
-      GradVel(:,2)=GradUy(LIFT_VELV,i,j,k,iElem)
-      GradVel(:,3)=GradUz(LIFT_VELV,i,j,k,iElem)
-      IF(CalcFluc(17))THEN
-        Shear=0.5*(Gradvel+TRANSPOSE(GradVel))
-        DO p=1,3; DO q=1,3
-          UFluc(iFluc(17),i,j,k,iElem) =UFluc(iFluc(17),i,j,k,iElem) + Shear(p,q)*Shear(p,q)*dtStep
-        END DO; END DO
-      END IF
-      IF(CalcFluc(18))THEN
-        DO p=1,3; DO q=1,3
-          UFluc(iFluc(18),i,j,k,iElem) =UFluc(iFluc(18),i,j,k,iElem) +  GradVel(p,q)*GradVel(p,q)*dtStep
-        END DO; END DO
-      END IF
-    END DO; END DO; END DO
-  END IF
-#endif /* PARABOLIC */
-
-  IF(CalcFluc(19))THEN  !'TKE'
-    DO k=0,PP_NZ; DO j=0,PP_N; DO i=0,PP_N
-      vel =Uloc(2:4,i,j,k)/Uloc(1,i,j,k)
-      UFluc(iFluc(19),i,j,k,iElem)=UFluc(iFluc(19),i,j,k,iElem)+SUM(vel**2)*dtStep
-    END DO; END DO; END DO
-  END IF
-
-END DO ! iElem
+            ,PP_nVarLifting,d_GradUx,d_GradUy,d_GradUz                                                                     &
+#endif /*PARABOLIC*/
+            )
 
 ! Calc time average and write solution to file
 IF(Finalize)THEN
-  IF(nVarAvg .GT.0) UAvg =UAvg /dtAvg
-  IF(nVarFluc.GT.0) UFluc=UFluc/dtAvg
-  tFuture=t+WriteData_dt
-  FV_Elems_loc=FV_ENABLED
+  ! DEVICE SYNCHRONIZE: All streams have to be ready, cannot progress on unfiltered solution
+  iError=CudaDeviceSynchronize()
+
+  UAvg  = d_UAvg
+  UFluc = d_UFluc
+
+  IF(nVarAvg .GT.0) UAvg  = UAvg /dtAvg
+  IF(nVarFluc.GT.0) UFluc = UFluc/dtAvg
+  tFuture      = t + WriteData_dt
+  FV_Elems_loc = FV_ENABLED
   CALL WriteTimeAverage(MeshFile,t,dtAvg,FV_Elems_loc,(/PP_N+1,PP_N+1,PP_NZ+1/),&
                         nVarAvg ,VarNamesAvgOut ,UAvg ,&
                         nVarFluc,VarNamesFlucOut,UFluc,&
                         FutureTime=tFuture)
-  UAvg=0.
-  UFluc=0.
-  dtAvg=0.
-  dtOld=0.
+  d_UAvg  = 0.
+  d_UFluc = 0.
+  dtAvg = 0.
+  dtOld = 0.
 END IF
 
 END SUBROUTINE CalcTimeAverage
 
+
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE TimeAvg(PP_N,nElems,Kappa,dtStep,U,UPrim,nVarAvg,nVarFluc,nMaxVarAvg,nMaxVarFluc,nVarFlucHasAvg,CalcAvg,CalcFluc, &
+                   iAvg_In,iFluc_In,FlucAvgMap,UAvg,UFluc                                                                          &
+#if PARABOLIC
+                  ,PP_nVarLifting,GradUx,GradUy,GradUz                                                                       &
+#endif /*PARABOLIC*/
+                  )
+! IMPLICIT VARIABLE HANDLING
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)        :: PP_N                                      !< Polynomial degree
+INTEGER,VALUE,INTENT(IN)        :: nElems
+REAL,VALUE,INTENT(IN)           :: Kappa
+REAL,VALUE,INTENT(IN)           :: dtStep
+REAL,DEVICE,INTENT(IN)          :: U(    CONS,0:PP_N,0:PP_N,0:PP_N,1:nElems)
+REAL,DEVICE,INTENT(IN)          :: UPrim(PRIM,0:PP_N,0:PP_N,0:PP_N,1:nElems)
+INTEGER,VALUE,INTENT(IN)        :: nVarAvg
+INTEGER,VALUE,INTENT(IN)        :: nVarFluc
+INTEGER,VALUE,INTENT(IN)        :: nMaxVarAvg
+INTEGER,VALUE,INTENT(IN)        :: nMaxVarFluc
+INTEGER,VALUE,INTENT(IN)        :: nVarFlucHasAvg
+LOGICAL,DEVICE,INTENT(IN)       :: CalcAvg (nMaxVarAvg)
+LOGICAL,DEVICE,INTENT(IN)       :: CalcFluc(nMaxVarFluc)
+INTEGER,DEVICE,INTENT(IN)       :: iAvg_In (nMaxVarAvg)
+INTEGER,DEVICE,INTENT(IN)       :: iFluc_In(nMaxVarFluc)
+INTEGER,DEVICE,INTENT(IN)       :: FlucAvgMap(2,nVarFlucHasAvg)
+REAL,DEVICE,INTENT(INOUT)       :: UAvg( nVarAvg, 0:PP_N,0:PP_N,0:PP_N,1:nElems)
+REAL,DEVICE,INTENT(INOUT)       :: UFluc(nVarFluc,0:PP_N,0:PP_N,0:PP_N,1:nElems)
+#if PARABOLIC
+INTEGER,VALUE,INTENT(IN)        :: PP_nVarLifting                            !< Polynomial degree
+REAL,DEVICE,INTENT(IN)          :: GradUx(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_N,1:nElems)
+REAL,DEVICE,INTENT(IN)          :: GradUy(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_N,1:nElems)
+REAL,DEVICE,INTENT(IN)          :: GradUz(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_N,1:nElems)
+#endif /*PARABOLIC*/
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                         :: i,j,k,iElem,threadID,rest
+REAL                            :: UE(PP_2Var)
+REAL                            :: tmpVars(nVarAvg)
+REAL                            :: a
+#if PARABOLIC
+INTEGER                         :: p,q
+REAL                            :: GradVel(1:3,1:3),Shear(1:3,1:3)
+#endif
+INTEGER                         :: iAvg( nMaxVarAvg)
+INTEGER                         :: iFluc(nMaxVarFluc)
+!----------------------------------------------------------------------------------------------------------------------------------
+iAvg  = iAvg_In
+iFluc = iFluc_In
+
+! Get thread indices
+threadID = (blockidx%x-1) * blockdim%x + threadidx%x
+! Get ElemID of current thread
+iElem   =        (threadID-1)/((PP_N+1)**3)+1 ! Elems are 1-indexed
+rest    =  threadID-(iElem-1)*((PP_N+1)**3)
+! Get jk indices of current thread
+k       = (rest-1)/(PP_N+1)**2
+rest    =  rest- k*(PP_N+1)**2
+j       = (rest-1)/(PP_N+1)!**1
+rest    =  rest- j*(PP_N+1)!**1
+i       = (rest-1)!/(Nloc+1)**0
+rest    =  rest- i!*(Nloc+1)**0
+
+IF ((iElem.LE.nElems)) THEN
+  ! Compute speed of sound
+  UE(EXT_CONS) = U(    :,i,j,k,iElem)
+  UE(EXT_PRIM) = UPrim(:,i,j,k,iElem)
+  UE(EXT_SRHO) = 1./UPrim(DENS,i,j,k,iElem)
+  a = SPEEDOFSOUND_HE(UE)
+
+#if PARABOLIC
+  GradVel(:,1) = GradUx(LIFT_VELV,i,j,k,iElem)
+  GradVel(:,2) = GradUy(LIFT_VELV,i,j,k,iElem)
+  GradVel(:,3) = GradUz(LIFT_VELV,i,j,k,iElem)
+#endif /*PARABOLIC*/
+
+  ASSOCIATE(Mach => NORM2(UPrim(2:4,i,j,k,iElem))/a)
+
+  ! Compute time averaged variables and fluctuations of these variables
+  IF(CalcAvg(1)) &  !'Density'
+    tmpVars(iAvg(1)) = U(    DENS,i,j,k,iElem)
+
+  IF(CalcAvg(2)) &  !'MomentumX'
+    tmpVars(iAvg(2)) = U(    MOM1,i,j,k,iElem)
+
+  IF(CalcAvg(3)) &  !'MomentumY'
+    tmpVars(iAvg(3)) = U(    MOM2,i,j,k,iElem)
+
+  IF(CalcAvg(4)) &  !'MomentumZ'
+    tmpVars(iAvg(4)) = U(    MOM3,i,j,k,iElem)
+
+  IF(CalcAvg(5)) &  !'EnergyStagnationDensity'
+    tmpVars(iAvg(5)) = U(    ENER,i,j,k,iElem)
+
+  IF(CalcAvg(6)) &  !'VelocityX'
+    tmpVars(iAvg(6)) = UPrim(VEL1,i,j,k,iElem)
+
+  IF(CalcAvg(7)) &  !'VelocityY'
+    tmpVars(iAvg(7)) = UPrim(VEL2,i,j,k,iElem)
+
+  IF(CalcAvg(8)) &  !'VelocityZ'
+    tmpVars(iAvg(8)) = UPrim(VEL3,i,j,k,iElem)
+
+  IF(CalcAvg(9)) &  !'VelocityMagnitude'
+    tmpVars(iAvg(9)) = NORM2(UPrim(VELV,i,j,k,iElem))
+
+  IF(CalcAvg(10)) & !'Pressure'
+    tmpVars(iAvg(10)) = UPrim(PRES,i,j,k,iElem)
+
+  IF(CalcAvg(11)) & !'VelocitySound'
+    tmpVars(iAvg(11)) = a
+
+  IF(CalcAvg(12)) & !'Mach'
+    tmpVars(iAvg(12)) = Mach
+
+  IF(CalcAvg(13)) & !'Temperature'
+    tmpVars(iAvg(13)) = UPrim(TEMP,i,j,k,iElem)
+
+  IF(CalcAvg(14)) & !'TotalTemperature'
+    tmpVars(iAvg(14)) = TOTAL_TEMPERATURE_H(UE(EXT_TEMP),Mach)
+
+  IF(CalcAvg(15))  & !'TotalPressure
+    tmpVars(iAvg(15)) = TOTAL_PRESSURE_H(UE(EXT_PRES),Mach)
+
+  END ASSOCIATE
+
+  UAvg( :                 ,i,j,k,iElem) = UAvg ( :              ,i,j,k,iElem) + tmpVars(1:nVarAvg                     )*dtStep
+  IF(nVarFlucHasAvg.GT.0) &
+    UFluc(1:nVarFlucHasAvg,i,j,k,iElem) = UFluc(1:nVarFlucHasAvg,i,j,k,iElem) + tmpVars(FlucAvgMap(1,1:nVarFlucHasAvg)) &
+                                                                              * tmpVars(FlucAvgMap(2,1:nVarFlucHasAvg))*dtStep
+
+#if PARABOLIC
+  IF(CalcFluc(17)) THEN ! DR_u
+    Shear = 0.5*(Gradvel+TRANSPOSE(GradVel))
+    DO p=1,3; DO q=1,3
+      UFluc(iFluc(17),i,j,k,iElem) = UFluc(iFluc(17),i,j,k,iElem) + Shear(p,q)*Shear(p,q)*dtStep
+    END DO; END DO
+  END IF
+
+  IF(CalcFluc(18)) THEN ! DR_S
+    DO p=1,3; DO q=1,3
+      UFluc(iFluc(18),i,j,k,iElem) = UFluc(iFluc(18),i,j,k,iElem) + GradVel(p,q)*GradVel(p,q)*dtStep
+    END DO; END DO
+  END IF
+#endif /* PARABOLIC */
+
+  IF(CalcFluc(19)) &  !'TKE'
+    UFluc(iFluc(19),i,j,k,iElem)   = UFluc(iFluc(19),i,j,k,iElem) + SUM(UPrim(VELV,i,j,k,iElem)**2)*dtStep
+
+END IF ! iElem
+
+END SUBROUTINE TimeAvg
 
 
 !==================================================================================================================================
@@ -533,6 +590,7 @@ SDEALLOCATE(CalcFluc)
 SDEALLOCATE(iAvg)
 SDEALLOCATE(iFluc)
 SDEALLOCATE(UAvg)
+!@cuf SDEALLOCATE(d_UAvg)
 SDEALLOCATE(UFluc)
 SDEALLOCATE(VarNamesAvgOut)
 SDEALLOCATE(VarNamesFlucOut)
