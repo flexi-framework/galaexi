@@ -35,6 +35,10 @@
 #  define IEEE_IS_NAN ISNAN
 #endif
 
+#ifdef NVHPC
+#define NORM2(x) SQRT(SUM(x**2))
+#endif
+
 #define SIZEOF_F(x) (STORAGE_SIZE(x)/8)
 
 #ifdef GNU

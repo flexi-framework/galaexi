@@ -273,6 +273,8 @@ ELSEIF (CMAKE_Fortran_COMPILER_ID MATCHES "NVHPC")
   SET (CMAKE_Fortran_FLAGS_DEBUG     "${CMAKE_Fortran_FLAGS} -cuda -g  -O0 -r8 -Mpreprocess -Minfo=accel -lnvToolsExt -L$(CUDA_HOME)/lib64/")
   # add flags only for compiling not linking!
   SET (FLEXI_COMPILE_FLAGS "-fPIC")
+  # add definition
+  ADD_DEFINITIONS(-DNVHPC)
 
 ELSEIF (CMAKE_Fortran_COMPILER_ID MATCHES "PGI")
   #IF (NOT DEFINED C_FLAGS_INITIALIZED )

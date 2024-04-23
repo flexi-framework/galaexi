@@ -455,7 +455,7 @@ REAL,DEVICE,INTENT(IN)          :: GradUz(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_N,1:
 INTEGER                         :: i,j,k,iElem,threadID,rest
 REAL                            :: UE(PP_2Var)
 REAL                            :: tmpVars(nVarAvg)
-REAL                            :: a
+REAL                            :: a,Mach
 #if PARABOLIC
 INTEGER                         :: p,q
 REAL                            :: GradVel(1:3,1:3),Shear(1:3,1:3)
@@ -484,15 +484,14 @@ IF ((iElem.LE.nElems)) THEN
   UE(EXT_CONS) = U(    :,i,j,k,iElem)
   UE(EXT_PRIM) = UPrim(:,i,j,k,iElem)
   UE(EXT_SRHO) = 1./UPrim(DENS,i,j,k,iElem)
-  a = SPEEDOFSOUND_HE(UE)
+  a    = SPEEDOFSOUND_HE(UE)
+  Mach = NORM2(UPrim(2:4,i,j,k,iElem))/a
 
 #if PARABOLIC
   GradVel(:,1) = GradUx(LIFT_VELV,i,j,k,iElem)
   GradVel(:,2) = GradUy(LIFT_VELV,i,j,k,iElem)
   GradVel(:,3) = GradUz(LIFT_VELV,i,j,k,iElem)
 #endif /*PARABOLIC*/
-
-  ASSOCIATE(Mach => NORM2(UPrim(2:4,i,j,k,iElem))/a)
 
   ! Compute time averaged variables and fluctuations of these variables
   IF(CalcAvg(1)) &  !'Density'
@@ -540,13 +539,10 @@ IF ((iElem.LE.nElems)) THEN
   IF(CalcAvg(15))  & !'TotalPressure
     tmpVars(iAvg(15)) = TOTAL_PRESSURE_H(UE(EXT_PRES),Mach)
 
-  END ASSOCIATE
-
   UAvg( :                 ,i,j,k,iElem) = UAvg ( :              ,i,j,k,iElem) + tmpVars(1:nVarAvg                     )*dtStep
   IF(nVarFlucHasAvg.GT.0) &
     UFluc(1:nVarFlucHasAvg,i,j,k,iElem) = UFluc(1:nVarFlucHasAvg,i,j,k,iElem) + tmpVars(FlucAvgMap(1,1:nVarFlucHasAvg)) &
                                                                               * tmpVars(FlucAvgMap(2,1:nVarFlucHasAvg))*dtStep
-
 #if PARABOLIC
   IF(CalcFluc(17)) THEN ! DR_u
     Shear = 0.5*(Gradvel+TRANSPOSE(GradVel))
