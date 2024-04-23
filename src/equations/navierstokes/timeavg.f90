@@ -59,6 +59,7 @@ USE MOD_Preproc
 USE MOD_ReadInTools, ONLY: CountOption,GETSTR,GETLOGICAL,GETINT
 USE MOD_Mesh_Vars,   ONLY: nElems
 USE MOD_AnalyzeEquation_Vars
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -309,6 +310,7 @@ END SUBROUTINE InitCalcTimeAverage
 !==================================================================================================================================
 PURE FUNCTION GETMAPBYNAME(VarName,VarNameList,nVarList)
 ! MODULES
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -354,26 +356,22 @@ USE MOD_AnalyzeEquation_Vars
 USE MOD_FV_Vars      ,ONLY: FV_Elems,FV_Vdm
 USE MOD_ChangeBasisByDim,ONLY:ChangeBasisVolume
 #endif
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
-LOGICAL,INTENT(IN)              :: Finalize               !< finalized trapezoidal rule and output file
-REAL,INTENT(IN)                 :: dt                     !< current timestep for averaging
-REAL,INTENT(IN),OPTIONAL        :: t                      !< current simulation time
+LOGICAL,INTENT(IN)                                 :: Finalize               !< finalized trapezoidal rule and output file
+REAL,INTENT(IN)                                    :: dt                     !< current timestep for averaging
+REAL,INTENT(IN),OPTIONAL                           :: t                      !< current simulation time
 INTEGER(KIND=CUDA_STREAM_KIND),OPTIONAL,INTENT(IN) :: streamID
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
-REAL                            :: tFuture
-REAL                            :: dtStep
-REAL                            :: vel(3), Mach
-REAL                            :: prim(PRIM,0:PP_N,0:PP_N,0:PP_NZ),UE(PP_2Var)
-REAL,POINTER                    :: Uloc(:,:,:,:)
-#if FV_ENABLED
-REAL,TARGET                     :: UFV(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ)
-#endif
-INTEGER                         :: FV_Elems_loc(1:nElems)
-INTEGER                         :: nThreads
-INTEGER(KIND=CUDA_STREAM_KIND)  :: mystream
+REAL                                               :: tFuture
+REAL                                               :: dtStep
+REAL,POINTER                                       :: Uloc(:,:,:,:)
+INTEGER                                            :: FV_Elems_loc(1:nElems)
+INTEGER                                            :: nThreads
+INTEGER(KIND=CUDA_STREAM_KIND)                     :: mystream
 !----------------------------------------------------------------------------------------------------------------------------------
 dtStep = (dtOld+dt)*0.5
 IF(Finalize) dtStep = dt*0.5
@@ -388,7 +386,7 @@ nThreads=(PP_N+1)**3
 CALL TimeAvg<<<nElems,nThreads,0,mystream>>>(PP_N,nElems,Kappa,dtStep,d_U,d_UPrim,nVarAvg,nVarFluc,nMaxVarAvg,nMaxVarFluc, &
              nVarFlucHasAvg,d_CalcAvg,d_CalcFluc,d_iAvg,d_iFluc,d_FlucAvgMap,d_UAvg,d_UFluc                                &
 #if PARABOLIC
-            ,PP_nVarLifting,d_GradUx,d_GradUy,d_GradUz                                                                     &
+            ,d_GradUx,d_GradUy,d_GradUz                                                                     &
 #endif /*PARABOLIC*/
             )
 
@@ -421,7 +419,7 @@ END SUBROUTINE CalcTimeAverage
 ATTRIBUTES(GLOBAL) SUBROUTINE TimeAvg(PP_N,nElems,Kappa,dtStep,U,UPrim,nVarAvg,nVarFluc,nMaxVarAvg,nMaxVarFluc,nVarFlucHasAvg,CalcAvg,CalcFluc, &
                    iAvg_In,iFluc_In,FlucAvgMap,UAvg,UFluc                                                                          &
 #if PARABOLIC
-                  ,PP_nVarLifting,GradUx,GradUy,GradUz                                                                       &
+                  ,GradUx,GradUy,GradUz                                                                       &
 #endif /*PARABOLIC*/
                   )
 ! IMPLICIT VARIABLE HANDLING
@@ -448,7 +446,6 @@ INTEGER,DEVICE,INTENT(IN)       :: FlucAvgMap(2,nVarFlucHasAvg)
 REAL,DEVICE,INTENT(INOUT)       :: UAvg( nVarAvg, 0:PP_N,0:PP_N,0:PP_N,1:nElems)
 REAL,DEVICE,INTENT(INOUT)       :: UFluc(nVarFluc,0:PP_N,0:PP_N,0:PP_N,1:nElems)
 #if PARABOLIC
-INTEGER,VALUE,INTENT(IN)        :: PP_nVarLifting                            !< Polynomial degree
 REAL,DEVICE,INTENT(IN)          :: GradUx(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_N,1:nElems)
 REAL,DEVICE,INTENT(IN)          :: GradUy(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_N,1:nElems)
 REAL,DEVICE,INTENT(IN)          :: GradUz(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_N,1:nElems)
@@ -579,6 +576,7 @@ END SUBROUTINE TimeAvg
 SUBROUTINE FinalizeTimeAverage()
 ! MODULES
 USE MOD_AnalyzeEquation_Vars
+! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
@@ -586,15 +584,22 @@ IMPLICIT NONE
 ! LOCAL VARIABLES
 !==================================================================================================================================
 SDEALLOCATE(CalcAvg)
+!@cuf SDEALLOCATE(d_CalcAvg)
 SDEALLOCATE(CalcFluc)
+!@cuf SDEALLOCATE(d_CalcFluc)
 SDEALLOCATE(iAvg)
+!@cuf SDEALLOCATE(d_iAvg)
 SDEALLOCATE(iFluc)
+!@cuf SDEALLOCATE(d_iFluc)
 SDEALLOCATE(UAvg)
 !@cuf SDEALLOCATE(d_UAvg)
 SDEALLOCATE(UFluc)
+!@cuf SDEALLOCATE(d_UFluc)
 SDEALLOCATE(VarNamesAvgOut)
+!@cuf SDEALLOCATE(d_FlucAvgMap)
 SDEALLOCATE(VarNamesFlucOut)
 SDEALLOCATE(FlucAvgMap)
+
 END SUBROUTINE FinalizeTimeAverage
 
 END MODULE MOD_TimeAverage
