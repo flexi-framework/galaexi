@@ -309,7 +309,7 @@ ELSE()
   # Build LAPACK
   IF (LIBS_BUILD_MATH_LIB_VENDOR MATCHES "LAPACK")
     # Origin pointing to Github
-    IF("${GIT_ORIGIN}" MATCHES ".github.com")
+    IF("${GIT_ORIGIN}" MATCHES ".github.com" OR CMAKE_FQDN_HOST MATCHES "j(r|w)login")
       SET (MATHLIB_DOWNLOAD "https://github.com/Reference-LAPACK/lapack.git")
     ELSE()
       SET (MATHLIB_DOWNLOAD ${LIBS_DLPATH}libs/lapack.git)

@@ -45,8 +45,6 @@ PUBLIC :: FinalizeOverintegration
 PUBLIC :: DefineParametersOverintegration
 !==================================================================================================================================
 
-
-
 CONTAINS
 
 !==================================================================================================================================
@@ -195,7 +193,7 @@ REAL,INTENT(INOUT)  :: U_in(PP_nVar,0:PP_N,0:PP_N,0:PP_NZ,nElems) !< Time deriva
 !==================================================================================================================================
 SELECT CASE (OverintegrationType)
 CASE (OVERINTEGRATIONTYPE_CUTOFF)
-  CALL Filter_Pointer(U_in, OverintegrationMat)
+  ! CALL Filter_Pointer(U_in, OverintegrationMat)
 CASE (OVERINTEGRATIONTYPE_CONSCUTOFF)
   CALL FilterConservative(U_in)
 CASE DEFAULT
@@ -341,7 +339,6 @@ END DO
 END SUBROUTINE FilterConservative
 
 
-
 !==================================================================================================================================
 !> Deallocate Overintegration arrays
 !==================================================================================================================================
@@ -357,7 +354,5 @@ SDEALLOCATE(Vdm_NUnder_N)
 SDEALLOCATE(Vdm_N_NUnder)
 OverintegrationInitIsDone = .FALSE.
 END SUBROUTINE FinalizeOverintegration
-
-
 
 END MODULE MOD_Overintegration

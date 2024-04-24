@@ -207,7 +207,6 @@ rest     =  rest- (locSideID-1)*(Nloc+1)**2
 p        = (rest-1)/(Nloc+1)!**1
 rest     =  rest- p*(Nloc+1)!**1
 q        = (rest-1)!/(Nloc+1)**0
-rest     =  rest- q!*(Nloc+1)**0
 
 IF (ElemID.LE.nElems) THEN
   SideID   = ElemToSide(E2S_SIDE_ID  ,locSideID,ElemID)

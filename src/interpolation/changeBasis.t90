@@ -222,6 +222,7 @@ DO jI=0,NIn
 END DO
 END SUBROUTINE ChangeBasis2D_XYZ
 
+
 !==================================================================================================================================
 !> Interpolate an array of Dim1 3D tensor product Lagrange polynomials (defined by X_In) of order NIn to 3D Lagrange polynomials
 !> of order NOut using the 1D Vandermonde matrix Vdm.
@@ -276,6 +277,86 @@ ELSE
   END DO; END DO; END DO
 END IF
 END SUBROUTINE ChangeBasis3D
+
+
+!==================================================================================================================================
+!> Interpolate an array of Dim1 3D tensor product Lagrange polynomials (defined by X_In) of order NIn to 3D Lagrange polynomials
+!> of order NOut using the 1D Vandermonde matrix Vdm.
+!> If X_Out is present, the output will be written to X_Out, otherwise X_In will be overwritten.
+!==================================================================================================================================
+ATTRIBUTES(GLOBAL) SUBROUTINE ChangeBasis3D_GPU(Dim1,NIn,NOut,nElems,Vdm,X_In,X_Out)
+! IMPLICIT VARIABLE HANDLING
+IMPLICIT NONE
+!----------------------------------------------------------------------------------------------------------------------------------
+! INPUT/OUTPUT VARIABLES
+INTEGER,VALUE,INTENT(IN)         :: Dim1                                      !< Number of variables
+INTEGER,VALUE,INTENT(IN)         :: NIn                                       !< Input polynomial degree, no. of points = NIn+1
+INTEGER,VALUE,INTENT(IN)         :: NOut                                      !< Input polynomial degree, no. of points = NOut+1
+INTEGER,VALUE,INTENT(IN)         :: nElems
+REAL,DEVICE,INTENT(INOUT)        :: X_In( 1:Dim1,0:NIn ,0:NIn ,0:NIn ,nElems) !< Input field, dimensions must match Dim1,NIn
+REAL,DEVICE,INTENT(OUT),OPTIONAL :: X_Out(1:Dim1,0:NOut,0:NOut,0:NOut,nElems) !< Output field, dimensions must match Dim1,NOut, OPTIONAL
+REAL,DEVICE,INTENT(IN)           :: Vdm(0:NOut,0:NIn)                         !< 1D Vandermonde In -> Out
+!----------------------------------------------------------------------------------------------------------------------------------
+! LOCAL VARIABLES
+INTEGER                          :: iElem,i,j,k,threadID,rest,l,NCalc
+REAL,SHARED                      :: X_Buf1(1:Dim1,0:NOut,0:NIn ,0:NIn)        ! first intermediate results from 1D interpolations
+REAL,SHARED                      :: X_Buf2(1:Dim1,0:NOut,0:NOut,0:NIn)        ! second intermediate results from 1D interpolations
+REAL                             :: U_tmp( 1:Dim1)
+!==================================================================================================================================
+! Get thread indices
+threadID = (blockidx%x-1) * blockdim%x + threadidx%x
+! Get maximum degree
+NCalc   = MAX(NIn,NOut)
+! Get ElemID of current thread
+iElem   =        (threadID-1)/((NCalc+1)**3)+1 ! Elems are 1-indexed
+rest    =  threadID-(iElem-1)*((NCalc+1)**3)
+! Get jk indices of current thread
+k       = (rest-1)/(NCalc+1)**2
+rest    =  rest- k*(NCalc+1)**2
+j       = (rest-1)/(NCalc+1)!**1
+rest    =  rest- j*(NCalc+1)!**1
+i       = (rest-1)!/(NCalc+1)**0
+
+IF ((iElem.LE.nElems)) THEN
+  ! first direction i
+  IF ( i.LE.NOut .AND. j.LE.NIn .AND. k.LE.NIn) THEN
+    U_tmp = 0.
+    ! Evaluate the polynomial at the new Xi-positions (i) using the old Xi-positions (l)
+    DO l=0,NIn
+      U_tmp = U_tmp + Vdm(i,l)*X_In(:,l,j,k,iElem)
+    END DO
+    X_Buf1(:,i,j,k) = U_tmp
+  END IF
+  CALL SYNCTHREADS() ! Ensure array is filled
+
+  ! second direction j
+  IF (i.LE.NOut .AND. j.LE.NOut .AND. k.LE.NIn) THEN
+    U_tmp = 0.
+    ! Evaluate the polynomial at the new Eta-positions (j) using the old Eta-positions (l)
+    DO l=0,NIn
+      U_tmp = U_tmp + Vdm(j,l)*X_Buf1(:,i,l,k)
+    END DO
+    X_Buf2(:,i,j,k) = U_tmp
+  END IF
+  CALL SYNCTHREADS() ! Ensure array is filled
+
+  ! third direction k
+  IF (i.LE.NOut .AND. j.LE.NOut .AND. k.LE.NOut) THEN
+    U_tmp = 0.
+    ! Evaluate the polynomial at the new Zeta-positions (k) using the old Zeta-positions (l)
+    DO l=0,NIn
+      U_tmp = U_tmp + Vdm(k,l)*X_Buf2(:,i,j,l)
+    END DO
+    IF (PRESENT(X_Out)) THEN
+      X_Out(:,i,j,k,iElem) = U_tmp
+    ELSE
+      X_In (:,i,j,k,iElem) = U_tmp
+    END IF
+  END IF
+  CALL SYNCTHREADS() ! Ensure array is filled
+END IF
+
+END SUBROUTINE ChangeBasis3D_GPU
 
 
 !==================================================================================================================================

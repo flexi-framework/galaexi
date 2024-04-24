@@ -35,6 +35,14 @@
 #  define IEEE_IS_NAN ISNAN
 #endif
 
+#ifdef NVHPC
+! Calculate GCC version
+#define NVHPC_VERSION (NVHPC_MAJOR * 10000 + NVHPC_MINOR * 100 + NVHPC_PATCH)
+#if GCC_VERSION < 230000
+#define NORM2(x) SQRT(SUM(x**2))
+#endif
+#endif
+
 #define SIZEOF_F(x) (STORAGE_SIZE(x)/8)
 
 #ifdef GNU

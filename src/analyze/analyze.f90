@@ -302,8 +302,8 @@ REAL                            :: CalcTime,RunTime
 REAL                            :: L_Inf_Error(PP_nVar),L_2_Error(PP_nVar)
 !==================================================================================================================================
 ! Graphical output
-CalcTime=FLEXITIME()
-RunTime=CalcTime-StartTime
+CalcTime = FLEXITIME()
+RunTime  = CalcTime-StartTime
 SWRITE(UNIT_stdOut,'(A14,ES16.7)')' Sim time   : ',Time
 
 ! Calculate error norms
@@ -318,7 +318,7 @@ IF(doCalcErrorNorms)THEN
                         REAL(iter)+iterRestart,RunTime+CalcTimeRestart,              &
                         REAL(nGlobalElems*(PP_N+1)**3),REAL(nGlobalElems),REAL(nProcessors)/))
     END IF
-  END IF !MPIRoot
+  END IF ! MPIRoot
 END IF  ! ErrorNorms
 
 CALL AnalyzeEquation(Time)

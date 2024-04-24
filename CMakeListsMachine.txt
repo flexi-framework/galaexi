@@ -186,6 +186,26 @@ ENDIF()
 MESSAGE(STATUS "Compiling with [${CMAKE_Fortran_COMPILER_ID}] (v${CMAKE_Fortran_COMPILER_VERSION}) fortran compiler using [${FLEXI_INSTRUCTION}] instruction")
 
 # =========================================================================
+# COMPILER DEFINITIONS
+# =========================================================================
+
+# NVIDIA Compiler
+IF (CMAKE_Fortran_COMPILER_ID MATCHES "NVHPC")
+  # add definition
+  ADD_DEFINITIONS(-DNVHPC)
+
+  # get the compiler versions
+  STRING(REPLACE "." ";" CMAKE_Fortran_COMPILER_VERSION_LIST ${CMAKE_Fortran_COMPILER_VERSION})
+  LIST(GET CMAKE_Fortran_COMPILER_VERSION_LIST 0 CMAKE_Fortran_COMPILER_VERSION_MAJOR)
+  LIST(GET CMAKE_Fortran_COMPILER_VERSION_LIST 1 CMAKE_Fortran_COMPILER_VERSION_MINOR)
+  LIST(GET CMAKE_Fortran_COMPILER_VERSION_LIST 2 CMAKE_Fortran_COMPILER_VERSION_PATCH)
+
+  ADD_DEFINITIONS(-DNVHPC_MAJOR=${CMAKE_Fortran_COMPILER_VERSION_MAJOR})
+  ADD_DEFINITIONS(-DNVHPC_MINOR=${CMAKE_Fortran_COMPILER_VERSION_MINOR})
+  ADD_DEFINITIONS(-DNVHPC_PATCH=${CMAKE_Fortran_COMPILER_VERSION_PATCH})
+ENDIF()
+
+# =========================================================================
 # COMPILER FLAGS
 # =========================================================================
 
@@ -261,7 +281,7 @@ ELSEIF (CMAKE_Fortran_COMPILER_ID MATCHES "Cray")
   # add flags only for compiling not linking!
   SET (FLEXI_COMPILE_FLAGS "${NINJA_COLOR_DIAGNOSTICS} -F")
 
-# PGI Compiler
+# NVIDIA Compiler
 ELSEIF (CMAKE_Fortran_COMPILER_ID MATCHES "NVHPC")
   #IF (NOT DEFINED C_FLAGS_INITIALIZED )
   #  SET (C_FLAGS_INITIALIZED "yes" CACHE INTERNAL "Flag if compiler flags are already initialized" )
