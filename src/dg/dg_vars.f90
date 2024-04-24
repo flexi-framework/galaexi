@@ -57,7 +57,7 @@ REAL,DEVICE,ALLOCATABLE               :: d_DVolSurf(:,:)        !< Transpose of 
 
 !----------------------------------------------------------------------------------------------------------------------------------
 ! DG solution (JU or U) vectors)
-REAL,ALLOCATABLE,TARGET               :: U(:,:,:,:,:)           !< Solution variable for each equation, node and element,
+REAL,ALLOCATABLE,TARGET,PINNED        :: U(:,:,:,:,:)           !< Solution variable for each equation, node and element,
                                                                 !< size [1..NVar,0..N,0..N,0..N,nElems].
 !@cuf REAL,ALLOCATABLE,DEVICE         :: d_U(:,:,:,:,:)
 

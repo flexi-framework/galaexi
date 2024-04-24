@@ -9,6 +9,8 @@ SITE_NAME(CMAKE_HOSTNAME)
 # =========================================================================
 # CMake generator settings
 # =========================================================================
+SET(USED_CMAKE_GENERATOR "${CMAKE_GENERATOR}" CACHE STRING "Expose CMAKE_GENERATOR (cannot be changed here)" FORCE)
+MESSAGE(STATUS "Using cmake generator: ${CMAKE_GENERATOR}")
 IF("${CMAKE_GENERATOR}" MATCHES "Ninja")
   # CMake introduced the CMAKE_COLOR_DIAGNOSTICS flag with 3.24.0, https://gitlab.kitware.com/cmake/cmake/-/merge_requests/6990
   IF(NOT(${CMAKE_VERSION} VERSION_LESS "3.24.0"))
@@ -25,44 +27,25 @@ MESSAGE(STATUS "Generating for [${CMAKE_GENERATOR}] build system")
 # CMAKE_Fortran_COMPILER_ID that is used below
 # > This block must be called before ENABLE_LANGUAGE
 # =========================================================================
-# HLRS HAWK / SuperMUC
-IF ("${CMAKE_HOSTNAME}" MATCHES "hawk-login")
+# HLRS HAWK/HAWK-AI
+IF (CMAKE_FQDN_HOST MATCHES "hawk.*\.hww\.hlrs\.de$")
   SET(CMAKE_C_COMPILER       nvc)
   SET(CMAKE_CXX_COMPILER     nvc++)
   SET(CMAKE_Fortran_COMPILER nvfortran)
-  MESSAGE (STATUS "Running on HAWK")
-  #SET(CMAKE_C_COMPILER       mpicc)
-  #SET(CMAKE_CXX_COMPILER     mpicxx)
-  #SET(CMAKE_Fortran_COMPILER mpif90) # mpif08 wrapper seems to have issue
-# HAWK AI
-ELSEIF("${CMAKE_HOSTNAME}" MATCHES "hawk-ai19")
-  SET(CMAKE_C_COMPILER       nvc)
-  SET(CMAKE_CXX_COMPILER     nvc++)
-  SET(CMAKE_Fortran_COMPILER nvfortran)
-  MESSAGE (STATUS "Running on HAWK-Ai")
+# SuperMUC
+# ELSEIF(CMAKE_FQDN_HOST MATCHES "sng\.lrz\.de$"
+# LUMI
+ELSEIF(CMAKE_FQDN_HOST MATCHES "\.can$")
+  SET(CMAKE_C_COMPILER       cc)
+  SET(CMAKE_CXX_COMPILER     CC)
+  SET(CMAKE_Fortran_COMPILER ftn)
 # IAG Prandtl
-ELSEIF("${CMAKE_HOSTNAME}" MATCHES "^prandtl")
+ELSEIF(CMAKE_FQDN_HOST MATCHES "^(prandtl|grafik.*)\.iag\.uni\-stuttgart\.de")
   SET(CMAKE_C_COMPILER       gcc)
   SET(CMAKE_CXX_COMPILER     c++)
   SET(CMAKE_Fortran_COMPILER gfortran)
-# IAG Grafik01/Grafik02
-ELSEIF ("${CMAKE_HOSTNAME}" MATCHES "^grafik0")
-  SET(CMAKE_C_COMPILER       gcc)
-  SET(CMAKE_CXX_COMPILER     c++)
-  SET(CMAKE_Fortran_COMPILER gfortran)
-ELSEIF ("${CMAKE_HOSTNAME}" MATCHES "^ilahead1")
-  SET(CMAKE_C_COMPILER       mpicc)
-  SET(CMAKE_CXX_COMPILER     mpicxx)
-  SET(CMAKE_Fortran_COMPILER mpif90) # mpif08 wrapper seems to have issue
-ELSEIF ("${CMAKE_HOSTNAME}" MATCHES "^xenon")
-  SET(CMAKE_C_COMPILER       mpicc)
-  SET(CMAKE_CXX_COMPILER     mpicxx)
-  SET(CMAKE_Fortran_COMPILER mpif90) # mpif08 wrapper seems to have issue
-ELSEIF ("${CMAKE_HOSTNAME}" MATCHES "jrlogin")
-  SET(CMAKE_C_COMPILER       nvc)
-  SET(CMAKE_CXX_COMPILER     nvc++)
-  SET(CMAKE_Fortran_COMPILER nvfortran)
-ELSEIF ("${CMAKE_HOSTNAME}" MATCHES "jwlogin")
+# JUWELS/JURECA
+ELSEIF ("${CMAKE_FQDN_HOST}" MATCHES "j(r|w)(login.*|c.*)")
   SET(CMAKE_C_COMPILER       nvc)
   SET(CMAKE_CXX_COMPILER     nvc++)
   SET(CMAKE_Fortran_COMPILER nvfortran)
@@ -98,86 +81,66 @@ ENDIF()
 # =========================================================================
 ENABLE_LANGUAGE(Fortran C CXX)
 INCLUDE(GNUInstallDirs)
+MARK_AS_ADVANCED(FORCE C_PATH CXX_PATH Fortran_PATH)
 
 # =========================================================================
 # Set machine-specific definitions and settings
 # =========================================================================
-# HLRS HAWK / SuperMUC
-IF ("${CMAKE_HOSTNAME}" MATCHES "login")
-  MARK_AS_ADVANCED(FORCE C_PATH CXX_PATH Fortran_PATH)
+# HLRS HAWK
+IF (CMAKE_FQDN_HOST MATCHES "hawk-login.*\.hww\.hlrs\.de$")
+  MESSAGE(STATUS "Compiling on Hawk")
+  ADD_DEFINITIONS(-DLUSTRE)
 
-  # HAWK and SuperMUC name their login nodes identically, so use the Fully Qualified Domain Name (FQDN) to identify
-  CMAKE_HOST_SYSTEM_INFORMATION(RESULT FQDN QUERY FQDN)
-  MARK_AS_ADVANCED(FORCE FQDN)
-  # HLRS HAWK
-  IF (FQDN MATCHES "hawk.hww.hlrs.de")
-    MESSAGE(STATUS "Compiling on Hawk")
-    # Overwrite compiler target architecture
-    IF (CMAKE_Fortran_COMPILER_ID MATCHES "GNU" OR CMAKE_Fortran_COMPILER_ID MATCHES "Flang")
-      SET(FLEXI_INSTRUCTION "-march=znver2")
-    ELSEIF (CMAKE_Fortran_COMPILER_ID MATCHES "Intel")
-      SET(FLEXI_INSTRUCTION "-xCORE-AVX2")
-    ENDIF()
-    # Use AMD Optimized Lapack/BLAS
-    # SET(BLA_VENDOR "FLAME")
-  # SuperMUC
-  ELSEIF (FQDN MATCHES "sng.lrz.de")
-    MESSAGE(STATUS "Compiling on SuperMUC")
-    # Overwrite compiler target architecture
-    IF (CMAKE_Fortran_COMPILER_ID MATCHES "GNU" OR CMAKE_Fortran_COMPILER_ID MATCHES "Flang")
-      SET(FLEXI_INSTRUCTION "-march=skylake-avx512")
-    ELSEIF (CMAKE_Fortran_COMPILER_ID MATCHES "Intel")
-      SET(FLEXI_INSTRUCTION "-xSKYLAKE-AVX512")
-      # Explicitely enable usage of AVX512 registers
-      SET (CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -qopt-zmm-usage=high")
-    ENDIF()
+# HLRS HAWK AI
+ELSEIF (CMAKE_FQDN_HOST MATCHES "hawk-ai.*\.hww\.hlrs\.de$")
+  MESSAGE(STATUS "Compiling on Hawk-AI")
+  ADD_DEFINITIONS(-DLUSTRE)
+
+# SuperMUC
+ELSEIF (CMAKE_FQDN_HOST MATCHES "sng\.lrz\.de$")
+  MESSAGE(STATUS "Compiling on SuperMUC")
+  # Overwrite compiler target architecture
+  IF (CMAKE_Fortran_COMPILER_ID MATCHES "GNU" OR CMAKE_Fortran_COMPILER_ID MATCHES "Flang")
+    SET(FLEXI_INSTRUCTION "-march=skylake-avx512 -mtune=skylake-avx512")
+  ELSEIF (CMAKE_Fortran_COMPILER_ID MATCHES "Intel")
+    SET(FLEXI_INSTRUCTION "-xSKYLAKE-AVX512")
+    # Explicitely enable usage of AVX512 registers
+    SET (CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -qopt-zmm-usage=high")
   ENDIF()
   # Set LUSTRE definition to account for filesystem and MPI implementation
   ADD_DEFINITIONS(-DLUSTRE)
 
+# LUMI
+ELSEIF(CMAKE_FQDN_HOST MATCHES "\.can$")
+  MESSAGE(STATUS "Compiling on LUMI")
+  IF (CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
+    SET(FLEXI_INSTRUCTION "-march=znver3 -mtune=znver3")
+  ELSE()
+    MESSAGE(FATAL_ERROR "LUMI currently only supported using the GNU Compiler Collection (GCC). Please load/swap the following modules: LUMI PrgEnv-gnu cray-hdf5-parallel")
+  ENDIF()
+
 # IAG Prandtl
-ELSEIF("${CMAKE_HOSTNAME}" MATCHES "^prandtl")
-  MESSAGE(STATUS "Compiling on Prandtl")
-  MARK_AS_ADVANCED(FORCE C_PATH CXX_PATH Fortran_PATH)
-  SET(FLEXI_INSTRUCTION "-march=native")
+ELSEIF(CMAKE_FQDN_HOST MATCHES "^(prandtl|grafik.*)\.iag\.uni\-stuttgart\.de")
+  MESSAGE(STATUS "Compiling on ${CMAKE_HOSTNAME}")
+  SET(FLEXI_INSTRUCTION "-march=native -mtune=native")
   # Set LUSTRE definition to account for filesystem
   ADD_DEFINITIONS(-DLUSTRE)
 
-# IAG Grafik01/Grafik02
-ELSEIF ("${CMAKE_HOSTNAME}" MATCHES "^grafik0")
-  MESSAGE(STATUS "Compiling on ${CMAKE_HOSTNAME}")
-  MARK_AS_ADVANCED(FORCE C_PATH CXX_PATH Fortran_PATH)
-  SET(FLEXI_INSTRUCTION "-march=native")
-
-ELSEIF ("${CMAKE_HOSTNAME}" MATCHES "^ilahead1")
-  MESSAGE(STATUS "Compiling on ILA cluster")
-  MARK_AS_ADVANCED(FORCE C_PATH CXX_PATH Fortran_PATH)
-  # Overwrite compiler target architecture
-  IF (CMAKE_Fortran_COMPILER_ID MATCHES "GNU" OR CMAKE_Fortran_COMPILER_ID MATCHES "Flang")
-    SET(FLEXI_INSTRUCTION "-march=core-avx2")
+# JUWELS/JURECA
+ELSEIF ("${CMAKE_FQDN_HOST}" MATCHES "j(r|w)(login.*|c.*)")
+  MESSAGE(STATUS "Compiling on JSC [${CMAKE_HOSTNAME}]")
+  # Set compiler target architecture
+  IF (CMAKE_Fortran_COMPILER_ID MATCHES "GNU" OR CMAKE_Fortran_COMPILER_ID MATCHES "Flang" OR CMAKE_Fortran_COMPILER_ID MATCHES "Cray")
+    SET(FLEXI_INSTRUCTION "-march=native -mtune=native")
   ELSEIF (CMAKE_Fortran_COMPILER_ID MATCHES "Intel")
-    SET(FLEXI_INSTRUCTION "-xCORE-AVX2")
+    SET(FLEXI_INSTRUCTION "-xHost")
   ENDIF()
-  # Work around MPI-IO issue 4446 on machines mounting storage via NFS
-  ADD_DEFINITIONS(-DNFS)
-
-ELSEIF ("${CMAKE_HOSTNAME}" MATCHES "^xenon")
-  MESSAGE(STATUS "Compiling on ILA student cluster")
-  MARK_AS_ADVANCED(FORCE C_PATH CXX_PATH Fortran_PATH)
-  SET(FLEXI_INSTRUCTION "-march=native")
-  # Work around MPI-IO issue 4446 on machines mountng storage via NFS
-  ADD_DEFINITIONS(-DNFS)
-
-ELSEIF ("${CMAKE_FQDN_HOST}" MATCHES "gitlab.ila.uni-stuttgart.de")
-  MESSAGE(STATUS "Compiling on ILA Gitlab")
-  ADD_DEFINITIONS(-DVDM_ANALYTICAL)
-  SET(FLEXI_INSTRUCTION "-march=native")
 
 ELSE()
-  MESSAGE(STATUS "Compiling on a generic machine")
+  MESSAGE(STATUS "Compiling on a generic machine [${CMAKE_HOSTNAME}]")
   # Set compiler target architecture
-  IF (CMAKE_Fortran_COMPILER_ID MATCHES "GNU" OR CMAKE_Fortran_COMPILER_ID MATCHES "Flang" )
-    SET(FLEXI_INSTRUCTION "-march=native")
+  IF (CMAKE_Fortran_COMPILER_ID MATCHES "GNU" OR CMAKE_Fortran_COMPILER_ID MATCHES "Flang" OR CMAKE_Fortran_COMPILER_ID MATCHES "Cray")
+    SET(FLEXI_INSTRUCTION "-march=native -mtune=native")
   ELSEIF (CMAKE_Fortran_COMPILER_ID MATCHES "Intel")
     SET(FLEXI_INSTRUCTION "-xHost")
   ENDIF()
