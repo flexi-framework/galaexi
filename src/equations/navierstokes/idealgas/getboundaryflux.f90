@@ -651,7 +651,7 @@ myBCType  = BCSides(BC_TYPE ,SideID)
 #if PARABOLIC
     mu=VISCOSITY_PRIM_EOS(UPrim_boundary,EOS_Vars)
     lambda=THERMAL_CONDUCTIVITY_EOS(mu,EOS_Vars)
-    
+
     SELECT CASE(myBCType)
     CASE(3,4)
       ! Evaluate 3D Diffusion Flux with interior state and symmetry gradients
@@ -925,6 +925,8 @@ INTEGER(KIND=CUDA_STREAM_KIND) :: mystream
 !==================================================================================================================================
 mystream=DefaultStream
 IF (PRESENT(streamID)) mystream=streamID
+
+IF (nSides.EQ.0) RETURN
 
 nDOF = (Nloc+1)*(ZDIM(Nloc)+1)*nSides
 CALL Lifting_GetBoundaryFlux_Kernel<<<nDOF/nThreads+1,nThreads,0,mystream>>>(nDOF,Nloc &
