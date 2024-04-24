@@ -372,6 +372,7 @@ REAL,POINTER                                       :: Uloc(:,:,:,:)
 INTEGER                                            :: FV_Elems_loc(1:nElems)
 INTEGER                                            :: nThreads
 INTEGER(KIND=CUDA_STREAM_KIND)                     :: mystream
+INTEGER                                            :: NAvg
 !----------------------------------------------------------------------------------------------------------------------------------
 dtStep = (dtOld+dt)*0.5
 IF(Finalize) dtStep = dt*0.5
@@ -381,9 +382,12 @@ dtOld  = dt
 mystream=DefaultStream
 IF (PRESENT(streamID)) mystream=streamID
 
+! PP_N might be fixed pre-processor, pass it to NAvg
+NAvg = PP_N
+
 CALL ConsToPrim(PP_N,d_UPrim,d_U,streamID=mystream)
 nThreads=(PP_N+1)**3
-CALL TimeAvg<<<nElems,nThreads,0,mystream>>>(PP_N,nElems,Kappa,dtStep,d_U,d_UPrim,nVarAvg,nVarFluc,nMaxVarAvg,nMaxVarFluc, &
+CALL TimeAvg<<<nElems,nThreads,0,mystream>>>(NAvg,nElems,Kappa,dtStep,d_U,d_UPrim,nVarAvg,nVarFluc,nMaxVarAvg,nMaxVarFluc, &
              nVarFlucHasAvg,d_CalcAvg,d_CalcFluc,d_iAvg,d_iFluc,d_FlucAvgMap,d_UAvg,d_UFluc                                &
 #if PARABOLIC
             ,d_GradUx,d_GradUy,d_GradUz                                                                     &
@@ -416,7 +420,7 @@ END SUBROUTINE CalcTimeAverage
 
 
 !==================================================================================================================================
-ATTRIBUTES(GLOBAL) SUBROUTINE TimeAvg(PP_N,nElems,Kappa,dtStep,U,UPrim,nVarAvg,nVarFluc,nMaxVarAvg,nMaxVarFluc,nVarFlucHasAvg,CalcAvg,CalcFluc, &
+ATTRIBUTES(GLOBAL) SUBROUTINE TimeAvg(NAvg,nElems,Kappa,dtStep,U,UPrim,nVarAvg,nVarFluc,nMaxVarAvg,nMaxVarFluc,nVarFlucHasAvg,CalcAvg,CalcFluc, &
                    iAvg_In,iFluc_In,FlucAvgMap,UAvg,UFluc                                                                          &
 #if PARABOLIC
                   ,GradUx,GradUy,GradUz                                                                       &
@@ -427,12 +431,12 @@ IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
 !----------------------------------------------------------------------------------------------------------------------------------
 ! INPUT/OUTPUT VARIABLES
-INTEGER,VALUE,INTENT(IN)        :: PP_N                                      !< Polynomial degree
+INTEGER,VALUE,INTENT(IN)        :: NAvg                                      !< Polynomial degree
 INTEGER,VALUE,INTENT(IN)        :: nElems
 REAL,VALUE,INTENT(IN)           :: Kappa
 REAL,VALUE,INTENT(IN)           :: dtStep
-REAL,DEVICE,INTENT(IN)          :: U(    CONS,0:PP_N,0:PP_N,0:PP_N,1:nElems)
-REAL,DEVICE,INTENT(IN)          :: UPrim(PRIM,0:PP_N,0:PP_N,0:PP_N,1:nElems)
+REAL,DEVICE,INTENT(IN)          :: U(    CONS,0:NAvg,0:NAvg,0:NAvg,1:nElems)
+REAL,DEVICE,INTENT(IN)          :: UPrim(PRIM,0:NAvg,0:NAvg,0:NAvg,1:nElems)
 INTEGER,VALUE,INTENT(IN)        :: nVarAvg
 INTEGER,VALUE,INTENT(IN)        :: nVarFluc
 INTEGER,VALUE,INTENT(IN)        :: nMaxVarAvg
@@ -443,12 +447,12 @@ LOGICAL,DEVICE,INTENT(IN)       :: CalcFluc(nMaxVarFluc)
 INTEGER,DEVICE,INTENT(IN)       :: iAvg_In (nMaxVarAvg)
 INTEGER,DEVICE,INTENT(IN)       :: iFluc_In(nMaxVarFluc)
 INTEGER,DEVICE,INTENT(IN)       :: FlucAvgMap(2,nVarFlucHasAvg)
-REAL,DEVICE,INTENT(INOUT)       :: UAvg( nVarAvg, 0:PP_N,0:PP_N,0:PP_N,1:nElems)
-REAL,DEVICE,INTENT(INOUT)       :: UFluc(nVarFluc,0:PP_N,0:PP_N,0:PP_N,1:nElems)
+REAL,DEVICE,INTENT(INOUT)       :: UAvg( nVarAvg, 0:NAvg,0:NAvg,0:NAvg,1:nElems)
+REAL,DEVICE,INTENT(INOUT)       :: UFluc(nVarFluc,0:NAvg,0:NAvg,0:NAvg,1:nElems)
 #if PARABOLIC
-REAL,DEVICE,INTENT(IN)          :: GradUx(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_N,1:nElems)
-REAL,DEVICE,INTENT(IN)          :: GradUy(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_N,1:nElems)
-REAL,DEVICE,INTENT(IN)          :: GradUz(PP_nVarLifting,0:PP_N,0:PP_N,0:PP_N,1:nElems)
+REAL,DEVICE,INTENT(IN)          :: GradUx(PP_nVarLifting,0:NAvg,0:NAvg,0:NAvg,1:nElems)
+REAL,DEVICE,INTENT(IN)          :: GradUy(PP_nVarLifting,0:NAvg,0:NAvg,0:NAvg,1:nElems)
+REAL,DEVICE,INTENT(IN)          :: GradUz(PP_nVarLifting,0:NAvg,0:NAvg,0:NAvg,1:nElems)
 #endif /*PARABOLIC*/
 !----------------------------------------------------------------------------------------------------------------------------------
 ! LOCAL VARIABLES
@@ -469,13 +473,13 @@ iFluc = iFluc_In
 ! Get thread indices
 threadID = (blockidx%x-1) * blockdim%x + threadidx%x
 ! Get ElemID of current thread
-iElem   =        (threadID-1)/((PP_N+1)**3)+1 ! Elems are 1-indexed
-rest    =  threadID-(iElem-1)*((PP_N+1)**3)
+iElem   =        (threadID-1)/((NAvg+1)**3)+1 ! Elems are 1-indexed
+rest    =  threadID-(iElem-1)*((NAvg+1)**3)
 ! Get jk indices of current thread
-k       = (rest-1)/(PP_N+1)**2
-rest    =  rest- k*(PP_N+1)**2
-j       = (rest-1)/(PP_N+1)!**1
-rest    =  rest- j*(PP_N+1)!**1
+k       = (rest-1)/(NAvg+1)**2
+rest    =  rest- k*(NAvg+1)**2
+j       = (rest-1)/(NAvg+1)!**1
+rest    =  rest- j*(NAvg+1)!**1
 i       = (rest-1)!/(Nloc+1)**0
 rest    =  rest- i!*(Nloc+1)**0
 
