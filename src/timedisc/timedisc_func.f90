@@ -373,7 +373,7 @@ IF(doAnalyze)THEN
   IF((writeCounter.EQ.nWriteData).OR.doFinalize)THEN
     ! Write various derived data
     IF(doCalcTimeAverage) CALL CalcTimeAverage(.TRUE.,dt,t)
-    IF(RP_onProc)         CALL WriteRP(PP_nVar,StrVarNames,t,.TRUE.)
+    IF(RP_onProc)         CALL WriteRP(PP_nVar,StrVarNames,t)
     IF(CalcPruettDamping) THEN
       SpBaseFlow = d_SpBaseFlow ! Copy back to CPU before writing
       CALL WriteBaseFlow(TRIM(MeshFile),t,tWriteData)
