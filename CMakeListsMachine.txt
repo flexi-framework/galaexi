@@ -10,7 +10,6 @@ SITE_NAME(CMAKE_HOSTNAME)
 # CMake generator settings
 # =========================================================================
 SET(USED_CMAKE_GENERATOR "${CMAKE_GENERATOR}" CACHE STRING "Expose CMAKE_GENERATOR (cannot be changed here)" FORCE)
-MESSAGE(STATUS "Using cmake generator: ${CMAKE_GENERATOR}")
 IF("${CMAKE_GENERATOR}" MATCHES "Ninja")
   # CMake introduced the CMAKE_COLOR_DIAGNOSTICS flag with 3.24.0, https://gitlab.kitware.com/cmake/cmake/-/merge_requests/6990
   IF(NOT(${CMAKE_VERSION} VERSION_LESS "3.24.0"))
@@ -181,6 +180,10 @@ IF (CMAKE_Fortran_COMPILER_ID MATCHES "GNU")
   IF (NOT DEFINED C_FLAGS_INITIALIZED )
     SET (C_FLAGS_INITIALIZED "yes" CACHE INTERNAL "Flag if compiler flags are already initialized" )
     SET (CMAKE_Fortran_FLAGS         "${CMAKE_Fortran_FLAGS} -fdefault-real-8 -fdefault-double-8 -fbackslash -ffree-line-length-0 -finit-real=snan -finit-integer=snan -Wno-lto-type-mismatch -lstdc++ -DGNU")
+    # LUMI has an issue with argument types in MPI(CH) calls
+    IF(CMAKE_FQDN_HOST MATCHES "\.can$")
+      SET (CMAKE_Fortran_FLAGS         "${CMAKE_Fortran_FLAGS} -fallow-argument-mismatch")
+    ENDIF()
   ENDIF()
   # initialize all variables as signalling NaNs to force the user to correctly initialize these data types
   SET (CMAKE_Fortran_FLAGS_RELEASE   "${CMAKE_Fortran_FLAGS}     -O3 ${FLEXI_INSTRUCTION} -finline-functions -fstack-arrays")
