@@ -55,7 +55,7 @@ USE MOD_HDF5_Input,      ONLY: GetDataProps,GetDataSize,DataSetExists
 USE MOD_HIT_Filter_Vars, ONLY: nVar_HDF5,N_HDF5,nElems_HDF5,nVarField_HDF5
 USE MOD_HIT_Filter_Vars, ONLY: Time_HDF5,NodeType_HDF5,ProjectName_HDF5
 USE MOD_HIT_Filter_Vars, ONLY: FieldDataExists,FieldData,VarNames_FieldData
-USE MOD_Output,          ONLY: insert_userblock
+USE MOD_Output,          ONLY: print_userblock
 USE MOD_Output_Vars,     ONLY: UserBlockTmpFile,userblock_total_len
 USE MOD_Mesh_Vars,       ONLY: MeshFile
 USE MOD_StringTools,     ONLY: STRICMP,GetFileExtension
@@ -97,6 +97,7 @@ CALL DatasetExists(File_ID,'FieldData',FieldDataExists)
 IF (FieldDataExists) THEN
   CALL GetDataSize(File_ID,'FieldData',nDims,HSize)
   nVarField_HDF5 = INT(HSize(1))
+  DEALLOCATE(HSize)
 
   ALLOCATE(FieldData(1:nVarField_HDF5,0:N_HDF5,0:N_HDF5,0:N_HDF5,1:nElems_HDF5))
   ALLOCATE(VarNames_FieldData(nVarField_HDF5))
@@ -112,7 +113,7 @@ CALL ReadAttribute(File_ID,'MeshFile',1,StrScalar=MeshFile)
 ! Extract parameter file from userblock (if found)
 CALL ExtractParameterFile(StateFile,TRIM(prmfile),userblockFound)
 ! prepare userblock file
-CALL insert_userblock(TRIM(UserBlockTmpFile)//C_NULL_CHAR,TRIM(prmfile)//C_NULL_CHAR)
+CALL print_userblock(TRIM(UserBlockTmpFile)//C_NULL_CHAR,TRIM(prmfile)//C_NULL_CHAR)
 INQUIRE(FILE=TRIM(UserBlockTmpFile),SIZE=userblock_total_len)
 
 ! Close the data file
