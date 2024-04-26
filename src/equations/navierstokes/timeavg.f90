@@ -280,25 +280,32 @@ UFluc = 0.
 dtOld = 0.
 dtAvg = 0.
 
+IF (nVarAvg.GT.0) THEN
 !@cuf ALLOCATE(d_UAvg( nVarAvg ,0:PP_N,0:PP_N,0:PP_N,nElems))
+  d_UAvg  = UAvg
+END IF ! nVarAvg.GT.0
+IF (nVarFluc.GT.0) THEN
 !@cuf ALLOCATE(d_UFluc(nVarFluc,0:PP_N,0:PP_N,0:PP_N,nElems))
-d_UAvg  = UAvg
-d_UFluc = UFluc
+  d_UFluc = UFluc
+END IF ! nVarFluc.GT.0
 
+IF (nMaxVarAvg.GT.0) THEN
 !@cuf ALLOCATE(d_CalcAvg (nMaxVarAvg ))
+!@cuf ALLOCATE(d_iAvg(nMaxVarAvg))
+  d_CalcAvg  = CalcAvg
+  d_iAvg     = iAvg
+END IF ! nMaxVarAvg.GT.0
+IF (nMaxVarFluc.GT.0) THEN
 !@cuf ALLOCATE(d_CalcFluc(nMaxVarFluc))
-d_CalcAvg  = CalcAvg
-d_CalcFluc = CalcFluc
+!@cuf ALLOCATE(d_iFluc(nMaxVarFluc))
+  d_CalcFluc = CalcFluc
+  d_iFluc = iFluc
+END IF ! nMaxVarFluc.GT.0
 
 IF (nVarFlucHasAvg.GT.0) THEN
 !@cuf ALLOCATE(d_FlucAvgMap(2,nVarFlucHasAvg))
   d_FlucAvgMap = FlucAvgMap
 END IF
-
-!@cuf ALLOCATE(d_iAvg(nMaxVarAvg))
-!@cuf ALLOCATE(d_iFluc(nMaxVarFluc))
-d_iAvg  = iAvg
-d_iFluc = iFluc
 
 DEALLOCATE(VarNamesAvgList,VarNamesAvgIni,VarNamesFlucIni)
 DEALLOCATE(VarNamesFlucList)
@@ -382,15 +389,17 @@ dtOld  = dt
 mystream=DefaultStream
 IF (PRESENT(streamID)) mystream=streamID
 
+iError=CudaDeviceSynchronize()
+
 ! PP_N might be fixed pre-processor, pass it to NAvg
 NAvg = PP_N
 
-CALL ConsToPrim(PP_N,d_UPrim,d_U,streamID=mystream)
-nThreads=(PP_N+1)**3
+CALL ConsToPrim(NAvg,d_UPrim,d_U,streamID=mystream)
+nThreads=(NAvg+1)**3
 CALL TimeAvg<<<nElems,nThreads,0,mystream>>>(NAvg,nElems,Kappa,dtStep,d_U,d_UPrim,nVarAvg,nVarFluc,nMaxVarAvg,nMaxVarFluc, &
              nVarFlucHasAvg,d_CalcAvg,d_CalcFluc,d_iAvg,d_iFluc,d_FlucAvgMap,d_UAvg,d_UFluc                                &
 #if PARABOLIC
-            ,d_GradUx,d_GradUy,d_GradUz                                                                     &
+            ,d_GradUx,d_GradUy,d_GradUz                                                                                    &
 #endif /*PARABOLIC*/
             )
 
@@ -420,12 +429,12 @@ END SUBROUTINE CalcTimeAverage
 
 
 !==================================================================================================================================
-ATTRIBUTES(GLOBAL) SUBROUTINE TimeAvg(NAvg,nElems,Kappa,dtStep,U,UPrim,nVarAvg,nVarFluc,nMaxVarAvg,nMaxVarFluc,nVarFlucHasAvg,CalcAvg,CalcFluc, &
-                   iAvg_In,iFluc_In,FlucAvgMap,UAvg,UFluc                                                                          &
+ATTRIBUTES(GLOBAL) SUBROUTINE TimeAvg(NAvg,nElems,Kappa,dtStep,U,UPrim,nVarAvg,nVarFluc,nMaxVarAvg,nMaxVarFluc,nVarFlucHasAvg     &
+                                     ,CalcAvg,CalcFluc,iAvg,iFluc,FlucAvgMap,UAvg,UFluc                                           &
 #if PARABOLIC
-                  ,GradUx,GradUy,GradUz                                                                       &
+                                     ,GradUx,GradUy,GradUz                                                                        &
 #endif /*PARABOLIC*/
-                  )
+                                     )
 ! IMPLICIT VARIABLE HANDLING
 IMPLICIT NONE
 !----------------------------------------------------------------------------------------------------------------------------------
@@ -444,8 +453,8 @@ INTEGER,VALUE,INTENT(IN)        :: nMaxVarFluc
 INTEGER,VALUE,INTENT(IN)        :: nVarFlucHasAvg
 LOGICAL,DEVICE,INTENT(IN)       :: CalcAvg (nMaxVarAvg)
 LOGICAL,DEVICE,INTENT(IN)       :: CalcFluc(nMaxVarFluc)
-INTEGER,DEVICE,INTENT(IN)       :: iAvg_In (nMaxVarAvg)
-INTEGER,DEVICE,INTENT(IN)       :: iFluc_In(nMaxVarFluc)
+INTEGER,DEVICE,INTENT(IN)       :: iAvg(nMaxVarAvg)
+INTEGER,DEVICE,INTENT(IN)       :: iFluc(nMaxVarFluc)
 INTEGER,DEVICE,INTENT(IN)       :: FlucAvgMap(2,nVarFlucHasAvg)
 REAL,DEVICE,INTENT(INOUT)       :: UAvg( nVarAvg, 0:NAvg,0:NAvg,0:NAvg,1:nElems)
 REAL,DEVICE,INTENT(INOUT)       :: UFluc(nVarFluc,0:NAvg,0:NAvg,0:NAvg,1:nElems)
@@ -464,11 +473,7 @@ REAL                            :: a,Mach
 INTEGER                         :: p,q
 REAL                            :: GradVel(1:3,1:3),Shear(1:3,1:3)
 #endif
-INTEGER                         :: iAvg( nMaxVarAvg)
-INTEGER                         :: iFluc(nMaxVarFluc)
 !----------------------------------------------------------------------------------------------------------------------------------
-iAvg  = iAvg_In
-iFluc = iFluc_In
 
 ! Get thread indices
 threadID = (blockidx%x-1) * blockdim%x + threadidx%x
@@ -483,7 +488,7 @@ rest    =  rest- j*(NAvg+1)!**1
 i       = (rest-1)!/(Nloc+1)**0
 rest    =  rest- i!*(Nloc+1)**0
 
-IF ((iElem.LE.nElems)) THEN
+IF (iElem.LE.nElems) THEN
   ! Compute speed of sound
   UE(EXT_CONS) = U(    :,i,j,k,iElem)
   UE(EXT_PRIM) = UPrim(:,i,j,k,iElem)
