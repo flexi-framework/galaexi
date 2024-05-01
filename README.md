@@ -35,20 +35,18 @@ GALÆXI is a scientific project. If you use GALÆXI for publications or
 presentations in science, please support the project by citing it.
 As general reference, please cite
 ```
-Krais, N., Beck, A., Bolemann, T., Frank, H., Flad, D., Gassner, G., Hindenlang, F., Hoffmann, M., Kuhn, T., Sonntag, M., Munz, C.-D.
-FLEXI: A high order discontinuous Galerkin framework for hyperbolic–parabolic conservation laws,
-Computers & Mathematics with Applications, 81, (2021) 186-219
+Kurz, M., Kempf, D., Blind, M., Kopper, P., Offenhäuser, P., Schwarz, A., Starr, S., Keim, J., Beck, A.,
+GALÆXI: Solving complex compressible flows with high-order discontinuous Galerkin methods on accelerator-based systems,
+ArXiv preprint, https://doi.org/10.48550/arXiv.2404.12703.
 ```
 or use the following Bibtex files
 
-    @article{flexi,
-      title = {{FLEXI}: {A} high order discontinuous {G}alerkin framework for hyperbolic-parabolic conservation laws},
-      journal = {Computers \& Mathematics with Applications},
-      volume = {81},
-      pages = {186-219},
-      year = {2021},
-      doi = {https://doi.org/10.1016/j.camwa.2020.05.004},
-      author = {Nico Krais and Andrea Beck and Thomas Bolemann and Hannes Frank and David Flad and Gregor Gassner and Florian Hindenlang and Malte Hoffmann and Thomas Kuhn and Matthias Sonntag and Claus-Dieter Munz},
+    @misc{galaexi,
+      title  = {GAL{\AE}XI: Solving complex compressible flows with high-order discontinuous Galerkin methods on accelerator-based systems}, 
+      author = {Daniel Kempf and Marius Kurz and Marcel Blind and Patrick Kopper and Philipp Offenhäuser and Anna Schwarz and Spencer Starr and Jens Keim and Andrea Beck},
+      year   = {2024},
+      doi    = {https://doi.org/10.48550/arXiv.2404.12703},
+      note   = {Code available at \url{https://github.com/flexi-framework/galaexi}.}
     }
 
 To refer to specific applications and features, you can also cite the appropriate paper from this [list][publications].
