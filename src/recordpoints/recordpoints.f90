@@ -534,7 +534,7 @@ IF(myRPrank.EQ.0)THEN
 #endif /*USE_MPI*/
   CALL MarkWriteSuccessfull(FileName)
   GETTIME(EndT)
-  WRITE(UNIT_stdOut,'(A,F0.3,A)',ADVANCE='YES')' DONE  [',EndT-StartT,'s]'
+  WRITE(UNIT_stdOut,'(A,F0.3,A)',ADVANCE='YES')' DONE  [',EndT-StartT,' sec ]'
 #if USE_MPI
 END IF
 #endif /*USE_MPI*/

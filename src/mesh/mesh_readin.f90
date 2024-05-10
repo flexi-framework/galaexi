@@ -722,7 +722,7 @@ IF(MPIRoot)THEN
 END IF
 
 EndT             = FLEXITIME()
-SWRITE(UNIT_stdOut,'(A,F0.3,A)',ADVANCE='YES') ' READ MESH FROM DATA FILE "'//TRIM(FileString)//'" ... DONE  [',EndT-StartT,'s]'
+SWRITE(UNIT_stdOut,'(A,F0.3,A)',ADVANCE='YES') ' READ MESH FROM DATA FILE "'//TRIM(FileString)//'" ... DONE  [',EndT-StartT,' sec ]'
 SWRITE(UNIT_stdOut,'(132("-"))')
 
 END SUBROUTINE ReadMesh
