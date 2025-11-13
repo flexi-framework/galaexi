@@ -437,8 +437,7 @@ ADD_DEPENDENCIES(userblocklib generateUserblock)
 
 ADD_LIBRARY(stacksizelib STATIC ./src/globals/stacksize.c)
 SET_TARGET_PROPERTIES(stacksizelib userblocklib PROPERTIES LANGUAGE C
-                                                           LINKER_LANGUAGE C
-                                                           COMPILE_FLAGS "-fPIC")
+                                                           LINKER_LANGUAGE C )
 
 # we link the statically built libs
 ADD_LIB_SHARED(       libflexishared ./src/flexilib.f90)
